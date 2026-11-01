@@ -16,18 +16,25 @@ export function TextField({
   label,
   description,
   required,
+  labelAction,
   ...inputProps
-}: BaseFieldProps & Omit<React.ComponentProps<typeof Input>, 'value' | 'onChange' | 'onBlur'>) {
+}: BaseFieldProps & { labelAction?: React.ReactNode } & Omit<
+    React.ComponentProps<typeof Input>,
+    'value' | 'onChange' | 'onBlur'
+  >) {
   const field = useFieldContext<string | number | undefined>();
   const isInvalid = useFieldInvalid();
   const isValidating = field.state.meta.isValidating;
 
   return (
     <Field data-invalid={isInvalid}>
-      <FieldLabel htmlFor={field.name}>
-        {label}
-        {required && ' *'}
-      </FieldLabel>
+      <div className='flex items-center gap-1'>
+        <FieldLabel htmlFor={field.name}>
+          {label}
+          {required && ' *'}
+        </FieldLabel>
+        {labelAction}
+      </div>
       <div className='relative'>
         <Input
           id={field.name}

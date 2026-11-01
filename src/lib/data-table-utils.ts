@@ -148,7 +148,6 @@ export function getColumnPinningStyle<TData extends RowData>(
     insetInlineStart:
       isPinned === 'start' ? `var(${getColumnVar(column.id, 'offset')})` : undefined,
     insetInlineEnd: isPinned === 'end' ? `var(${getColumnVar(column.id, 'offset')})` : undefined,
-    opacity: isPinned ? 0.97 : 1,
     position: isPinned ? 'sticky' : 'relative',
     width: `var(${getColumnVar(column.id, 'size')})`,
     zIndex: isPinned ? 20 : undefined

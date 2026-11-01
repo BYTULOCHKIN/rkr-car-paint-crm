@@ -35,16 +35,32 @@ import { NavGroup } from '@/types';
  */
 export const navGroups: NavGroup[] = [
   {
-    label: 'Overview',
+    label: 'Автомалярка',
     items: [
       {
-        title: 'Dashboard',
+        title: 'Огляд',
         url: '/dashboard/overview',
         icon: 'dashboard',
-        isActive: false,
         shortcut: ['d', 'd'],
         items: []
       },
+      {
+        title: 'Клієнти та автомобілі',
+        url: '#',
+        icon: 'teams',
+        items: [
+          { title: 'Клієнти', url: '/dashboard/clients', icon: 'teams' },
+          { title: 'Автомобілі', url: '/dashboard/vehicles', icon: 'product' }
+        ]
+      },
+      { title: 'Заявки', url: '/dashboard/requests', icon: 'kanban', items: [] },
+      { title: 'Замовлення', url: '/dashboard/orders', icon: 'product', items: [] },
+      { title: 'Дошка робіт', url: '/dashboard/kanban', icon: 'kanban', items: [] }
+    ]
+  },
+  {
+    label: 'Overview',
+    items: [
       {
         title: 'Workspaces',
         url: '/dashboard/workspaces',
@@ -73,14 +89,6 @@ export const navGroups: NavGroup[] = [
         url: '/dashboard/users',
         icon: 'teams',
         shortcut: ['u', 'u'],
-        isActive: false,
-        items: []
-      },
-      {
-        title: 'Kanban',
-        url: '/dashboard/kanban',
-        icon: 'kanban',
-        shortcut: ['k', 'k'],
         isActive: false,
         items: []
       },

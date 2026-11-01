@@ -23,6 +23,7 @@ pnpm-lock.yaml
 *.pem
 
 # debug
+/debug.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -49,3 +50,11 @@ next-env.d.ts
 
 # Sentry Config File
 .env.sentry-build-plugin
+.clerk/
+
+# Local CRM database
+/data/
+
+# Browser verification artifacts
+/.artifacts/
+/playwright-report/

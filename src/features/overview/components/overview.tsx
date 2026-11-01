@@ -1,138 +1,219 @@
-import PageContainer from '@/components/layout/page-container';
-import { Button } from '@/components/ui/button';
+'use client';
+
+import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import Link from 'next/link';
+import { useSuspenseQuery } from '@tanstack/react-query';
+import { Icons } from '@/components/icons';
 import {
   Card,
+  CardAction,
   CardDescription,
   CardFooter,
   CardHeader,
-  CardTitle,
-  CardAction
+  CardTitle
 } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AreaGraph } from './area-graph';
-import { BarGraph } from './bar-graph';
-import { PieGraph } from './pie-graph';
-import { RecentSales } from './recent-sales';
-import { Icons } from '@/components/icons';
-import { Badge } from '@/components/ui/badge';
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/features/crm/components/action-button';
+import { CrmEditorDialog, type Editor } from '@/features/crm/components/editor-dialog';
+import { money } from '@/features/crm/components/format';
+import { crmQueries } from '@/features/crm/api/queries';
+import { businessToday, displayDate } from '@/features/crm/lib/workflow';
+import { overviewMetrics } from '../lib/metrics';
+import { ActivityChart } from './activity-chart';
+import { WorkQueue } from './work-queue';
+import { StatusSummary } from './status-summary';
+import { RecentOrders } from './recent-orders';
 
-export default function OverViewPage() {
+interface OverviewProps {
+  userId: string;
+  initialToday: string;
+}
+
+export default function Overview({ userId, initialToday }: OverviewProps): ReactElement {
+  const { data, isRefetchError } = useSuspenseQuery({
+    ...crmQueries.workspace(userId),
+    refetchInterval: 60_000
+  });
+  const [today, setToday] = useState(initialToday);
+  const [editor, setEditor] = useState<Editor | null>(null);
+  useEffect(() => {
+    const refreshDate = () => setToday(businessToday());
+    refreshDate();
+    const timer = window.setInterval(refreshDate, 60_000);
+    window.addEventListener('focus', refreshDate);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshDate);
+    };
+  }, []);
+  const metrics = useMemo(() => overviewMetrics(data, today), [data, today]);
+  const cards = [
+    {
+      title: 'Активні заявки',
+      value: String(metrics.activeRequests),
+      description: 'Backlog: ' + metrics.backlog + ' · Заплановано: ' + metrics.scheduled,
+      href: '/dashboard/requests',
+      icon: Icons.kanban
+    },
+    {
+      title: 'Замовлення в роботі',
+      value: String(metrics.inProgress),
+      description: 'Усі відкриті замовлення: ' + money(metrics.activeValueCents),
+      href: '/dashboard/orders',
+      icon: Icons.product
+    },
+    {
+      title: 'Готові до видачі',
+      value: String(metrics.ready),
+      description: 'Прострочених прийомів і видач: ' + metrics.overdue,
+      href: '/dashboard/kanban',
+      icon: Icons.check
+    },
+    {
+      title: 'Видано цього місяця',
+      value: String(metrics.deliveredThisMonth),
+      description: 'Вартість замовлень: ' + money(metrics.deliveredValueCents),
+      href: '/dashboard/orders',
+      icon: Icons.billing
+    }
+  ];
+  const empty =
+    !data.customers.length && !data.vehicles.length && !data.requests.length && !data.orders.length;
   return (
-    <PageContainer>
-      <div className='flex flex-1 flex-col space-y-2'>
-        <div className='flex items-center justify-between space-y-2'>
-          <h2 className='text-2xl font-bold tracking-tight'>Hi, Welcome back 👋</h2>
-          <div className='hidden items-center space-x-2 md:flex'>
-            <Button>Download</Button>
-          </div>
+    <div className='flex min-w-0 flex-col gap-4'>
+      <div className='flex flex-wrap items-center justify-between gap-3'>
+        <p className='text-sm text-muted-foreground'>Стан на {displayDate(today)} · Київ</p>
+        <div className='flex flex-wrap gap-2'>
+          <Button size='sm' onClick={() => setEditor({ type: 'request' })}>
+            <span className='flex items-center gap-1.5'>
+              <Icons.add data-icon='inline-start' />
+              Нова заявка
+            </span>
+          </Button>
+          <Button size='sm' variant='outline' onClick={() => setEditor({ type: 'order' })}>
+            Нове замовлення
+          </Button>
+          <Button size='sm' variant='outline' onClick={() => setEditor({ type: 'customer' })}>
+            Додати клієнта
+          </Button>
+          <Button size='sm' variant='outline' onClick={() => setEditor({ type: 'vehicle' })}>
+            Додати авто
+          </Button>
         </div>
-        <Tabs defaultValue='overview' className='space-y-4'>
-          <TabsList>
-            <TabsTrigger value='overview'>Overview</TabsTrigger>
-            <TabsTrigger value='analytics' disabled>
-              Analytics
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value='overview' className='space-y-4'>
-            <div className='*:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card dark:*:data-[slot=card]:bg-card grid grid-cols-1 gap-4 px-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:shadow-xs lg:px-6 @xl/main:grid-cols-2 @5xl/main:grid-cols-4'>
-              <Card className='@container/card'>
-                <CardHeader>
-                  <CardDescription>Total Revenue</CardDescription>
-                  <CardTitle className='text-2xl font-semibold tabular-nums @[250px]/card:text-3xl'>
-                    $1,250.00
-                  </CardTitle>
-                  <CardAction>
-                    <Badge variant='outline'>
-                      <Icons.trendingUp />
-                      +12.5%
-                    </Badge>
-                  </CardAction>
-                </CardHeader>
-                <CardFooter className='flex-col items-start gap-1.5 text-sm'>
-                  <div className='line-clamp-1 flex gap-2 font-medium'>
-                    Trending up this month <Icons.trendingUp className='size-4' />
-                  </div>
-                  <div className='text-muted-foreground'>Visitors for the last 6 months</div>
-                </CardFooter>
-              </Card>
-              <Card className='@container/card'>
-                <CardHeader>
-                  <CardDescription>New Customers</CardDescription>
-                  <CardTitle className='text-2xl font-semibold tabular-nums @[250px]/card:text-3xl'>
-                    1,234
-                  </CardTitle>
-                  <CardAction>
-                    <Badge variant='outline'>
-                      <Icons.trendingDown />
-                      -20%
-                    </Badge>
-                  </CardAction>
-                </CardHeader>
-                <CardFooter className='flex-col items-start gap-1.5 text-sm'>
-                  <div className='line-clamp-1 flex gap-2 font-medium'>
-                    Down 20% this period <Icons.trendingDown className='size-4' />
-                  </div>
-                  <div className='text-muted-foreground'>Acquisition needs attention</div>
-                </CardFooter>
-              </Card>
-              <Card className='@container/card'>
-                <CardHeader>
-                  <CardDescription>Active Accounts</CardDescription>
-                  <CardTitle className='text-2xl font-semibold tabular-nums @[250px]/card:text-3xl'>
-                    45,678
-                  </CardTitle>
-                  <CardAction>
-                    <Badge variant='outline'>
-                      <Icons.trendingUp />
-                      +12.5%
-                    </Badge>
-                  </CardAction>
-                </CardHeader>
-                <CardFooter className='flex-col items-start gap-1.5 text-sm'>
-                  <div className='line-clamp-1 flex gap-2 font-medium'>
-                    Strong user retention <Icons.trendingUp className='size-4' />
-                  </div>
-                  <div className='text-muted-foreground'>Engagement exceed targets</div>
-                </CardFooter>
-              </Card>
-              <Card className='@container/card'>
-                <CardHeader>
-                  <CardDescription>Growth Rate</CardDescription>
-                  <CardTitle className='text-2xl font-semibold tabular-nums @[250px]/card:text-3xl'>
-                    4.5%
-                  </CardTitle>
-                  <CardAction>
-                    <Badge variant='outline'>
-                      <Icons.trendingUp />
-                      +4.5%
-                    </Badge>
-                  </CardAction>
-                </CardHeader>
-                <CardFooter className='flex-col items-start gap-1.5 text-sm'>
-                  <div className='line-clamp-1 flex gap-2 font-medium'>
-                    Steady performance increase <Icons.trendingUp className='size-4' />
-                  </div>
-                  <div className='text-muted-foreground'>Meets growth projections</div>
-                </CardFooter>
-              </Card>
-            </div>
-            <div className='grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-7'>
-              <div className='col-span-4'>
-                <BarGraph />
-              </div>
-              <Card className='col-span-4 md:col-span-3'>
-                <RecentSales />
-              </Card>
-              <div className='col-span-4'>
-                <AreaGraph />
-              </div>
-              <div className='col-span-4 md:col-span-3'>
-                <PieGraph />
-              </div>
-            </div>
-          </TabsContent>
-        </Tabs>
       </div>
-    </PageContainer>
+      {isRefetchError && (
+        <Alert>
+          <AlertDescription>
+            Не вдалося оновити огляд. Показано останні завантажені дані; повторна спроба відбудеться
+            автоматично.
+          </AlertDescription>
+        </Alert>
+      )}
+      <div className='grid min-w-0 gap-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card *:data-[slot=card]:shadow-xs sm:grid-cols-2 xl:grid-cols-4'>
+        {cards.map(({ title, value, description, href, icon: Icon }) => (
+          <Card key={title} className='relative min-w-0'>
+            <CardHeader>
+              <CardDescription>{title}</CardDescription>
+              <CardTitle className='text-3xl font-semibold tabular-nums'>
+                <Link
+                  href={href}
+                  aria-label={title + ': ' + value}
+                  className='after:absolute after:inset-0 after:rounded-xl after:focus-visible:ring-2 after:focus-visible:ring-ring'
+                >
+                  {value}
+                </Link>
+              </CardTitle>
+              <CardAction>
+                <Icon aria-hidden className='size-5 text-muted-foreground' />
+              </CardAction>
+            </CardHeader>
+            <CardFooter className='min-h-14 items-start text-xs text-muted-foreground'>
+              {description}
+            </CardFooter>
+          </Card>
+        ))}
+      </div>
+      <div className='flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground'>
+        <Link href='/dashboard/clients' className='underline underline-offset-4'>
+          Клієнтів у базі: {data.customers.length}
+        </Link>
+        <Link href='/dashboard/vehicles' className='underline underline-offset-4'>
+          Автомобілів: {data.vehicles.length}
+        </Link>
+        <span>Суми — вартість робіт за позиціями.</span>
+        {metrics.undatedDelivered > 0 && (
+          <span>Без дати видачі: {metrics.undatedDelivered}; у підсумок місяця не включені.</span>
+        )}
+      </div>
+      {empty && (
+        <Empty className='rounded-xl border bg-card'>
+          <EmptyHeader>
+            <EmptyTitle>Почнімо роботу з CRM</EmptyTitle>
+            <EmptyDescription>
+              Додайте клієнта, закріпіть його автомобіль і створіть першу заявку. Дані автоматично
+              з’являться в огляді.
+            </EmptyDescription>
+          </EmptyHeader>
+          <Button onClick={() => setEditor({ type: 'customer' })}>Створити першого клієнта</Button>
+        </Empty>
+      )}
+      <div className='grid min-w-0 gap-4 lg:grid-cols-2'>
+        <WorkQueue
+          title='Потребують уваги'
+          description='Прострочені прийоми й видачі та готові автомобілі'
+          entries={metrics.attention.map((target) => ({
+            target,
+            date:
+              target.kind === 'request'
+                ? target.record.plannedIntakeDate
+                : target.record.plannedDeliveryDate,
+            label: target.kind === 'request' ? 'Прийом · план' : 'Видача · план'
+          }))}
+          data={data}
+          today={today}
+          onOpen={(target) => setEditor({ type: 'workflow', target })}
+          emptyTitle='Усе під контролем'
+          emptyDescription='Прострочень і автомобілів, що очікують видачі, немає.'
+        />
+        <WorkQueue
+          title='Найближчі 7 днів'
+          description='Планові прийоми й видачі, починаючи із сьогодні'
+          entries={metrics.schedule.map((entry) => ({
+            ...entry,
+            label: entry.kind === 'intake' ? 'Прийом · план' : 'Видача · план'
+          }))}
+          data={data}
+          today={today}
+          onOpen={(target) => setEditor({ type: 'workflow', target })}
+          emptyTitle='Запланованих подій немає'
+          emptyDescription='Укажіть планову дату прийому або видачі в заявці чи замовленні.'
+        />
+      </div>
+      <div className='grid min-w-0 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]'>
+        <ActivityChart data={metrics.activity} />
+        <StatusSummary statuses={metrics.statuses} />
+      </div>
+      <RecentOrders
+        orders={metrics.recentOrders}
+        data={data}
+        onOpen={(order) => setEditor({ type: 'order', order })}
+      />
+      {editor && (
+        <CrmEditorDialog
+          key={
+            editor.type === 'order'
+              ? (editor.order?.id ?? 'new-order')
+              : editor.type === 'workflow'
+                ? editor.target.kind + '-' + editor.target.record.id
+                : editor.type
+          }
+          editor={editor}
+          data={data}
+          onClose={() => setEditor(null)}
+          onSelectOrder={(order) => setEditor({ type: 'order', order })}
+        />
+      )}
+    </div>
   );
 }

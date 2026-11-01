@@ -36,11 +36,15 @@ import {
 interface DataTableProps<TData extends RowData> extends React.ComponentProps<'div'> {
   table: ReactTable<DataTableFeatures, TData, unknown>;
   actionBar?: React.ReactNode;
+  pagination?: React.ReactNode;
+  emptyMessage?: string;
 }
 
 export function DataTable<TData extends RowData>({
   table,
   actionBar,
+  pagination,
+  emptyMessage = 'No results.',
   children,
   className,
   'aria-label': ariaLabel,
@@ -64,14 +68,14 @@ export function DataTable<TData extends RowData>({
           <ScrollArea className='h-full w-full [&_[data-slot=table-container]]:overflow-visible'>
             <DataTableLayout table={table} aria-label={ariaLabel} aria-labelledby={ariaLabelledBy}>
               <DataTableHeader table={table} />
-              <DataTableBody table={table} />
+              <DataTableBody table={table} emptyMessage={emptyMessage} />
             </DataTableLayout>
             <ScrollBar orientation='horizontal' />
           </ScrollArea>
         </div>
       </div>
       <div className='flex flex-col gap-2.5'>
-        <DataTablePagination table={table} />
+        {pagination ?? <DataTablePagination table={table} />}
         {actionBar ? <DataTableActionBar table={table} actionBar={actionBar} /> : null}
       </div>
     </div>
@@ -172,9 +176,10 @@ function DataTableHeadCell<TData extends RowData>({
 
 interface DataTableBodyProps<TData extends RowData> {
   table: ReactTable<DataTableFeatures, TData, unknown>;
+  emptyMessage: string;
 }
 
-function DataTableBody<TData extends RowData>({ table }: DataTableBodyProps<TData>) {
+function DataTableBody<TData extends RowData>({ table, emptyMessage }: DataTableBodyProps<TData>) {
   const rows = table.getRowModel().rows;
 
   if (!rows.length) {
@@ -187,7 +192,7 @@ function DataTableBody<TData extends RowData>({ table }: DataTableBodyProps<TDat
                 colSpan={table.getVisibleLeafColumns().length || 1}
                 className='h-24 text-center'
               >
-                No results.
+                {emptyMessage}
               </TableCell>
             </TableRow>
           </TableBody>

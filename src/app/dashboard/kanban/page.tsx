@@ -1,12 +1,12 @@
 import { auth } from '@clerk/nextjs/server';
-import KanbanViewPage from '@/features/kanban/components/kanban-view-page';
+import { CrmPage } from '@/features/crm/components/crm-page';
 
 export const metadata = {
-  title: 'Dashboard : Kanban view'
+  title: 'Дошка робіт'
 };
 
 export default async function page() {
   await auth.protect();
 
-  return <KanbanViewPage />;
+  return <CrmPage view='kanban' />;
 }

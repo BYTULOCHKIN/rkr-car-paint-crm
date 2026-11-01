@@ -158,6 +158,9 @@ src/
 
 ## Getting Started
 
+For the local auto-paint CRM (clients, vehicles, backlog requests, and repair orders),
+see [docs/crm.md](./docs/crm.md).
+
 > [!NOTE]
 > This starter uses Next.js 16 (App Router) with React 19 and shadcn/ui. To run it locally:
 
