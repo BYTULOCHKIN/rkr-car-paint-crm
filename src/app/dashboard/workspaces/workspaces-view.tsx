@@ -7,8 +7,8 @@ import { workspacesInfoContent } from '@/config/infoconfig';
 export default function WorkspacesView() {
   return (
     <PageContainer
-      pageTitle='Workspaces'
-      pageDescription='Manage your workspaces and switch between them'
+      pageTitle='Автомалярки'
+      pageDescription='Виберіть або створіть автомалярку для командної роботи.'
       infoContent={workspacesInfoContent}
     >
       <OrganizationList

@@ -55,27 +55,20 @@ export const navGroups: NavGroup[] = [
       },
       { title: 'Заявки', url: '/dashboard/requests', icon: 'kanban', items: [] },
       { title: 'Замовлення', url: '/dashboard/orders', icon: 'product', items: [] },
+      { title: 'Автомалярки', url: '/dashboard/workspaces', icon: 'workspace', items: [] },
+      {
+        title: 'Команда',
+        url: '/dashboard/workspaces/team',
+        icon: 'teams',
+        items: [],
+        access: { requireOrg: true }
+      },
       { title: 'Дошка робіт', url: '/dashboard/kanban', icon: 'kanban', items: [] }
     ]
   },
   {
     label: 'Overview',
     items: [
-      {
-        title: 'Workspaces',
-        url: '/dashboard/workspaces',
-        icon: 'workspace',
-        isActive: false,
-        items: []
-      },
-      {
-        title: 'Teams',
-        url: '/dashboard/workspaces/team',
-        icon: 'teams',
-        isActive: false,
-        items: [],
-        access: { requireOrg: true }
-      },
       {
         title: 'Product',
         url: '/dashboard/product',

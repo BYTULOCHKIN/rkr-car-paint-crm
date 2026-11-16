@@ -7,6 +7,7 @@ import {
   updateOrder,
   updateVehicleVin,
   getWorkspace,
+  getTeam,
   updateWorkflow,
   getVehicleCatalog,
   decodeVehicleVin,
@@ -34,6 +35,13 @@ export const crmQueries = {
       queryFn: () => decodeVehicleVin(vin, year),
       staleTime: 86400000,
       retry: false
+    }),
+  team: (userId: string, orgId: string) =>
+    queryOptions({
+      queryKey: ['crm', userId, orgId, 'team'] as const,
+      queryFn: () => getTeam(),
+      staleTime: 0,
+      refetchInterval: 30_000
     }),
   all: () => ['crm'] as const,
   workspace: (userId: string, orgId?: string | null) =>

@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { OrganizationBoundary } from '@/features/crm/components/organization-boundary';
 import { Suspense } from 'react';
 import { auth } from '@clerk/nextjs/server';
@@ -38,9 +39,9 @@ export async function CrmPage({ view }: CrmPageProps) {
         accessFallback={
           <div className='flex flex-col items-center gap-3'>
             <p role='alert'>{access.error}</p>
-            <a href='/dashboard/workspaces' className='underline'>
+            <Link href='/dashboard/workspaces' className='underline'>
               Обрати або створити автомалярку
-            </a>
+            </Link>
           </div>
         }
       >

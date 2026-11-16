@@ -173,3 +173,8 @@ export async function getOrderDocument(id: string): Promise<OrderDocument | null
   const vehicle = workspace.vehicles.find((vehicle) => vehicle.id === order.vehicleId);
   return customer && vehicle ? { order, customer, vehicle } : null;
 }
+
+export async function getTeam() {
+  const { access, team } = await getOrganizationContext();
+  return { access, team };
+}
