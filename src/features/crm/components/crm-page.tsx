@@ -27,30 +27,37 @@ const copy = {
 };
 
 export async function CrmPage({ view }: CrmPageProps) {
-  const { userId } = await auth.protect();
+  const { userId, orgId } = await auth.protect();
   const access = await checkCrmAccess();
   if (!access.ok)
     return (
       <PageContainer
         pageTitle={copy[view][0]}
         access={false}
-        accessFallback={<p role='alert'>{access.error}</p>}
+        accessFallback={
+          <div className='flex flex-col items-center gap-3'>
+            <p role='alert'>{access.error}</p>
+            <a href='/dashboard/workspaces' className='underline'>
+              Обрати або створити автомалярку
+            </a>
+          </div>
+        }
       >
         {null}
       </PageContainer>
     );
   const queryClient = getQueryClient();
-  void queryClient.prefetchQuery(crmQueries.workspace(userId));
+  void queryClient.prefetchQuery(crmQueries.workspace(userId, orgId));
   return (
     <PageContainer pageTitle={copy[view][0]} pageDescription={copy[view][1]}>
       <HydrationBoundary state={dehydrate(queryClient)}>
         <Suspense fallback={<Skeleton className='h-80 w-full' />}>
           {view === 'vehicles' ? (
-            <VehiclesView userId={userId} />
+            <VehiclesView userId={userId} orgId={orgId} />
           ) : view === 'kanban' ? (
-            <CrmKanbanBoard userId={userId} />
+            <CrmKanbanBoard userId={userId} orgId={orgId} />
           ) : (
-            <CrmWorkspaceView view={view} userId={userId} />
+            <CrmWorkspaceView view={view} userId={userId} orgId={orgId} />
           )}
         </Suspense>
       </HydrationBoundary>

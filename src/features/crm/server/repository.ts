@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import type {
@@ -9,7 +9,9 @@ import type {
   RepairRequest,
   RepairOrder,
   OrderItem,
-  WorkflowEvent
+  WorkflowEvent,
+  ActualDateChange,
+  OrderSnapshot
 } from '../api/types';
 import type {
   CustomerInput,
@@ -121,6 +123,72 @@ export class CrmRepository {
       `)
       );
     }
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 5) {
+      this.transaction(() =>
+        this.db.exec(`
+        ALTER TABLE crm_workflow_events ADD COLUMN actualDateChanges TEXT;
+        ALTER TABLE crm_requests ADD COLUMN workflowRevision INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE crm_orders ADD COLUMN workflowRevision INTEGER NOT NULL DEFAULT 0;
+        PRAGMA user_version = 5;
+      `)
+      );
+    }
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 6) {
+      this.transaction(() =>
+        this.db.exec(`
+        ALTER TABLE crm_workflow_events ADD COLUMN orderChanges TEXT;
+        PRAGMA user_version = 6;
+      `)
+      );
+    }
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 7) {
+      this.transaction(() =>
+        this.db.exec(`
+        ALTER TABLE crm_orders ADD COLUMN assigneeId TEXT;
+        ALTER TABLE crm_orders ADD COLUMN assigneeName TEXT;
+        PRAGMA user_version = 7;
+      `)
+      );
+    }
+  }
+
+  /** The legacy installation can only be claimed by its existing owner. */
+  claimOrganization(orgId: string, userId: string, configuredAdmin?: string): boolean {
+    return this.transaction(() => {
+      const bound = this.db
+        .prepare("SELECT value FROM crm_settings WHERE key = 'organization'")
+        .get()?.value;
+      if (bound) return bound === orgId;
+      const owner = this.db
+        .prepare("SELECT value FROM crm_settings WHERE key = 'admin'")
+        .get()?.value;
+      if (owner !== userId && !(configuredAdmin === userId && !owner)) return false;
+      if (configuredAdmin && configuredAdmin !== userId) return false;
+      this.db
+        .prepare("INSERT INTO crm_settings (key, value) VALUES ('organization', ?)")
+        .run(orgId);
+      return true;
+    });
+  }
+
+  bindOrganization(orgId: string): void {
+    this.transaction(() => {
+      this.db
+        .prepare("INSERT OR IGNORE INTO crm_settings (key, value) VALUES ('organization', ?)")
+        .run(orgId);
+      if (
+        this.db.prepare("SELECT value FROM crm_settings WHERE key = 'organization'").get()
+          ?.value !== orgId
+      )
+        throw new CrmError('База належить іншій автомалярці');
+    });
+  }
+
+  organizationId(): string | null {
+    return (
+      (this.db.prepare("SELECT value FROM crm_settings WHERE key = 'organization'").get()
+        ?.value as string) ?? null
+    );
   }
 
   close(): void {
@@ -179,7 +247,9 @@ export class CrmRepository {
 
   private logEvent(event: Omit<WorkflowEvent, 'id' | 'createdAt'>): void {
     this.db
-      .prepare('INSERT INTO crm_workflow_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .prepare(
+        'INSERT INTO crm_workflow_events (id, kind, recordId, fromStatus, toStatus, previousIntakeDate, previousDeliveryDate, plannedIntakeDate, plannedDeliveryDate, note, createdAt, actualDateChanges, orderChanges) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      )
       .run(
         randomUUID(),
         event.kind,
@@ -191,7 +261,9 @@ export class CrmRepository {
         event.plannedIntakeDate,
         event.plannedDeliveryDate,
         event.note,
-        new Date().toISOString()
+        new Date().toISOString(),
+        JSON.stringify(event.actualDateChanges ?? []),
+        event.orderChanges ? JSON.stringify(event.orderChanges) : null
       );
   }
 
@@ -245,7 +317,12 @@ export class CrmRepository {
     const events = this.db
       .prepare('SELECT * FROM crm_workflow_events ORDER BY createdAt DESC, rowid DESC')
       .all()
-      .map((row) => ({ ...row })) as unknown as WorkflowEvent[];
+      .map((row) => ({
+        ...row,
+        orderChanges: typeof row.orderChanges === 'string' ? JSON.parse(row.orderChanges) : null,
+        actualDateChanges:
+          typeof row.actualDateChanges === 'string' ? JSON.parse(row.actualDateChanges) : null
+      })) as unknown as WorkflowEvent[];
     return { customers, vehicles, requests, orders, events };
   }
 
@@ -395,7 +472,7 @@ export class CrmRepository {
     return id;
   }
 
-  createOrder(input: OrderInput): string {
+  createOrder(input: OrderInput, assigneeName?: string): string {
     return this.transaction(() => {
       const vehicle = this.vehicleFor(input.customerId, input.vehicleId);
       if (!vehicle.vin) throw new CrmError('Додайте VIN автомобіля перед початком робіт');
@@ -418,8 +495,8 @@ export class CrmRepository {
       const plannedDeliveryDate = input.plannedDeliveryDate ?? source?.plannedDeliveryDate ?? '';
       if (
         source &&
-        ((source.plannedIntakeDate && source.plannedIntakeDate !== plannedIntakeDate) ||
-          (source.plannedDeliveryDate && source.plannedDeliveryDate !== plannedDeliveryDate))
+        ((source.plannedIntakeDate || '') !== plannedIntakeDate ||
+          (source.plannedDeliveryDate || '') !== plannedDeliveryDate)
       )
         throw new CrmError(
           'Спочатку перенесіть дату заявки через «Статус і дати» та вкажіть причину'
@@ -441,6 +518,9 @@ export class CrmRepository {
           plannedDeliveryDate || null,
           actualIntakeDate
         );
+      this.db
+        .prepare('UPDATE crm_orders SET assigneeId = ?, assigneeName = ? WHERE id = ?')
+        .run(input.assigneeId || null, assigneeName || null, id);
       this.writeItems(id, input.items);
       this.writePaintPlan(id, input.paintPlan);
       if (input.requestId)
@@ -452,6 +532,7 @@ export class CrmRepository {
         recordId: id,
         fromStatus: null,
         toStatus: 'in_progress',
+        actualDateChanges: [{ field: 'actualIntakeDate', before: null, after: actualIntakeDate }],
         previousIntakeDate: null,
         previousDeliveryDate: null,
         plannedIntakeDate: plannedIntakeDate || null,
@@ -474,16 +555,82 @@ export class CrmRepository {
     });
   }
 
-  updateOrder(input: UpdateOrderInput): void {
+  updateOrder(input: UpdateOrderInput, assigneeName?: string): void {
     this.transaction(() => {
-      if (!this.db.prepare('SELECT id FROM crm_orders WHERE id = ?').get(input.id))
-        throw new CrmError('Замовлення не знайдено');
+      const current = this.db
+        .prepare('SELECT * FROM crm_orders WHERE id = ?')
+        .get(input.id) as unknown as
+        | (Omit<RepairOrder, 'paintPlan'> & { paintPlan: string })
+        | undefined;
+      if (!current) throw new CrmError('Замовлення не знайдено');
+      if (
+        input.expectedRevision !== undefined &&
+        input.expectedRevision !== current.workflowRevision
+      )
+        throw new CrmError(
+          'Замовлення вже змінено в іншому вікні. Відкрийте його повторно перед редагуванням.'
+        );
+      const items = this.db
+        .prepare(
+          'SELECT description, quantity, unitPriceCents FROM crm_order_items WHERE orderId = ? ORDER BY position'
+        )
+        .all(input.id)
+        .map((row) => ({ ...row })) as unknown as OrderItem[];
+      const before: OrderSnapshot = {
+        assigneeId: current.assigneeId ?? null,
+        assigneeName: current.assigneeName ?? null,
+        description: current.description,
+        items,
+        paintPlan: paintPlanSchema.parse(JSON.parse(current.paintPlan)),
+        totalCents: items.reduce((sum, item) => sum + item.quantity * item.unitPriceCents, 0)
+      };
+      const afterItems = input.items.map((item) => ({
+        description: item.description,
+        quantity: item.quantity,
+        unitPriceCents: Math.round(item.unitPrice * 100)
+      }));
+      const after: OrderSnapshot = {
+        assigneeId: input.assigneeId ?? before.assigneeId,
+        assigneeName:
+          input.assigneeId === undefined
+            ? before.assigneeName
+            : (assigneeName ?? before.assigneeName),
+        description: input.description,
+        items: afterItems,
+        paintPlan:
+          input.paintPlan === undefined ? before.paintPlan : paintPlanSchema.parse(input.paintPlan),
+        totalCents: afterItems.reduce((sum, item) => sum + item.quantity * item.unitPriceCents, 0)
+      };
+      const normalized = (value: OrderSnapshot) =>
+        JSON.stringify({
+          ...value,
+          paintPlan: value.paintPlan.toSorted((a, b) => a.partId.localeCompare(b.partId))
+        });
+      if (normalized(before) === normalized(after)) return;
       this.db
-        .prepare('UPDATE crm_orders SET description = ? WHERE id = ?')
+        .prepare(
+          'UPDATE crm_orders SET description = ?, workflowRevision = workflowRevision + 1 WHERE id = ?'
+        )
         .run(input.description, input.id);
+      if (input.assigneeId !== undefined)
+        this.db
+          .prepare('UPDATE crm_orders SET assigneeId = ?, assigneeName = ? WHERE id = ?')
+          .run(input.assigneeId, assigneeName ?? null, input.id);
       this.db.prepare('DELETE FROM crm_order_items WHERE orderId = ?').run(input.id);
       this.writeItems(input.id, input.items);
       if (input.paintPlan !== undefined) this.writePaintPlan(input.id, input.paintPlan);
+      this.logEvent({
+        kind: 'order',
+        recordId: input.id,
+        fromStatus: current.status,
+        toStatus: current.status,
+        previousIntakeDate: current.plannedIntakeDate,
+        previousDeliveryDate: current.plannedDeliveryDate,
+        plannedIntakeDate: current.plannedIntakeDate,
+        plannedDeliveryDate: current.plannedDeliveryDate,
+        note: '',
+        orderChanges: { before, after }
+      });
     });
   }
 
@@ -505,6 +652,8 @@ export class CrmRepository {
         throw new CrmError('Заявку вже перетворено на замовлення. Оновіть дошку.');
       if (currentStatus !== value.expectedStatus)
         throw new CrmError('Статус уже змінено в іншому вікні. Оновіть дошку.');
+      if ((value.expectedRevision ?? 0) !== (current.workflowRevision ?? 0))
+        throw new CrmError('Запис уже змінено в іншому вікні. Оновіть дані та повторіть зміни.');
       const rescheduled =
         (current.plannedIntakeDate &&
           current.plannedIntakeDate !== (value.plannedIntakeDate || null)) ||
@@ -512,31 +661,40 @@ export class CrmRepository {
           current.plannedDeliveryDate !== (value.plannedDeliveryDate || null));
       if (rescheduled && !value.note)
         throw new CrmError('Вкажіть причину перенесення запланованих дат');
-      const actualChanges: string[] = [];
+      const actualChanges: ActualDateChange[] = [];
       if (value.kind === 'order') {
         const currentOrder = current as RepairOrder;
-        for (const [field, label] of [
-          ['actualIntakeDate', 'Фактичний прийом'],
-          ['actualReadyDate', 'Фактична готовність'],
-          ['actualDeliveryDate', 'Фактична видача']
+        for (const field of [
+          'actualIntakeDate',
+          'actualReadyDate',
+          'actualDeliveryDate'
         ] as const) {
           if ((currentOrder[field] || '') !== value[field]) {
             if (currentOrder[field] && !value.note)
               throw new CrmError('Вкажіть причину зміни фактичної дати або повернення статусу');
-            actualChanges.push(`${label}: ${currentOrder[field] || '—'} → ${value[field] || '—'}`);
+            actualChanges.push({
+              field,
+              before: currentOrder[field] || null,
+              after: value[field] || null
+            });
           }
         }
       }
+      const planChanged =
+        (current.plannedIntakeDate || '') !== value.plannedIntakeDate ||
+        (current.plannedDeliveryDate || '') !== value.plannedDeliveryDate;
+      if (currentStatus === value.status && !planChanged && !actualChanges.length && !value.note)
+        return;
       if (value.kind === 'request')
         this.db
           .prepare(
-            'UPDATE crm_requests SET plannedIntakeDate = ?, plannedDeliveryDate = ? WHERE id = ?'
+            'UPDATE crm_requests SET plannedIntakeDate = ?, plannedDeliveryDate = ?, workflowRevision = workflowRevision + 1 WHERE id = ?'
           )
           .run(value.plannedIntakeDate || null, value.plannedDeliveryDate || null, value.id);
       else
         this.db
           .prepare(
-            'UPDATE crm_orders SET status = ?, plannedIntakeDate = ?, plannedDeliveryDate = ?, actualIntakeDate = ?, actualReadyDate = ?, actualDeliveryDate = ? WHERE id = ?'
+            'UPDATE crm_orders SET status = ?, plannedIntakeDate = ?, plannedDeliveryDate = ?, actualIntakeDate = ?, actualReadyDate = ?, actualDeliveryDate = ?, workflowRevision = workflowRevision + 1 WHERE id = ?'
           )
           .run(
             value.status,
@@ -556,7 +714,8 @@ export class CrmRepository {
         previousDeliveryDate: current.plannedDeliveryDate,
         plannedIntakeDate: value.plannedIntakeDate || null,
         plannedDeliveryDate: value.plannedDeliveryDate || null,
-        note: [value.note, ...actualChanges].filter(Boolean).join('\n')
+        note: value.note,
+        actualDateChanges: actualChanges
       });
     });
   }
@@ -569,13 +728,45 @@ const globalDb = globalThis as typeof globalThis & {
 export function getCrmRepository(): CrmRepository {
   if (
     globalDb.crmRepository &&
-    (globalDb.crmSchemaVersion !== 4 || !(globalDb.crmRepository instanceof CrmRepository))
+    (globalDb.crmSchemaVersion !== 7 || !(globalDb.crmRepository instanceof CrmRepository))
   ) {
     globalDb.crmRepository.close();
     globalDb.crmRepository = undefined;
   }
-  globalDb.crmSchemaVersion = 4;
+  globalDb.crmSchemaVersion = 7;
   return (globalDb.crmRepository ??= new CrmRepository(
     process.env.CRM_DATABASE_PATH || resolve('data/crm.sqlite')
   ));
+}
+
+const orgDatabases = globalThis as typeof globalThis & {
+  crmOrgDatabases?: Map<string, CrmRepository>;
+};
+
+export function getOrganizationRepository(
+  orgId: string,
+  userId: string,
+  isAdmin: boolean
+): CrmRepository {
+  if (!/^org_[a-zA-Z0-9]+$/.test(orgId)) throw new CrmError('Некоректна автомалярка');
+  const legacy = getCrmRepository();
+  if (
+    legacy.organizationId() === orgId ||
+    (isAdmin && legacy.claimOrganization(orgId, userId, process.env.CRM_ADMIN_USER_ID))
+  )
+    return legacy;
+  const filename = `${process.env.CRM_DATABASE_PATH || resolve('data/crm.sqlite')}.org-${createHash('sha256').update(orgId).digest('hex')}.sqlite`;
+  const databases = (orgDatabases.crmOrgDatabases ??= new Map());
+  let repository = databases.get(filename);
+  if (repository && !(repository instanceof CrmRepository)) {
+    repository.close();
+    databases.delete(filename);
+    repository = undefined;
+  }
+  if (!repository) {
+    repository = new CrmRepository(filename);
+    repository.bindOrganization(orgId);
+    databases.set(filename, repository);
+  }
+  return repository;
 }

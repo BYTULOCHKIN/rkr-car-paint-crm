@@ -353,10 +353,11 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
 interface CrmWorkspaceViewProps {
   view: CrmView;
   userId: string;
+  orgId?: string | null;
 }
 
-export function CrmWorkspaceView({ view, userId }: CrmWorkspaceViewProps) {
-  const { data } = useSuspenseQuery(crmQueries.workspace(userId));
+export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps) {
+  const { data } = useSuspenseQuery(crmQueries.workspace(userId, orgId));
   const [editor, setEditor] = useState<Editor | null>(null);
   const [params, setParams] = useQueryStates(
     {

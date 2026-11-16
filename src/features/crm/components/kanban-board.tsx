@@ -41,6 +41,7 @@ interface BoardCard {
 type Columns = Record<UniqueIdentifier, BoardCard[]>;
 interface CrmKanbanBoardProps {
   userId: string;
+  orgId?: string | null;
 }
 
 function plannedCardDate(card: BoardCard): string {
@@ -180,8 +181,8 @@ function BoardCardContent({
   );
 }
 
-export function CrmKanbanBoard({ userId }: CrmKanbanBoardProps): ReactElement {
-  const { data } = useSuspenseQuery(crmQueries.workspace(userId));
+export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactElement {
+  const { data } = useSuspenseQuery(crmQueries.workspace(userId, orgId));
   const [search, setSearch] = useState('');
   const [editor, setEditor] = useState<Editor | null>(null);
   const [draft, setDraft] = useState<Columns | null>(null);

@@ -36,9 +36,9 @@ export const crmQueries = {
       retry: false
     }),
   all: () => ['crm'] as const,
-  workspace: (userId: string) =>
+  workspace: (userId: string, orgId?: string | null) =>
     queryOptions({
-      queryKey: [...crmQueries.all(), userId, 'workspace'] as const,
+      queryKey: [...crmQueries.all(), userId, orgId ?? 'legacy', 'workspace'] as const,
       queryFn: () => getWorkspace()
     })
 };

@@ -82,8 +82,8 @@ function columnsFor(
   ];
 }
 
-export function VehiclesView({ userId }: { userId: string }) {
-  const { data } = useSuspenseQuery(crmQueries.workspace(userId));
+export function VehiclesView({ userId, orgId }: { userId: string; orgId?: string | null }) {
+  const { data } = useSuspenseQuery(crmQueries.workspace(userId, orgId));
   const [editor, setEditor] = useState<Editor | null>(null);
   const [params, setParams] = useQueryStates(
     { q: parseAsString.withDefault(''), page: parseAsInteger.withDefault(1) },

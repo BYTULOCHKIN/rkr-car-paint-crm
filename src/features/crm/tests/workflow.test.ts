@@ -111,6 +111,7 @@ test('ready and delivered facts are separate from promised dates, with stale upd
     repository.updateWorkflow({
       ...ready,
       expectedStatus: 'ready',
+      expectedRevision: 1,
       status: 'delivered',
       actualDeliveryDate: '2020-01-15'
     });
@@ -119,15 +120,30 @@ test('ready and delivered facts are separate from promised dates, with stale upd
     assert.equal(order.actualDeliveryDate, '2020-01-15');
     assert.equal(overdueLabel({ kind: 'order', record: order }, '2020-01-16'), null);
     assert.throws(
-      () => repository.updateWorkflow({ ...workflow(orderId, 'order', 'delivered') }),
+      () =>
+        repository.updateWorkflow({
+          ...workflow(orderId, 'order', 'delivered'),
+          expectedRevision: 2
+        }),
       /причину/
     );
     repository.updateWorkflow({
       ...workflow(orderId, 'order', 'delivered'),
+      expectedRevision: 2,
       note: 'Повторна перевірка'
     });
     assert.equal(repository.workspace().orders[0].actualDeliveryDate, null);
-    assert.match(repository.workspace().events[0].note, /2020-01-15/);
+    assert.equal(repository.workspace().events[0].note, 'Повторна перевірка');
+    assert.ok(
+      repository
+        .workspace()
+        .events[0].actualDateChanges?.some(
+          (change) =>
+            change.field === 'actualDeliveryDate' &&
+            change.before === '2020-01-15' &&
+            change.after === null
+        )
+    );
   } finally {
     repository.close();
   }
@@ -160,6 +176,12 @@ test('chronology and workflow boundaries are validated', () => {
       }).success,
       false
     );
+    const consistentFacts = { ...facts, actualReadyDate: '2020-01-05' };
+    assert.equal(
+      workflowSchema.safeParse({ ...consistentFacts, status: 'in_progress' }).success,
+      false
+    );
+    assert.equal(workflowSchema.safeParse({ ...consistentFacts, status: 'ready' }).success, false);
     const target = { kind: 'request' as const, record: repository.workspace().requests[0] };
     assert.equal(transitionKind(target, 'in_progress'), 'convert');
     assert.equal(transitionKind(target, 'delivered'), 'invalid');
@@ -217,6 +239,137 @@ test('v1 migration keeps existing customers, orders, positions and administrator
   } finally {
     assert.equal(dirname(resolve(folder)), resolve(tmpdir()));
     assert.ok(basename(folder).startsWith('autopaint-migration-'));
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+test('unchanged saves do not create events; notes and same-status date edits use optimistic revisions', () => {
+  const repository = new CrmRepository(':memory:');
+  try {
+    const { requestId } = seed(repository);
+    const initial = workflow(requestId, 'request', 'scheduled');
+    repository.updateWorkflow(initial);
+    repository.updateWorkflow({ ...initial, note: '   ' });
+    assert.equal(repository.workspace().events.length, 1);
+    assert.equal(repository.workspace().requests[0].workflowRevision, 0);
+    repository.updateWorkflow({
+      ...initial,
+      note: 'Нова домовленість',
+      plannedIntakeDate: '2020-01-02'
+    });
+    assert.equal(repository.workspace().requests[0].workflowRevision, 1);
+    const before = repository.workspace();
+    assert.throws(
+      () => repository.updateWorkflow({ ...initial, note: 'Застаріла форма' }),
+      /іншому вікні/
+    );
+    assert.deepEqual(repository.workspace(), before);
+    repository.updateWorkflow({
+      ...initial,
+      expectedRevision: 1,
+      plannedIntakeDate: '2020-01-02',
+      note: 'Телефонували клієнту'
+    });
+    assert.equal(repository.workspace().events.length, 3);
+    assert.equal(repository.workspace().events[0].note, 'Телефонували клієнту');
+    assert.deepEqual(repository.workspace().events[0].actualDateChanges, []);
+  } finally {
+    repository.close();
+  }
+});
+
+test('initial intake and later factual corrections are structured, with a separate user reason', () => {
+  const repository = new CrmRepository(':memory:');
+  try {
+    const source = seed(repository);
+    const id = repository.createOrder({
+      ...source,
+      description: 'Роботи',
+      actualIntakeDate: '2020-01-05',
+      items: [{ description: 'Робота', quantity: 1, unitPrice: 100 }]
+    });
+    const initial = repository.workspace().events.find((event) => event.kind === 'order')!;
+    assert.deepEqual(initial.actualDateChanges, [
+      { field: 'actualIntakeDate', before: null, after: '2020-01-05' }
+    ]);
+    assert.throws(
+      () =>
+        repository.updateWorkflow({
+          ...workflow(id, 'order', 'in_progress'),
+          actualIntakeDate: '2020-01-04'
+        }),
+      /причину/
+    );
+    repository.updateWorkflow({
+      ...workflow(id, 'order', 'in_progress'),
+      actualIntakeDate: '2020-01-04',
+      note: 'Виправили дату прийому'
+    });
+    const event = repository.workspace().events[0];
+    assert.equal(event.note, 'Виправили дату прийому');
+    assert.deepEqual(event.actualDateChanges, [
+      { field: 'actualIntakeDate', before: '2020-01-05', after: '2020-01-04' }
+    ]);
+  } finally {
+    repository.close();
+  }
+});
+
+test('conversion cannot restore a plan cleared in another window', () => {
+  const repository = new CrmRepository(':memory:');
+  try {
+    const source = seed(repository);
+    repository.updateWorkflow({
+      ...workflow(source.requestId, 'request', 'scheduled'),
+      status: 'backlog',
+      plannedIntakeDate: '',
+      plannedDeliveryDate: '',
+      note: 'Клієнт скасував дату'
+    });
+    const before = repository.workspace();
+    assert.throws(
+      () =>
+        repository.createOrder({
+          ...source,
+          description: 'Роботи',
+          plannedIntakeDate: '2020-01-01',
+          plannedDeliveryDate: '2020-01-10',
+          items: [{ description: 'Робота', quantity: 1, unitPrice: 100 }]
+        }),
+      /перенесіть/
+    );
+    assert.deepEqual(repository.workspace(), before);
+  } finally {
+    repository.close();
+  }
+});
+
+test('v4 event migration preserves legacy notes without inventing factual changes', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'autopaint-history-migration-'));
+  const filename = join(folder, 'legacy.sqlite');
+  const initial = new CrmRepository(filename);
+  const { requestId } = seed(initial);
+  initial.close();
+  const legacy = new DatabaseSync(filename);
+  const note = 'Причина\nФактична видача: 2020-01-15 → —';
+  legacy.prepare('UPDATE crm_workflow_events SET note = ?').run(note);
+  legacy.exec(
+    'ALTER TABLE crm_workflow_events DROP COLUMN orderChanges; ALTER TABLE crm_workflow_events DROP COLUMN actualDateChanges; ALTER TABLE crm_requests DROP COLUMN workflowRevision; ALTER TABLE crm_orders DROP COLUMN workflowRevision; PRAGMA user_version = 4;'
+  );
+  legacy.close();
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const repository = new CrmRepository(filename);
+      try {
+        assert.equal(repository.workspace().events[0].note, note);
+        assert.equal(repository.workspace().events[0].actualDateChanges, null);
+        assert.equal(repository.workspace().requests[0].workflowRevision, 0);
+        assert.equal(repository.workspace().requests[0].id, requestId);
+      } finally {
+        repository.close();
+      }
+    }
+  } finally {
     rmSync(folder, { recursive: true, force: true });
   }
 });

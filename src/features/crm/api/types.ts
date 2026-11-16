@@ -20,6 +20,7 @@ export interface Vehicle {
 }
 
 export interface RepairRequest {
+  workflowRevision?: number;
   id: string;
   customerId: string;
   vehicleId: string;
@@ -37,6 +38,9 @@ export interface OrderItem {
 }
 
 export interface RepairOrder {
+  assigneeId?: string | null;
+  assigneeName?: string | null;
+  workflowRevision?: number;
   id: string;
   number: number;
   requestId: string | null;
@@ -60,7 +64,28 @@ export type WorkflowRecord =
   | { kind: 'request'; record: RepairRequest }
   | { kind: 'order'; record: RepairOrder };
 
+export interface ActualDateChange {
+  field: 'actualIntakeDate' | 'actualReadyDate' | 'actualDeliveryDate';
+  before: string | null;
+  after: string | null;
+}
+
+export interface OrderSnapshot {
+  assigneeId?: string | null;
+  assigneeName?: string | null;
+  description: string;
+  items: OrderItem[];
+  paintPlan: PaintSelection[];
+  totalCents: number;
+}
+export interface OrderContentChanges {
+  before: OrderSnapshot;
+  after: OrderSnapshot;
+}
 export interface WorkflowEvent {
+  orderChanges?: OrderContentChanges | null;
+  /** Missing on legacy events: factual changes may be embedded in note text. */
+  actualDateChanges?: ActualDateChange[] | null;
   id: string;
   kind: 'request' | 'order';
   recordId: string;
@@ -74,7 +99,21 @@ export interface WorkflowEvent {
   createdAt: string;
 }
 
+export type CrmRole = 'admin' | 'worker';
+export interface TeamMember {
+  id: string;
+  name: string;
+  identifier: string;
+  role: CrmRole;
+}
+export interface CrmAccess {
+  userId: string;
+  orgId: string;
+  role: CrmRole;
+}
 export interface CrmWorkspace {
+  access?: CrmAccess;
+  team?: TeamMember[];
   customers: Customer[];
   vehicles: Vehicle[];
   requests: RepairRequest[];

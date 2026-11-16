@@ -41,6 +41,7 @@ export function WorkflowForm({
       kind: target.kind,
       id: target.record.id,
       expectedStatus: target.record.status,
+      expectedRevision: target.record.workflowRevision ?? 0,
       status,
       plannedIntakeDate: status === 'backlog' ? '' : (target.record.plannedIntakeDate ?? ''),
       plannedDeliveryDate: target.record.plannedDeliveryDate ?? '',

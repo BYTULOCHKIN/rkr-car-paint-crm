@@ -27,12 +27,13 @@ import { RecentOrders } from './recent-orders';
 
 interface OverviewProps {
   userId: string;
+  orgId?: string | null;
   initialToday: string;
 }
 
-export default function Overview({ userId, initialToday }: OverviewProps): ReactElement {
+export default function Overview({ userId, initialToday, orgId }: OverviewProps): ReactElement {
   const { data, isRefetchError } = useSuspenseQuery({
-    ...crmQueries.workspace(userId),
+    ...crmQueries.workspace(userId, orgId),
     refetchInterval: 60_000
   });
   const [today, setToday] = useState(initialToday);

@@ -1,6 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import type { CrmWorkspace, WorkflowRecord } from '../api/types';
-import { displayDate, overdueLabel, statusLabel } from '../lib/workflow';
+import { displayDate, overdueLabel } from '../lib/workflow';
 
 interface WorkflowDetailsProps {
   target: WorkflowRecord;
@@ -71,49 +71,4 @@ export function WorkflowDates({ target }: WorkflowDetailsProps) {
   );
 }
 
-export function WorkflowHistory({ target, data }: WorkflowDetailsProps) {
-  const relatedRequest = target.kind === 'order' ? target.record.requestId : null;
-  const events = (data?.events ?? []).filter(
-    (event) =>
-      (event.kind === target.kind && event.recordId === target.record.id) ||
-      (event.kind === 'request' && event.recordId === relatedRequest)
-  );
-  if (!events.length) return null;
-  return (
-    <details className='rounded-lg border p-3'>
-      <summary className='cursor-pointer text-sm font-medium'>
-        Історія статусів і перенесень ({events.length})
-      </summary>
-      <ol className='mt-3 flex flex-col gap-3'>
-        {events.map((event) => (
-          <li key={event.id} className='flex flex-col gap-1 text-sm'>
-            <p className='font-medium'>
-              {event.fromStatus ? `${statusLabel(event.fromStatus)} → ` : 'Створено · '}
-              {statusLabel(event.toStatus)}
-            </p>
-            {event.previousIntakeDate !== event.plannedIntakeDate && (
-              <p>
-                Прийом: {displayDate(event.previousIntakeDate)} →{' '}
-                {displayDate(event.plannedIntakeDate)}
-              </p>
-            )}
-            {event.previousDeliveryDate !== event.plannedDeliveryDate && (
-              <p>
-                Видача: {displayDate(event.previousDeliveryDate)} →{' '}
-                {displayDate(event.plannedDeliveryDate)}
-              </p>
-            )}
-            {event.note && <p className='whitespace-pre-wrap'>{event.note}</p>}
-            <time dateTime={event.createdAt} className='text-muted-foreground text-xs'>
-              {new Intl.DateTimeFormat('uk-UA', {
-                dateStyle: 'short',
-                timeStyle: 'short',
-                timeZone: 'Europe/Kyiv'
-              }).format(new Date(event.createdAt))}
-            </time>
-          </li>
-        ))}
-      </ol>
-    </details>
-  );
-}
+export { WorkflowHistory } from './workflow-history';

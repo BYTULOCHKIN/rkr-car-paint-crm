@@ -1,8 +1,8 @@
 'use server';
 
-import { auth } from '@clerk/nextjs/server';
+import { getCrmContext } from '../server/organization';
 import { z } from 'zod';
-import { CrmError, getCrmRepository } from '../server/repository';
+import { CrmError } from '../server/repository';
 import {
   customerSchema,
   vehicleSchema,
@@ -39,33 +39,37 @@ export async function decodeVehicleVin(
 }
 
 async function authorizedRepository() {
-  const { userId } = await auth();
-  if (!userId) throw new CrmError('Увійдіть у свій обліковий запис');
-  const repository = getCrmRepository();
-  repository.authorize(userId, process.env.CRM_ADMIN_USER_ID);
+  const { repository, access } = await getCrmContext();
+  if (access.role !== 'admin')
+    throw new CrmError('Ця дія доступна лише адміністратору автомалярки');
   return repository;
 }
 
+type CrmContext = Awaited<ReturnType<typeof getCrmContext>>;
 async function write<T>(
-  operation: (repository: Awaited<ReturnType<typeof authorizedRepository>>) => T
+  operation: (repository: CrmContext['repository'], context: CrmContext) => T,
+  permission: 'admin' | 'read' = 'admin'
 ): Promise<ActionResult<T>> {
   try {
-    const repository = await authorizedRepository();
-    return { ok: true, data: operation(repository) };
+    const context = await getCrmContext();
+    if (permission === 'admin' && context.access.role !== 'admin')
+      throw new CrmError('Ця дія доступна лише адміністратору автомалярки');
+    return { ok: true, data: operation(context.repository, context) };
   } catch (error) {
     if (error instanceof z.ZodError)
       return { ok: false, error: error.issues[0]?.message ?? 'Перевірте введені дані' };
     if (error instanceof CrmError) return { ok: false, error: error.message };
-    return { ok: false, error: 'Не вдалося зберегти дані. Спробуйте ще раз.' };
+    return { ok: false, error: 'Не вдалося виконати дію. Перевірте підключення та повторіть.' };
   }
 }
 
 export async function getWorkspace(): Promise<CrmWorkspace> {
-  return (await authorizedRepository()).workspace();
+  const { repository, access, team } = await getCrmContext();
+  return { ...repository.workspace(), access, team };
 }
 
 export async function checkCrmAccess(): Promise<ActionResult<null>> {
-  return write(() => null);
+  return write(() => null, 'read');
 }
 
 export async function assignVehicle(input: {
@@ -80,10 +84,22 @@ export async function assignVehicle(input: {
 }
 
 export async function updateWorkflow(input: WorkflowInput): Promise<ActionResult<null>> {
-  return write((repository) => {
-    repository.updateWorkflow(workflowSchema.parse(input));
+  return write((repository, context) => {
+    const value = workflowSchema.parse(input);
+    if (context.access.role !== 'admin') {
+      if (value.kind !== 'order')
+        throw new CrmError('Виконавець може змінювати лише статуси замовлень');
+      const order = repository.workspace().orders.find((order) => order.id === value.id);
+      if (!order) throw new CrmError('Замовлення не знайдено');
+      if (
+        (order.plannedIntakeDate ?? '') !== value.plannedIntakeDate ||
+        (order.plannedDeliveryDate ?? '') !== value.plannedDeliveryDate
+      )
+        throw new CrmError('Планові дати може змінювати лише адміністратор');
+    }
+    repository.updateWorkflow(value);
     return null;
-  });
+  }, 'read');
 }
 
 export async function createCustomer(input: CustomerInput): Promise<ActionResult<string>> {
@@ -116,12 +132,24 @@ export async function createRequest(input: RequestInput): Promise<ActionResult<s
 }
 
 export async function createOrder(input: OrderInput): Promise<ActionResult<string>> {
-  return write((repository) => repository.createOrder(orderSchema.parse(input)));
+  return write((repository, context) => {
+    const value = orderSchema.parse(input);
+    const assignee = context.team.find((member) => member.id === value.assigneeId);
+    if (!assignee) throw new CrmError('Виберіть активного учасника цієї автомалярки як виконавця');
+    return repository.createOrder(value, assignee.name);
+  });
 }
 
 export async function updateOrder(input: UpdateOrderInput): Promise<ActionResult<null>> {
-  return write((repository) => {
-    repository.updateOrder(updateOrderSchema.parse(input));
+  return write((repository, context) => {
+    const value = updateOrderSchema.parse(input);
+    const current = repository.workspace().orders.find((order) => order.id === value.id);
+    if (!current) throw new CrmError('Замовлення не знайдено');
+    const assignee = context.team.find(
+      (member) => member.id === (value.assigneeId ?? current.assigneeId)
+    );
+    if (!assignee) throw new CrmError('Виберіть активного учасника цієї автомалярки як виконавця');
+    repository.updateOrder({ ...value, assigneeId: assignee.id }, assignee.name);
     return null;
   });
 }
@@ -138,7 +166,7 @@ export async function updateVehicleVin(input: {
 }
 
 export async function getOrderDocument(id: string): Promise<OrderDocument | null> {
-  const workspace = (await authorizedRepository()).workspace();
+  const workspace = await getWorkspace();
   const order = workspace.orders.find((order) => order.id === id);
   if (!order) return null;
   const customer = workspace.customers.find((customer) => customer.id === order.customerId);

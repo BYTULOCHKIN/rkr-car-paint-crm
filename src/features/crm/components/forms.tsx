@@ -261,6 +261,7 @@ export function OrderForm({
         await update
           .mutateAsync({
             id: order.id,
+            expectedRevision: order.workflowRevision ?? 0,
             description: value.description,
             items: value.items,
             paintPlan: value.paintPlan

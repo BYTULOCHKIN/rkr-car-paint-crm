@@ -94,6 +94,7 @@ export const paintPlanSchema = z
 export const orderSchema = requestFields
   .extend({
     requestId: z.union([id, z.literal('')]),
+    assigneeId: z.string().min(1, 'Виберіть виконавця').max(255).optional(),
     paintPlan: paintPlanSchema.optional(),
     items: z.array(itemSchema).min(1, 'Додайте хоча б одну роботу').max(100),
     actualIntakeDate: z.iso.date('Вкажіть фактичну дату прийому').optional()
@@ -110,6 +111,8 @@ export const orderSchema = requestFields
 
 export const updateOrderSchema = z.object({
   id,
+  expectedRevision: z.number().int().nonnegative().optional(),
+  assigneeId: z.string().min(1, 'Виберіть виконавця').max(255).optional(),
   description: text('Опис робіт', 4000),
   items: orderSchema.shape.items,
   paintPlan: paintPlanSchema.optional()
@@ -122,6 +125,7 @@ export const workflowSchema = z
     kind: z.enum(['request', 'order']),
     id,
     expectedStatus: z.string(),
+    expectedRevision: z.number().int().nonnegative().optional(),
     status: z.enum(['backlog', 'scheduled', 'in_progress', 'ready', 'delivered']),
     plannedIntakeDate: optionalDate,
     plannedDeliveryDate: optionalDate,
