@@ -2,7 +2,7 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 import { getOrganizationRepository } from '../server/repository';
 import { getOrganizationContext } from '../server/organization';
-import { createCustomer, getOrderDocument, getWorkspace } from '../api/service';
+import { createCustomer, createOrder, getOrderDocument, getWorkspace } from '../api/service';
 import { crmQueries } from '../api/queries';
 
 vi.mock('server-only', () => ({}));
@@ -13,7 +13,11 @@ vi.mock('../server/repository', () => ({
 }));
 const memberships = vi.fn();
 const workspace = { customers: [], vehicles: [], orders: [], requests: [], events: [] };
-const repository = { workspace: vi.fn(() => workspace), createCustomer: vi.fn() };
+const repository = {
+  workspace: vi.fn(() => workspace),
+  createCustomer: vi.fn(),
+  createOrder: vi.fn(() => 'order-created')
+};
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getOrganizationRepository).mockReturnValue(
@@ -89,4 +93,22 @@ test('worker cannot invoke an administrative action and foreign print IDs are no
   expect(result.ok).toBe(false);
   expect(repository.workspace().customers).toHaveLength(0);
   expect(await getOrderDocument('other-org-order')).toBeNull();
+});
+
+test('creating an order validates a mandatory active member of the current organization, including an admin', async () => {
+  const input = {
+    customerId: '00000000-0000-4000-8000-000000000001',
+    vehicleId: '00000000-0000-4000-8000-000000000002',
+    requestId: '',
+    description: 'Фарбування',
+    items: [{ description: 'Робота', quantity: 1, unitPrice: 100 }]
+  };
+  expect((await createOrder(input)).ok).toBe(false);
+  expect((await createOrder({ ...input, assigneeId: 'user_foreign' })).ok).toBe(false);
+  expect(repository.createOrder).not.toHaveBeenCalled();
+  expect((await createOrder({ ...input, assigneeId: 'user_admin' })).ok).toBe(true);
+  expect(repository.createOrder).toHaveBeenCalledWith(
+    expect.objectContaining({ assigneeId: 'user_admin' }),
+    'Олена'
+  );
 });

@@ -1,4 +1,5 @@
 'use client';
+import { assigneeLabel } from '../lib/assignee';
 
 import { useMemo, useState } from 'react';
 import { useSuspenseQuery } from '@tanstack/react-query';
@@ -296,6 +297,16 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
       )
     },
     {
+      id: 'assignee',
+      header: 'Виконавець',
+      accessorFn: (order) => assigneeLabel(order, data.team),
+      cell: ({ row }) => (
+        <p className='max-w-48 truncate' title={assigneeLabel(row.original, data.team)}>
+          {assigneeLabel(row.original, data.team)}
+        </p>
+      )
+    },
+    {
       id: 'status',
       header: 'Статус',
       cell: ({ row }) => <Badge variant='secondary'>{statusLabel(row.original.status)}</Badge>
@@ -414,6 +425,7 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
         car(order.vehicleId),
         vehiclesById.get(order.vehicleId)?.vin,
         order.description,
+        assigneeLabel(order, data.team),
         ...order.items.map((item) => item.description)
       )
     );

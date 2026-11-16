@@ -1,6 +1,7 @@
 import type { OrderDocument as OrderDocumentData } from '../api/types';
 import { bodyParts, partLabel, paintModeLabel } from '../constants/paint-plan';
 import { displayDate, statusLabel } from '../lib/workflow';
+import { assigneeLabel } from '../lib/assignee';
 import { money, vehicleLabel } from './format';
 import { BodyDiagram } from './body-diagram';
 import { PaintLegend } from './paint-legend';
@@ -44,6 +45,10 @@ export function OrderDocument({ document: { order, customer, vehicle } }: OrderD
           <p>Готовність: {displayDate(order.actualReadyDate)}</p>
           <p>Видача: {displayDate(order.actualDeliveryDate)}</p>
         </div>
+      </section>
+      <section>
+        <h2>Виконавець</h2>
+        <p>{assigneeLabel(order)}</p>
       </section>
       <section>
         <h2>Опис замовлення</h2>

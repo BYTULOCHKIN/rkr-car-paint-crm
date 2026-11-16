@@ -1,5 +1,6 @@
 'use client';
 import { CrmForm } from './dialog-form';
+import { assigneeLabel } from '../lib/assignee';
 import { customerChoices } from './choice-options';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -245,6 +246,7 @@ export function OrderForm({
       vehicleId: initial?.vehicleId ?? '',
       description: initial?.description ?? '',
       requestId: request?.id ?? order?.requestId ?? '',
+      assigneeId: order ? (order.assigneeId ?? undefined) : '',
       plannedIntakeDate: initial?.plannedIntakeDate ?? '',
       plannedDeliveryDate: initial?.plannedDeliveryDate ?? '',
       actualIntakeDate: order?.actualIntakeDate ?? businessToday(),
@@ -262,6 +264,7 @@ export function OrderForm({
           .mutateAsync({
             id: order.id,
             expectedRevision: order.workflowRevision ?? 0,
+            ...(value.assigneeId ? { assigneeId: value.assigneeId } : {}),
             description: value.description,
             items: value.items,
             paintPlan: value.paintPlan
@@ -324,6 +327,41 @@ export function OrderForm({
               </form.Subscribe>
             </>
           )}
+          <form.AppField name='assigneeId'>
+            {(field) => (
+              <field.ComboboxField
+                label='Виконавець'
+                required={!order}
+                clearable={false}
+                placeholder='Виберіть учасника команди'
+                searchPlaceholder='Ім’я виконавця…'
+                emptyMessage='Немає активних учасників. Запросіть команду в розділі «Команда».'
+                description={
+                  order?.assigneeId && !data.team?.some((member) => member.id === order.assigneeId)
+                    ? `Поточний виконавець: ${assigneeLabel(order)}. Якщо учасник уже залишив команду, призначте іншого.`
+                    : 'Один активний учасник автомалярки, включно з адміністратором.'
+                }
+                options={[
+                  ...(data.team ?? []).map((member) => ({
+                    value: member.id,
+                    label: member.name,
+                    description: member.role === 'admin' ? 'Адміністратор' : 'Виконавець'
+                  })),
+                  ...(order?.assigneeId &&
+                  !data.team?.some((member) => member.id === order.assigneeId)
+                    ? [
+                        {
+                          value: order.assigneeId,
+                          label: assigneeLabel(order),
+                          description: 'Більше не в команді',
+                          disabled: true
+                        }
+                      ]
+                    : [])
+                ]}
+              />
+            )}
+          </form.AppField>
           <form.AppField name='description'>
             {(field) => <field.TextareaField label='Опис замовлення' required />}
           </form.AppField>

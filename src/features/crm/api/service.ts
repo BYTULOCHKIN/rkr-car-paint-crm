@@ -145,11 +145,14 @@ export async function updateOrder(input: UpdateOrderInput): Promise<ActionResult
     const value = updateOrderSchema.parse(input);
     const current = repository.workspace().orders.find((order) => order.id === value.id);
     if (!current) throw new CrmError('Замовлення не знайдено');
-    const assignee = context.team.find(
-      (member) => member.id === (value.assigneeId ?? current.assigneeId)
-    );
-    if (!assignee) throw new CrmError('Виберіть активного учасника цієї автомалярки як виконавця');
-    repository.updateOrder({ ...value, assigneeId: assignee.id }, assignee.name);
+    if (value.assigneeId === undefined || value.assigneeId === current.assigneeId) {
+      repository.updateOrder({ ...value, assigneeId: undefined });
+    } else {
+      const assignee = context.team.find((member) => member.id === value.assigneeId);
+      if (!assignee)
+        throw new CrmError('Виберіть активного учасника цієї автомалярки як виконавця');
+      repository.updateOrder(value, assignee.name);
+    }
     return null;
   });
 }

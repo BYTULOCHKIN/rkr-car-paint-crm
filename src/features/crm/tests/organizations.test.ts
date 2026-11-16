@@ -58,3 +58,44 @@ test('legacy binding is idempotent and cannot be taken over by another organizat
     repository.close();
   }
 });
+
+test('order assignee survives reopening and historical names are kept independently from live membership', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'crm-assignee-'));
+  const filename = join(dir, 'crm.sqlite');
+  let repository = new CrmRepository(filename);
+  try {
+    const customerId = repository.createCustomer({
+      name: 'Клієнт',
+      phone: '0501234567',
+      notes: ''
+    });
+    const vehicleId = repository.createVehicle({
+      customerId,
+      make: 'Ford',
+      model: 'Focus',
+      year: 2020,
+      plate: '',
+      vin: 'WVWZZZ1JZXW000001'
+    });
+    const id = repository.createOrder(
+      {
+        customerId,
+        vehicleId,
+        requestId: '',
+        assigneeId: 'user_worker',
+        description: 'Фарбування',
+        items: [{ description: 'Робота', quantity: 1, unitPrice: 100 }]
+      },
+      'Маляр Андрій'
+    );
+    repository.close();
+    repository = new CrmRepository(filename);
+    const order = repository.workspace().orders.find((order) => order.id === id)!;
+    assert.equal(order.assigneeId, 'user_worker');
+    assert.equal(order.assigneeName, 'Маляр Андрій');
+    assert.equal(order.totalCents, 10000);
+  } finally {
+    repository.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

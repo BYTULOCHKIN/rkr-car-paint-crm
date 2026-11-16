@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { assigneeLabel } from '../lib/assignee';
 import { crmQueries } from '../api/queries';
 import type { BoardStatus, CrmWorkspace, WorkflowRecord } from '../api/types';
 import {
@@ -130,6 +131,12 @@ function BoardCardContent({
       >
         {target.record.description}
       </p>
+      {target.kind === 'order' && (
+        <p className='text-xs break-words'>
+          <span className='text-muted-foreground'>Виконавець: </span>
+          {assigneeLabel(target.record, data.team)}
+        </p>
+      )}
       <dl className='grid grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1 text-xs'>
         <dt className='text-muted-foreground'>Прийом · план</dt>
         <dd className='text-right tabular-nums'>{displayDate(target.record.plannedIntakeDate)}</dd>

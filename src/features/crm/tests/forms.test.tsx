@@ -6,7 +6,7 @@ import type { ReactElement } from 'react';
 import { RequestForm, OrderForm } from '../components/forms';
 import { CrmEditorDialog } from '../components/editor-dialog';
 import { SummaryCards } from '../components/summary-cards';
-import { createRequest, updateOrder } from '../api/service';
+import { createRequest, createOrder, updateOrder } from '../api/service';
 import { useAppForm } from '@/lib/form';
 import type { CrmWorkspace, RepairOrder } from '../api/types';
 
@@ -321,4 +321,45 @@ test('body diagram saves paint selections alongside unchanged work items and pri
     items: [{ description: 'Підготовка', quantity: 1, unitPrice: 500 }],
     paintPlan: [{ partId: 'hood', mode: 'both_sides' }]
   });
+});
+
+test('conversion requires selecting an active team member and submits the selected executor', async () => {
+  vi.mocked(createOrder).mockResolvedValue({ ok: true, data: first });
+  const request = {
+    id: first,
+    customerId: first,
+    vehicleId: carId,
+    description: 'Фарбування',
+    status: 'backlog' as const,
+    createdAt: '2026-10-31',
+    plannedIntakeDate: null,
+    plannedDeliveryDate: null
+  };
+  renderForm(
+    <OrderForm
+      data={{
+        ...data,
+        team: [
+          { id: 'user_admin', name: 'Олена', identifier: 'owner@example.com', role: 'admin' },
+          {
+            id: 'user_worker',
+            name: 'Маляр Андрій',
+            identifier: 'worker@example.com',
+            role: 'worker'
+          }
+        ]
+      }}
+      request={request}
+      onSaved={vi.fn()}
+    />
+  );
+  const user = userEvent.setup();
+  await user.type(screen.getByRole('textbox', { name: 'Робота 1 *' }), 'Фарбування бампера');
+  await user.click(screen.getByRole('button', { name: 'Взяти в роботу' }));
+  expect(createOrder).not.toHaveBeenCalled();
+  expect(await screen.findByText('Виберіть виконавця')).toBeDefined();
+  await select('Виконавець *', /Маляр Андрій/);
+  await user.click(screen.getByRole('button', { name: 'Взяти в роботу' }));
+  await waitFor(() => expect(createOrder).toHaveBeenCalledOnce());
+  expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({ assigneeId: 'user_worker' }));
 });
