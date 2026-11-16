@@ -78,7 +78,7 @@ test('migration from v3 preserves old orders and gives them an empty plan', () =
   initial.close();
   const old = new DatabaseSync(path);
   old.exec(
-    'ALTER TABLE crm_orders DROP COLUMN paintPlan; ALTER TABLE crm_workflow_events DROP COLUMN orderChanges; ALTER TABLE crm_workflow_events DROP COLUMN actualDateChanges; ALTER TABLE crm_orders DROP COLUMN workflowRevision; ALTER TABLE crm_requests DROP COLUMN workflowRevision; ALTER TABLE crm_orders DROP COLUMN assigneeId; ALTER TABLE crm_orders DROP COLUMN assigneeName; PRAGMA user_version = 3;'
+    'ALTER TABLE crm_orders DROP COLUMN paintPlan; ALTER TABLE crm_workflow_events DROP COLUMN actor; ALTER TABLE crm_workflow_events DROP COLUMN orderChanges; ALTER TABLE crm_workflow_events DROP COLUMN actualDateChanges; ALTER TABLE crm_orders DROP COLUMN workflowRevision; ALTER TABLE crm_requests DROP COLUMN workflowRevision; ALTER TABLE crm_orders DROP COLUMN assigneeId; ALTER TABLE crm_orders DROP COLUMN assigneeName; PRAGMA user_version = 3;'
   );
   old.close();
   try {

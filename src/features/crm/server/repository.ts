@@ -11,7 +11,8 @@ import type {
   OrderItem,
   WorkflowEvent,
   ActualDateChange,
-  OrderSnapshot
+  OrderSnapshot,
+  HistoryActor
 } from '../api/types';
 import type {
   CustomerInput,
@@ -25,6 +26,13 @@ import { businessToday } from '../lib/workflow';
 import { paintPlanSchema, workflowSchema } from '../schemas/crm';
 
 export class CrmError extends Error {}
+
+function normalizedOrderSnapshot(value: OrderSnapshot): string {
+  return JSON.stringify({
+    ...value,
+    paintPlan: value.paintPlan.toSorted((a, b) => a.partId.localeCompare(b.partId))
+  });
+}
 
 // A single local database. Writes are short synchronous transactions; no network I/O
 // occurs inside them. Instantiate separately in tests to verify persistence.
@@ -150,6 +158,13 @@ export class CrmRepository {
       `)
       );
     }
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 8) {
+      this.transaction(() =>
+        this.db.exec(
+          `ALTER TABLE crm_workflow_events ADD COLUMN actor TEXT; PRAGMA user_version = 8;`
+        )
+      );
+    }
   }
 
   /** The legacy installation can only be claimed by its existing owner. */
@@ -256,7 +271,7 @@ export class CrmRepository {
   private logEvent(event: Omit<WorkflowEvent, 'id' | 'createdAt'>): void {
     this.db
       .prepare(
-        'INSERT INTO crm_workflow_events (id, kind, recordId, fromStatus, toStatus, previousIntakeDate, previousDeliveryDate, plannedIntakeDate, plannedDeliveryDate, note, createdAt, actualDateChanges, orderChanges) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO crm_workflow_events (id, kind, recordId, fromStatus, toStatus, previousIntakeDate, previousDeliveryDate, plannedIntakeDate, plannedDeliveryDate, note, createdAt, actualDateChanges, orderChanges, actor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       )
       .run(
         randomUUID(),
@@ -271,7 +286,8 @@ export class CrmRepository {
         event.note,
         new Date().toISOString(),
         JSON.stringify(event.actualDateChanges ?? []),
-        event.orderChanges ? JSON.stringify(event.orderChanges) : null
+        event.orderChanges ? JSON.stringify(event.orderChanges) : null,
+        event.actor ? JSON.stringify(event.actor) : null
       );
   }
 
@@ -327,6 +343,7 @@ export class CrmRepository {
       .all()
       .map((row) => ({
         ...row,
+        actor: typeof row.actor === 'string' ? JSON.parse(row.actor) : null,
         orderChanges: typeof row.orderChanges === 'string' ? JSON.parse(row.orderChanges) : null,
         actualDateChanges:
           typeof row.actualDateChanges === 'string' ? JSON.parse(row.actualDateChanges) : null
@@ -447,7 +464,7 @@ export class CrmRepository {
     });
   }
 
-  createRequest(input: RequestInput): string {
+  createRequest(input: RequestInput, actor?: HistoryActor): string {
     this.vehicleFor(input.customerId, input.vehicleId);
     this.checkPlan(input.plannedIntakeDate, input.plannedDeliveryDate);
     const id = randomUUID();
@@ -466,6 +483,7 @@ export class CrmRepository {
           input.plannedDeliveryDate || null
         );
       this.logEvent({
+        actor,
         kind: 'request',
         recordId: id,
         fromStatus: null,
@@ -480,7 +498,7 @@ export class CrmRepository {
     return id;
   }
 
-  createOrder(input: OrderInput, assigneeName?: string): string {
+  createOrder(input: OrderInput, assigneeName?: string, actor?: HistoryActor): string {
     return this.transaction(() => {
       const vehicle = this.vehicleFor(input.customerId, input.vehicleId);
       if (!vehicle.vin) throw new CrmError('Додайте VIN автомобіля перед початком робіт');
@@ -536,6 +554,7 @@ export class CrmRepository {
           .prepare("UPDATE crm_requests SET status = 'converted' WHERE id = ?")
           .run(input.requestId);
       this.logEvent({
+        actor,
         kind: 'order',
         recordId: id,
         fromStatus: null,
@@ -549,6 +568,7 @@ export class CrmRepository {
       });
       if (source)
         this.logEvent({
+          actor,
           kind: 'request',
           recordId: source.id,
           fromStatus: source.plannedIntakeDate ? 'scheduled' : 'backlog',
@@ -563,7 +583,7 @@ export class CrmRepository {
     });
   }
 
-  updateOrder(input: UpdateOrderInput, assigneeName?: string): void {
+  updateOrder(input: UpdateOrderInput, assigneeName?: string, actor?: HistoryActor): void {
     this.transaction(() => {
       const current = this.db
         .prepare('SELECT * FROM crm_orders WHERE id = ?')
@@ -609,12 +629,7 @@ export class CrmRepository {
           input.paintPlan === undefined ? before.paintPlan : paintPlanSchema.parse(input.paintPlan),
         totalCents: afterItems.reduce((sum, item) => sum + item.quantity * item.unitPriceCents, 0)
       };
-      const normalized = (value: OrderSnapshot) =>
-        JSON.stringify({
-          ...value,
-          paintPlan: value.paintPlan.toSorted((a, b) => a.partId.localeCompare(b.partId))
-        });
-      if (normalized(before) === normalized(after)) return;
+      if (normalizedOrderSnapshot(before) === normalizedOrderSnapshot(after)) return;
       this.db
         .prepare(
           'UPDATE crm_orders SET description = ?, workflowRevision = workflowRevision + 1 WHERE id = ?'
@@ -628,6 +643,7 @@ export class CrmRepository {
       this.writeItems(input.id, input.items);
       if (input.paintPlan !== undefined) this.writePaintPlan(input.id, input.paintPlan);
       this.logEvent({
+        actor,
         kind: 'order',
         recordId: input.id,
         fromStatus: current.status,
@@ -642,7 +658,7 @@ export class CrmRepository {
     });
   }
 
-  updateWorkflow(input: WorkflowInput): void {
+  updateWorkflow(input: WorkflowInput, actor?: HistoryActor): void {
     const value = workflowSchema.parse(input);
     this.transaction(() => {
       const table = value.kind === 'request' ? 'crm_requests' : 'crm_orders';
@@ -714,6 +730,7 @@ export class CrmRepository {
             value.id
           );
       this.logEvent({
+        actor,
         kind: value.kind,
         recordId: value.id,
         fromStatus: currentStatus,
@@ -736,12 +753,12 @@ const globalDb = globalThis as typeof globalThis & {
 export function getCrmRepository(): CrmRepository {
   if (
     globalDb.crmRepository &&
-    (globalDb.crmSchemaVersion !== 7 || !(globalDb.crmRepository instanceof CrmRepository))
+    (globalDb.crmSchemaVersion !== 8 || !(globalDb.crmRepository instanceof CrmRepository))
   ) {
     globalDb.crmRepository.close();
     globalDb.crmRepository = undefined;
   }
-  globalDb.crmSchemaVersion = 7;
+  globalDb.crmSchemaVersion = 8;
   return (globalDb.crmRepository ??= new CrmRepository(
     process.env.CRM_DATABASE_PATH || resolve('data/crm.sqlite')
   ));

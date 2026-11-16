@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { historyOrderChanges } from '../lib/workflow-history';
 import { CrmRepository, OrganizationRepositories } from '../server/repository';
 
 test('only legacy owner can bind existing data, other organizations remain isolated across reopen', () => {
@@ -97,5 +98,71 @@ test('order assignee survives reopening and historical names are kept independen
   } finally {
     repository.close();
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('reassignment is atomic, records names and actor, ignores unchanged saves and rejects stale revisions', () => {
+  const repository = new CrmRepository(':memory:');
+  try {
+    const customerId = repository.createCustomer({
+      name: 'Клієнт',
+      phone: '0501234567',
+      notes: ''
+    });
+    const vehicleId = repository.createVehicle({
+      customerId,
+      make: 'Ford',
+      model: 'Focus',
+      year: 2020,
+      plate: '',
+      vin: 'WVWZZZ1JZXW000001'
+    });
+    const items = [{ description: 'Фарбування', quantity: 1, unitPrice: 100 }];
+    const actor = { id: 'user_owner', name: 'Власник' };
+    const id = repository.createOrder(
+      {
+        customerId,
+        vehicleId,
+        requestId: '',
+        assigneeId: 'user_worker',
+        description: 'Роботи',
+        items
+      },
+      'Андрій',
+      actor
+    );
+    const input = {
+      id,
+      description: 'Роботи',
+      items,
+      assigneeId: 'user_owner',
+      expectedRevision: 0
+    };
+    repository.updateOrder(input, 'Власник', actor);
+    const snapshot = repository.workspace();
+    assert.equal(snapshot.orders[0].assigneeName, 'Власник');
+    assert.equal(snapshot.orders[0].totalCents, 10000);
+    assert.deepEqual(snapshot.events[0].actor, actor);
+    assert.deepEqual(historyOrderChanges(snapshot.events[0]), [
+      { label: 'Виконавець', before: 'Андрій', after: 'Власник' }
+    ]);
+    repository.updateOrder({ ...input, expectedRevision: 1 }, 'Власник', actor);
+    assert.equal(repository.workspace().events.length, snapshot.events.length);
+    assert.throws(() => repository.updateOrder(input, 'Власник', actor), /іншому вікні/);
+    assert.throws(() =>
+      repository.updateOrder(
+        {
+          ...input,
+          expectedRevision: 1,
+          assigneeId: 'user_worker',
+          items: [{ description: 'Помилка', quantity: -1, unitPrice: 1 }]
+        },
+        'Андрій',
+        actor
+      )
+    );
+    assert.deepEqual(repository.workspace(), snapshot);
+  } finally {
+    repository.close();
   }
 });

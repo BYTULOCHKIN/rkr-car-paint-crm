@@ -97,6 +97,12 @@ export function historyOrderChanges(event: WorkflowEvent): HistoryContentChange[
   if (!event.orderChanges) return [];
   const { before, after } = event.orderChanges;
   const changes: HistoryContentChange[] = [];
+  if (before.assigneeId !== after.assigneeId)
+    changes.push({
+      label: 'Виконавець',
+      before: before.assigneeName || 'Не призначено',
+      after: after.assigneeName || 'Не призначено'
+    });
   if (before.description !== after.description)
     changes.push({
       label: 'Опис замовлення',

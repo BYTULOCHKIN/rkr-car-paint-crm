@@ -354,7 +354,7 @@ test('v4 event migration preserves legacy notes without inventing factual change
   const note = 'Причина\nФактична видача: 2020-01-15 → —';
   legacy.prepare('UPDATE crm_workflow_events SET note = ?').run(note);
   legacy.exec(
-    'ALTER TABLE crm_workflow_events DROP COLUMN orderChanges; ALTER TABLE crm_workflow_events DROP COLUMN actualDateChanges; ALTER TABLE crm_requests DROP COLUMN workflowRevision; ALTER TABLE crm_orders DROP COLUMN workflowRevision; ALTER TABLE crm_orders DROP COLUMN assigneeId; ALTER TABLE crm_orders DROP COLUMN assigneeName; PRAGMA user_version = 4;'
+    'ALTER TABLE crm_workflow_events DROP COLUMN actor; ALTER TABLE crm_workflow_events DROP COLUMN orderChanges; ALTER TABLE crm_workflow_events DROP COLUMN actualDateChanges; ALTER TABLE crm_requests DROP COLUMN workflowRevision; ALTER TABLE crm_orders DROP COLUMN workflowRevision; ALTER TABLE crm_orders DROP COLUMN assigneeId; ALTER TABLE crm_orders DROP COLUMN assigneeName; PRAGMA user_version = 4;'
   );
   legacy.close();
   try {

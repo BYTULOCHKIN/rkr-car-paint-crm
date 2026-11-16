@@ -2,7 +2,14 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 import { getOrganizationRepository } from '../server/repository';
 import { getOrganizationContext } from '../server/organization';
-import { createCustomer, createOrder, getOrderDocument, getWorkspace } from '../api/service';
+import type { CrmWorkspace, RepairOrder } from '../api/types';
+import {
+  updateOrder,
+  createCustomer,
+  createOrder,
+  getOrderDocument,
+  getWorkspace
+} from '../api/service';
 import { crmQueries } from '../api/queries';
 
 vi.mock('server-only', () => ({}));
@@ -12,11 +19,18 @@ vi.mock('../server/repository', () => ({
   getOrganizationRepository: vi.fn()
 }));
 const memberships = vi.fn();
-const workspace = { customers: [], vehicles: [], orders: [], requests: [], events: [] };
+const workspace: CrmWorkspace = {
+  customers: [],
+  vehicles: [],
+  orders: [],
+  requests: [],
+  events: []
+};
 const repository = {
   workspace: vi.fn(() => workspace),
   createCustomer: vi.fn(),
-  createOrder: vi.fn(() => 'order-created')
+  createOrder: vi.fn(() => 'order-created'),
+  updateOrder: vi.fn()
 };
 beforeEach(() => {
   vi.clearAllMocks();
@@ -109,6 +123,49 @@ test('creating an order validates a mandatory active member of the current organ
   expect((await createOrder({ ...input, assigneeId: 'user_admin' })).ok).toBe(true);
   expect(repository.createOrder).toHaveBeenCalledWith(
     expect.objectContaining({ assigneeId: 'user_admin' }),
-    'Олена'
+    'Олена',
+    { id: 'user_admin', name: 'Олена' }
+  );
+});
+
+test('reassignment validates the new member, preserves inactive historical assignees, and cannot spoof the actor', async () => {
+  const current: RepairOrder = {
+    id: '00000000-0000-4000-8000-000000000001',
+    number: 1,
+    requestId: null,
+    customerId: 'c',
+    vehicleId: 'v',
+    description: 'Роботи',
+    createdAt: '',
+    status: 'in_progress',
+    plannedIntakeDate: null,
+    plannedDeliveryDate: null,
+    actualIntakeDate: '2020-01-01',
+    actualReadyDate: null,
+    actualDeliveryDate: null,
+    items: [{ description: 'Робота', quantity: 1, unitPriceCents: 10000 }],
+    totalCents: 10000,
+    assigneeId: 'user_removed',
+    assigneeName: 'Колишній маляр'
+  };
+  repository.workspace.mockReturnValue({ ...workspace, orders: [current] });
+  const input = {
+    id: current.id,
+    description: 'Оновлено',
+    items: [{ description: 'Робота', quantity: 1, unitPrice: 100 }]
+  };
+  expect((await updateOrder({ ...input, assigneeId: 'user_removed' })).ok).toBe(true);
+  expect(repository.updateOrder).toHaveBeenLastCalledWith(
+    expect.objectContaining({ assigneeId: undefined }),
+    undefined,
+    { id: 'user_admin', name: 'Олена' }
+  );
+  expect((await updateOrder({ ...input, assigneeId: 'user_other_org' })).ok).toBe(false);
+  const forged = { ...input, assigneeId: 'user_admin', actor: { id: 'forged', name: 'Підробка' } };
+  expect((await updateOrder(forged)).ok).toBe(true);
+  expect(repository.updateOrder).toHaveBeenLastCalledWith(
+    expect.objectContaining({ assigneeId: 'user_admin' }),
+    'Олена',
+    { id: 'user_admin', name: 'Олена' }
   );
 });

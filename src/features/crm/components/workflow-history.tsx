@@ -40,6 +40,11 @@ function HistoryEvent({ event }: { event: WorkflowEvent }): ReactElement {
       <article className='flex min-w-0 flex-col gap-3 rounded-xl border bg-background p-3 sm:p-4'>
         <header className='flex flex-wrap items-center justify-between gap-x-3 gap-y-2'>
           <Badge variant='outline'>{event.kind === 'request' ? 'Заявка' : 'Замовлення'}</Badge>
+          {event.actor && (
+            <span className='min-w-0 text-xs text-muted-foreground [overflow-wrap:anywhere]'>
+              Змінив: {event.actor.name}
+            </span>
+          )}
           <time
             dateTime={Number.isFinite(Date.parse(event.createdAt)) ? event.createdAt : undefined}
             className='text-xs tabular-nums text-muted-foreground'

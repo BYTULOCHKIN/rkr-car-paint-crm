@@ -82,7 +82,12 @@ export interface OrderContentChanges {
   before: OrderSnapshot;
   after: OrderSnapshot;
 }
+export interface HistoryActor {
+  id: string;
+  name: string;
+}
 export interface WorkflowEvent {
+  actor?: HistoryActor | null;
   orderChanges?: OrderContentChanges | null;
   /** Missing on legacy events: factual changes may be embedded in note text. */
   actualDateChanges?: ActualDateChange[] | null;
