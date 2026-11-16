@@ -1,6 +1,6 @@
 'use server';
 
-import { getCrmContext } from '../server/organization';
+import { getOrganizationContext } from '../server/organization';
 import { z } from 'zod';
 import { CrmError } from '../server/repository';
 import {
@@ -39,19 +39,19 @@ export async function decodeVehicleVin(
 }
 
 async function authorizedRepository() {
-  const { repository, access } = await getCrmContext();
+  const { repository, access } = await getOrganizationContext();
   if (access.role !== 'admin')
     throw new CrmError('Ця дія доступна лише адміністратору автомалярки');
   return repository;
 }
 
-type CrmContext = Awaited<ReturnType<typeof getCrmContext>>;
+type CrmContext = Awaited<ReturnType<typeof getOrganizationContext>>;
 async function write<T>(
   operation: (repository: CrmContext['repository'], context: CrmContext) => T,
   permission: 'admin' | 'read' = 'admin'
 ): Promise<ActionResult<T>> {
   try {
-    const context = await getCrmContext();
+    const context = await getOrganizationContext();
     if (permission === 'admin' && context.access.role !== 'admin')
       throw new CrmError('Ця дія доступна лише адміністратору автомалярки');
     return { ok: true, data: operation(context.repository, context) };
@@ -64,7 +64,7 @@ async function write<T>(
 }
 
 export async function getWorkspace(): Promise<CrmWorkspace> {
-  const { repository, access, team } = await getCrmContext();
+  const { repository, access, team } = await getOrganizationContext();
   return { ...repository.workspace(), access, team };
 }
 

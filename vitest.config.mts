@@ -2,7 +2,14 @@ import { defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
-  resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      'server-only': fileURLToPath(
+        new URL('./src/features/crm/tests/server-only.ts', import.meta.url)
+      )
+    }
+  },
   test: {
     environment: 'jsdom',
     include: ['src/features/crm/tests/**/*.test.tsx'],

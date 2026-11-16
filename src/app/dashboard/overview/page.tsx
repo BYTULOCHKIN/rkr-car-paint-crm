@@ -1,3 +1,4 @@
+import { OrganizationBoundary } from '@/features/crm/components/organization-boundary';
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { auth } from '@clerk/nextjs/server';
@@ -48,11 +49,13 @@ export default async function OverviewPage() {
         </Link>
       }
     >
-      <HydrationBoundary state={dehydrate(queryClient)}>
-        <Suspense fallback={<OverviewSkeleton />}>
-          <Overview userId={userId} orgId={orgId} initialToday={businessToday()} />
-        </Suspense>
-      </HydrationBoundary>
+      <OrganizationBoundary orgId={orgId ?? null}>
+        <HydrationBoundary state={dehydrate(queryClient)}>
+          <Suspense fallback={<OverviewSkeleton />}>
+            <Overview userId={userId} orgId={orgId} initialToday={businessToday()} />
+          </Suspense>
+        </HydrationBoundary>
+      </OrganizationBoundary>
     </PageContainer>
   );
 }

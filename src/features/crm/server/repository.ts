@@ -184,6 +184,14 @@ export class CrmRepository {
     });
   }
 
+  hasBusinessData(): boolean {
+    return !!this.db
+      .prepare(
+        'SELECT 1 AS present FROM crm_customers UNION ALL SELECT 1 FROM crm_vehicles UNION ALL SELECT 1 FROM crm_requests UNION ALL SELECT 1 FROM crm_orders LIMIT 1'
+      )
+      .get();
+  }
+
   organizationId(): string | null {
     return (
       (this.db.prepare("SELECT value FROM crm_settings WHERE key = 'organization'").get()
@@ -739,34 +747,66 @@ export function getCrmRepository(): CrmRepository {
   ));
 }
 
-const orgDatabases = globalThis as typeof globalThis & {
-  crmOrgDatabases?: Map<string, CrmRepository>;
-};
+/** One registry per configured installation; every organization gets a bound database. */
+export class OrganizationRepositories {
+  private readonly legacy: CrmRepository;
+  private readonly scoped = new Map<string, CrmRepository>();
+  constructor(
+    private readonly filename: string,
+    private readonly configuredAdmin?: string
+  ) {
+    this.legacy = new CrmRepository(filename);
+  }
+  forOrganization(orgId: string, userId: string, isAdmin: boolean): CrmRepository {
+    if (!/^org_[a-zA-Z0-9]+$/.test(orgId)) throw new CrmError('Некоректна автомалярка');
+    if (this.legacy.organizationId() === orgId) return this.legacy;
+    const existing = this.scoped.get(orgId);
+    const filename = `${this.filename}.org-${createHash('sha256').update(orgId).digest('hex')}.sqlite`;
+    const candidate = existing ?? new CrmRepository(filename);
+    candidate.bindOrganization(orgId);
+    this.scoped.set(orgId, candidate);
+    // Never shadow business data written to a new shop with the owner's legacy database.
+    if (
+      isAdmin &&
+      !candidate.hasBusinessData() &&
+      this.legacy.claimOrganization(orgId, userId, this.configuredAdmin)
+    )
+      return this.legacy;
+    return candidate;
+  }
+  close(): void {
+    this.legacy.close();
+    for (const repository of this.scoped.values()) repository.close();
+  }
+}
 
+const orgRegistry = globalThis as typeof globalThis & {
+  crmOrganizations?: {
+    filename: string;
+    configuredAdmin?: string;
+    repositories: OrganizationRepositories;
+  };
+};
 export function getOrganizationRepository(
   orgId: string,
   userId: string,
   isAdmin: boolean
 ): CrmRepository {
-  if (!/^org_[a-zA-Z0-9]+$/.test(orgId)) throw new CrmError('Некоректна автомалярка');
-  const legacy = getCrmRepository();
+  const filename = process.env.CRM_DATABASE_PATH || resolve('data/crm.sqlite');
+  const configuredAdmin = process.env.CRM_ADMIN_USER_ID;
+  const cached = orgRegistry.crmOrganizations;
   if (
-    legacy.organizationId() === orgId ||
-    (isAdmin && legacy.claimOrganization(orgId, userId, process.env.CRM_ADMIN_USER_ID))
-  )
-    return legacy;
-  const filename = `${process.env.CRM_DATABASE_PATH || resolve('data/crm.sqlite')}.org-${createHash('sha256').update(orgId).digest('hex')}.sqlite`;
-  const databases = (orgDatabases.crmOrgDatabases ??= new Map());
-  let repository = databases.get(filename);
-  if (repository && !(repository instanceof CrmRepository)) {
-    repository.close();
-    databases.delete(filename);
-    repository = undefined;
+    !cached ||
+    cached.filename !== filename ||
+    cached.configuredAdmin !== configuredAdmin ||
+    !(cached.repositories instanceof OrganizationRepositories)
+  ) {
+    cached?.repositories.close();
+    orgRegistry.crmOrganizations = {
+      filename,
+      configuredAdmin,
+      repositories: new OrganizationRepositories(filename, configuredAdmin)
+    };
   }
-  if (!repository) {
-    repository = new CrmRepository(filename);
-    repository.bindOrganization(orgId);
-    databases.set(filename, repository);
-  }
-  return repository;
+  return orgRegistry.crmOrganizations!.repositories.forOrganization(orgId, userId, isAdmin);
 }

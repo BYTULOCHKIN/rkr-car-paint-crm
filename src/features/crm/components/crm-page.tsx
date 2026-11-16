@@ -1,3 +1,4 @@
+import { OrganizationBoundary } from '@/features/crm/components/organization-boundary';
 import { Suspense } from 'react';
 import { auth } from '@clerk/nextjs/server';
 import { dehydrate, HydrationBoundary } from '@tanstack/react-query';
@@ -50,17 +51,19 @@ export async function CrmPage({ view }: CrmPageProps) {
   void queryClient.prefetchQuery(crmQueries.workspace(userId, orgId));
   return (
     <PageContainer pageTitle={copy[view][0]} pageDescription={copy[view][1]}>
-      <HydrationBoundary state={dehydrate(queryClient)}>
-        <Suspense fallback={<Skeleton className='h-80 w-full' />}>
-          {view === 'vehicles' ? (
-            <VehiclesView userId={userId} orgId={orgId} />
-          ) : view === 'kanban' ? (
-            <CrmKanbanBoard userId={userId} orgId={orgId} />
-          ) : (
-            <CrmWorkspaceView view={view} userId={userId} orgId={orgId} />
-          )}
-        </Suspense>
-      </HydrationBoundary>
+      <OrganizationBoundary orgId={orgId ?? null}>
+        <HydrationBoundary state={dehydrate(queryClient)}>
+          <Suspense fallback={<Skeleton className='h-80 w-full' />}>
+            {view === 'vehicles' ? (
+              <VehiclesView userId={userId} orgId={orgId} />
+            ) : view === 'kanban' ? (
+              <CrmKanbanBoard userId={userId} orgId={orgId} />
+            ) : (
+              <CrmWorkspaceView view={view} userId={userId} orgId={orgId} />
+            )}
+          </Suspense>
+        </HydrationBoundary>
+      </OrganizationBoundary>
     </PageContainer>
   );
 }

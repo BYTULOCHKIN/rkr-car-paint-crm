@@ -97,7 +97,9 @@ test('v5 migration keeps older history and persists new content events across re
     const initial = seed(repository);
     repository.close();
     const old = new DatabaseSync(path);
-    old.exec('ALTER TABLE crm_workflow_events DROP COLUMN orderChanges; PRAGMA user_version = 5;');
+    old.exec(
+      'ALTER TABLE crm_workflow_events DROP COLUMN orderChanges; ALTER TABLE crm_orders DROP COLUMN assigneeId; ALTER TABLE crm_orders DROP COLUMN assigneeName; PRAGMA user_version = 5;'
+    );
     old.close();
     repository = new CrmRepository(path);
     assert.equal(repository.workspace().events[0].orderChanges, null);
