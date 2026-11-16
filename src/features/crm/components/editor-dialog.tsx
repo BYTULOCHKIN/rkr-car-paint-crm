@@ -36,6 +36,7 @@ import { WorkflowForm } from './workflow-form';
 import { WorkflowDates, WorkflowHistory } from './workflow-details';
 import { VehicleOwnerForm } from './vehicle-owner-form';
 import { VehicleDetails, DeleteVehicle } from './vehicle-details';
+import { buttonVariants } from '@/components/ui/button';
 import { DialogFormContext } from './dialog-form';
 
 export type Editor =
@@ -208,6 +209,29 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
               )}
               {editor.type === 'order' && (
                 <>
+                  {editor.order && (
+                    <div className='flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3'>
+                      <p className='text-sm text-muted-foreground'>
+                        {state.dirty
+                          ? 'Збережіть зміни перед друком.'
+                          : 'Друк збереженого замовлення зі схемою кузова.'}
+                      </p>
+                      {state.dirty || state.pending ? (
+                        <Button disabled variant='outline'>
+                          Друк замовлення
+                        </Button>
+                      ) : (
+                        <a
+                          href={`/print/orders/${editor.order.id}`}
+                          target='_blank'
+                          rel='noopener noreferrer'
+                          className={buttonVariants({ variant: 'outline' })}
+                        >
+                          Друк замовлення
+                        </a>
+                      )}
+                    </div>
+                  )}
                   {editor.order && (
                     <WorkflowDates target={{ kind: 'order', record: editor.order }} />
                   )}

@@ -2,6 +2,7 @@
 
 import { createFormHook } from '@tanstack/react-form';
 import { fieldContext, formContext } from '@/lib/form-context';
+import { CalendarDateField } from '@/components/forms/fields/calendar-date-field';
 import { TextField } from '@/components/forms/fields/text-field';
 import { TextareaField } from '@/components/forms/fields/textarea-field';
 import { SelectField } from '@/components/forms/fields/select-field';
@@ -39,6 +40,7 @@ export const { useAppForm, withForm } = createFormHook({
   formContext,
   fieldComponents: {
     TextField,
+    CalendarDateField,
     TextareaField,
     SelectField,
     CheckboxField,

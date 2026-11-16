@@ -14,6 +14,7 @@ import { Button } from './action-button';
 import { VehicleSelect } from './vehicle-select';
 import { FormStatus, FormActions, type SaveProps } from './form-status';
 import { money, vehicleLabel } from './format';
+import { PaintPlanEditor } from './paint-plan-editor';
 import { businessToday } from '../lib/workflow';
 
 function useSaveFeedback(onSaved: () => void) {
@@ -188,8 +189,7 @@ export function RequestForm({ data, onSaved, onCancel, onStateChange }: RequestF
           <FieldGroup className='grid gap-4 sm:grid-cols-2'>
             <form.AppField name='plannedIntakeDate'>
               {(field) => (
-                <field.TextField
-                  type='date'
+                <field.CalendarDateField
                   label='Запланований прийом'
                   description='З датою заявка потрапить у «Заплановано».'
                 />
@@ -197,8 +197,7 @@ export function RequestForm({ data, onSaved, onCancel, onStateChange }: RequestF
             </form.AppField>
             <form.AppField name='plannedDeliveryDate'>
               {(field) => (
-                <field.TextField
-                  type='date'
+                <field.CalendarDateField
                   label='Запланована видача'
                   description='Орієнтовна дата, яку можна перенести.'
                 />
@@ -249,6 +248,7 @@ export function OrderForm({
       plannedIntakeDate: initial?.plannedIntakeDate ?? '',
       plannedDeliveryDate: initial?.plannedDeliveryDate ?? '',
       actualIntakeDate: order?.actualIntakeDate ?? businessToday(),
+      paintPlan: order?.paintPlan ?? [],
       items: order?.items.map((item) => ({
         description: item.description,
         quantity: item.quantity,
@@ -259,7 +259,12 @@ export function OrderForm({
     onSubmit: async ({ value }) => {
       if (order)
         await update
-          .mutateAsync({ id: order.id, description: value.description, items: value.items })
+          .mutateAsync({
+            id: order.id,
+            description: value.description,
+            items: value.items,
+            paintPlan: value.paintPlan
+          })
           .catch(() => undefined);
       else await create.mutateAsync(value).catch(() => undefined);
     }
@@ -326,8 +331,7 @@ export function OrderForm({
               <FieldGroup className='grid gap-4 sm:grid-cols-2'>
                 <form.AppField name='plannedIntakeDate'>
                   {(field) => (
-                    <field.TextField
-                      type='date'
+                    <field.CalendarDateField
                       label='Запланований прийом'
                       disabled={!!request}
                       description={
@@ -340,14 +344,13 @@ export function OrderForm({
                 </form.AppField>
                 <form.AppField name='plannedDeliveryDate'>
                   {(field) => (
-                    <field.TextField type='date' label='Запланована видача' disabled={!!request} />
+                    <field.CalendarDateField label='Запланована видача' disabled={!!request} />
                   )}
                 </form.AppField>
               </FieldGroup>
               <form.AppField name='actualIntakeDate'>
                 {(field) => (
-                  <field.TextField
-                    type='date'
+                  <field.CalendarDateField
                     label='Фактичний прийом'
                     max={businessToday()}
                     required
@@ -356,12 +359,38 @@ export function OrderForm({
               </form.AppField>
             </>
           )}
+          <form.Field name='paintPlan'>
+            {(field) => (
+              <PaintPlanEditor
+                value={field.state.value ?? []}
+                disabled={create.isPending || update.isPending}
+                onChange={field.handleChange}
+                onBlur={field.handleBlur}
+              />
+            )}
+          </form.Field>
           <form.Field name='items' mode='array'>
             {(array) => (
               <fieldset className='flex min-w-0 flex-col gap-4'>
-                <legend className='mb-3 text-sm font-medium'>Позиції робіт · ціни у гривнях</legend>
+                <legend className='mb-3 text-base font-semibold'>Позиції робіт</legend>
+                <p className='text-muted-foreground text-sm'>
+                  Додайте роботи та вартість у гривнях. Позначки на схемі не змінюють суму
+                  замовлення.
+                </p>
                 {array.state.value.map((_, index) => (
-                  <div key={index} className='flex flex-col gap-3 rounded-lg border p-3'>
+                  <div
+                    key={index}
+                    className='flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-4'
+                  >
+                    <div className='flex items-center justify-between gap-3 text-sm'>
+                      <span className='text-muted-foreground'>Позиція {index + 1}</span>
+                      <strong>
+                        {money(
+                          (Number(array.state.value[index].quantity) || 0) *
+                            Math.round((Number(array.state.value[index].unitPrice) || 0) * 100)
+                        )}
+                      </strong>
+                    </div>
                     <form.AppField name={`items[${index}].description`}>
                       {(field) => (
                         <field.TextField

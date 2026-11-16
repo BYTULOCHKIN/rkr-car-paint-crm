@@ -20,7 +20,7 @@ import type {
   WorkflowInput
 } from '../schemas/crm';
 import { businessToday } from '../lib/workflow';
-import { workflowSchema } from '../schemas/crm';
+import { paintPlanSchema, workflowSchema } from '../schemas/crm';
 
 export class CrmError extends Error {}
 
@@ -113,6 +113,14 @@ export class CrmRepository {
         this.db.exec('PRAGMA foreign_keys = ON');
       }
     }
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 4) {
+      this.transaction(() =>
+        this.db.exec(`
+        ALTER TABLE crm_orders ADD COLUMN paintPlan TEXT NOT NULL DEFAULT '[]';
+        PRAGMA user_version = 4;
+      `)
+      );
+    }
   }
 
   close(): void {
@@ -148,6 +156,12 @@ export class CrmRepository {
       .get(vehicleId, customerId) as unknown as Vehicle | undefined;
     if (!vehicle) throw new CrmError('Автомобіль не належить вибраному клієнту');
     return vehicle;
+  }
+
+  private writePaintPlan(orderId: string, plan: OrderInput['paintPlan']): void {
+    this.db
+      .prepare('UPDATE crm_orders SET paintPlan = ? WHERE id = ?')
+      .run(JSON.stringify(paintPlanSchema.parse(plan ?? [])), orderId);
   }
 
   private writeItems(orderId: string, items: OrderInput['items']): void {
@@ -203,7 +217,9 @@ export class CrmRepository {
       .map((row) => ({ ...row })) as unknown as RepairRequest[];
     const rows = this.db
       .prepare('SELECT * FROM crm_orders ORDER BY number DESC')
-      .all() as unknown as Omit<RepairOrder, 'items' | 'totalCents'>[];
+      .all() as unknown as (Omit<RepairOrder, 'items' | 'totalCents' | 'paintPlan'> & {
+      paintPlan: string;
+    })[];
     const items = this.db
       .prepare('SELECT * FROM crm_order_items ORDER BY position')
       .all() as unknown as (OrderItem & { orderId: string })[];
@@ -222,6 +238,7 @@ export class CrmRepository {
       return {
         ...row,
         items: orderItems,
+        paintPlan: paintPlanSchema.parse(JSON.parse(row.paintPlan)),
         totalCents: orderItems.reduce((sum, item) => sum + item.quantity * item.unitPriceCents, 0)
       };
     });
@@ -425,6 +442,7 @@ export class CrmRepository {
           actualIntakeDate
         );
       this.writeItems(id, input.items);
+      this.writePaintPlan(id, input.paintPlan);
       if (input.requestId)
         this.db
           .prepare("UPDATE crm_requests SET status = 'converted' WHERE id = ?")
@@ -465,6 +483,7 @@ export class CrmRepository {
         .run(input.description, input.id);
       this.db.prepare('DELETE FROM crm_order_items WHERE orderId = ?').run(input.id);
       this.writeItems(input.id, input.items);
+      if (input.paintPlan !== undefined) this.writePaintPlan(input.id, input.paintPlan);
     });
   }
 
@@ -550,12 +569,12 @@ const globalDb = globalThis as typeof globalThis & {
 export function getCrmRepository(): CrmRepository {
   if (
     globalDb.crmRepository &&
-    (globalDb.crmSchemaVersion !== 3 || !(globalDb.crmRepository instanceof CrmRepository))
+    (globalDb.crmSchemaVersion !== 4 || !(globalDb.crmRepository instanceof CrmRepository))
   ) {
     globalDb.crmRepository.close();
     globalDb.crmRepository = undefined;
   }
-  globalDb.crmSchemaVersion = 3;
+  globalDb.crmSchemaVersion = 4;
   return (globalDb.crmRepository ??= new CrmRepository(
     process.env.CRM_DATABASE_PATH || resolve('data/crm.sqlite')
   ));

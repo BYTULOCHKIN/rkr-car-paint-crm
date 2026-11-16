@@ -1,3 +1,5 @@
+import type { PaintSelection } from '../constants/paint-plan';
+
 export interface Customer {
   id: string;
   name: string;
@@ -43,6 +45,7 @@ export interface RepairOrder {
   description: string;
   createdAt: string;
   items: OrderItem[];
+  paintPlan?: PaintSelection[];
   totalCents: number;
   status: 'in_progress' | 'ready' | 'delivered';
   plannedIntakeDate: string | null;
@@ -81,3 +84,9 @@ export interface CrmWorkspace {
 
 export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
 export type CrmView = 'customers' | 'vehicles' | 'requests' | 'orders' | 'kanban';
+
+export interface OrderDocument {
+  order: RepairOrder;
+  customer: Customer;
+  vehicle: Vehicle;
+}

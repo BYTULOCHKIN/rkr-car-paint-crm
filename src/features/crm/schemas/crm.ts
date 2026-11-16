@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { bodyParts } from '../constants/paint-plan';
 import { businessToday } from '../lib/workflow';
 
 const optionalDate = z.union([z.iso.date('Вкажіть коректну дату'), z.literal('')]);
@@ -75,9 +76,25 @@ export const itemSchema = z.object({
     )
 });
 
+export const paintPlanSchema = z
+  .array(
+    z.object({
+      partId: z
+        .string()
+        .refine((id) => bodyParts.some((part) => part.id === id), 'Невідома деталь кузова'),
+      mode: z.enum(['both_sides', 'one_side', 'partial'])
+    })
+  )
+  .max(bodyParts.length)
+  .refine(
+    (parts) => new Set(parts.map((part) => part.partId)).size === parts.length,
+    'Деталі кузова не можуть повторюватися'
+  );
+
 export const orderSchema = requestFields
   .extend({
     requestId: z.union([id, z.literal('')]),
+    paintPlan: paintPlanSchema.optional(),
     items: z.array(itemSchema).min(1, 'Додайте хоча б одну роботу').max(100),
     actualIntakeDate: z.iso.date('Вкажіть фактичну дату прийому').optional()
   })
@@ -94,7 +111,8 @@ export const orderSchema = requestFields
 export const updateOrderSchema = z.object({
   id,
   description: text('Опис робіт', 4000),
-  items: orderSchema.shape.items
+  items: orderSchema.shape.items,
+  paintPlan: paintPlanSchema.optional()
 });
 
 export const updateVinSchema = z.object({ id, vin: vinSchema });

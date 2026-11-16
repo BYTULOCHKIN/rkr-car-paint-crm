@@ -1,0 +1,138 @@
+.document {
+  --background: white;
+  --foreground: #111;
+  --paint-ink: #000;
+  --paint-paper: #fff;
+  --paint-body: #fff;
+  --paint-outline: #888;
+  background: white;
+  color: #111;
+  max-width: 210mm;
+  margin: 0 auto;
+  padding: 12mm;
+  font:
+    13px/1.5 Arial,
+    sans-serif;
+  overflow-wrap: anywhere;
+}
+.document h1 {
+  font-size: 25px;
+  font-weight: 700;
+  margin: 5px 0;
+}
+.document h2 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+.document section {
+  margin-top: 22px;
+}
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 2px solid #111;
+  padding-bottom: 15px;
+}
+.details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.description {
+  white-space: pre-wrap;
+}
+.document table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.document th,
+.document td {
+  border: 1px solid #aaa;
+  padding: 7px;
+  text-align: left;
+  vertical-align: top;
+}
+.document th {
+  background: #eee;
+}
+.document td:nth-child(n + 3) {
+  text-align: right;
+  white-space: nowrap;
+}
+.document tr {
+  break-inside: avoid;
+}
+.total {
+  text-align: right;
+  font-size: 19px;
+  font-weight: 700;
+  margin-top: 12px;
+}
+.scheme {
+  break-before: page;
+}
+.scheme > svg {
+  max-height: 145mm;
+  color: #111;
+}
+.parts {
+  list-style-type: decimal;
+  margin: 12px 0 0 20px;
+  columns: 2;
+  column-gap: 28px;
+  font-size: 11px;
+}
+.parts li {
+  break-inside: avoid;
+  padding-bottom: 5px;
+}
+.signatures {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 25px;
+  margin-top: 30px;
+}
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  :global(html),
+  :global(body) {
+    background: white !important;
+    color: #111 !important;
+    overflow: visible !important;
+  }
+  .document {
+    padding: 0;
+    max-width: none;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  .header,
+  .details,
+  .signatures {
+    break-inside: avoid;
+  }
+  .document thead {
+    display: table-header-group;
+  }
+}
+@media (max-width: 600px) {
+  .document {
+    padding: 16px;
+  }
+  .document th,
+  .document td {
+    padding: 4px;
+  }
+  .parts {
+    list-style-type: decimal;
+    columns: 1;
+  }
+}

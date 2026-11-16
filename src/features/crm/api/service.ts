@@ -20,7 +20,7 @@ import type {
   UpdateOrderInput,
   WorkflowInput
 } from '../schemas/crm';
-import type { ActionResult, CrmWorkspace } from './types';
+import type { ActionResult, CrmWorkspace, OrderDocument } from './types';
 import { readCatalog, readVin } from '../server/vehicle-catalog';
 
 export async function getVehicleCatalog(
@@ -135,4 +135,13 @@ export async function updateVehicleVin(input: {
     repository.updateVin(value.id, value.vin);
     return null;
   });
+}
+
+export async function getOrderDocument(id: string): Promise<OrderDocument | null> {
+  const workspace = (await authorizedRepository()).workspace();
+  const order = workspace.orders.find((order) => order.id === id);
+  if (!order) return null;
+  const customer = workspace.customers.find((customer) => customer.id === order.customerId);
+  const vehicle = workspace.vehicles.find((vehicle) => vehicle.id === order.vehicleId);
+  return customer && vehicle ? { order, customer, vehicle } : null;
 }

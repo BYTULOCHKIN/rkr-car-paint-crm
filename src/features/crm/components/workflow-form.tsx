@@ -111,8 +111,7 @@ export function WorkflowForm({
               {(current) => (
                 <form.AppField name='plannedIntakeDate'>
                   {(field) => (
-                    <field.TextField
-                      type='date'
+                    <field.CalendarDateField
                       label='Запланований прийом'
                       disabled={current === 'backlog'}
                       required={current === 'scheduled'}
@@ -122,15 +121,14 @@ export function WorkflowForm({
               )}
             </form.Subscribe>
             <form.AppField name='plannedDeliveryDate'>
-              {(field) => <field.TextField type='date' label='Запланована видача' />}
+              {(field) => <field.CalendarDateField label='Запланована видача' />}
             </form.AppField>
           </FieldGroup>
           {target.kind === 'order' && (
             <>
               <form.AppField name='actualIntakeDate'>
                 {(field) => (
-                  <field.TextField
-                    type='date'
+                  <field.CalendarDateField
                     label='Фактичний прийом'
                     required
                     max={businessToday()}
@@ -143,8 +141,7 @@ export function WorkflowForm({
                     {['ready', 'delivered'].includes(current) && (
                       <form.AppField name='actualReadyDate'>
                         {(field) => (
-                          <field.TextField
-                            type='date'
+                          <field.CalendarDateField
                             label='Фактична готовність'
                             required
                             max={businessToday()}
@@ -155,8 +152,7 @@ export function WorkflowForm({
                     {current === 'delivered' && (
                       <form.AppField name='actualDeliveryDate'>
                         {(field) => (
-                          <field.TextField
-                            type='date'
+                          <field.CalendarDateField
                             label='Фактична видача'
                             required
                             max={businessToday()}

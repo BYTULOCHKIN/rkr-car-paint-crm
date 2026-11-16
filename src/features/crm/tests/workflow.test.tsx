@@ -1,5 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement } from 'react';
@@ -83,13 +83,11 @@ beforeEach(() => {
 
 test('rescheduling submits new plan, reason and expected status without factual dates', async () => {
   const saved = vi.fn();
-  const { container } = renderUi(
-    <WorkflowForm target={{ kind: 'request', record: request }} onSaved={saved} />
-  );
-  const input = container.querySelector('input[name=plannedIntakeDate]') as HTMLInputElement;
+  renderUi(<WorkflowForm target={{ kind: 'request', record: request }} onSaved={saved} />);
   const user = userEvent.setup();
-  await user.clear(input);
-  await user.type(input, '2020-01-03');
+  fireEvent.click(screen.getByLabelText(/Запланований прийом/));
+  const calendar = await screen.findByRole('dialog', { name: 'Запланований прийом' });
+  await user.click(within(calendar).getByRole('button', { name: /^п’ятниця, 3-є січня 2020/ }));
   await user.type(
     screen.getByRole('textbox', { name: 'Примітка / причина перенесення' }),
     'Немає місця в цеху'

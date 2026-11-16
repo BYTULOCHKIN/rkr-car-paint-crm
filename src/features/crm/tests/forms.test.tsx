@@ -6,9 +6,9 @@ import type { ReactElement } from 'react';
 import { RequestForm, OrderForm } from '../components/forms';
 import { CrmEditorDialog } from '../components/editor-dialog';
 import { SummaryCards } from '../components/summary-cards';
-import { createRequest } from '../api/service';
+import { createRequest, updateOrder } from '../api/service';
 import { useAppForm } from '@/lib/form';
-import type { CrmWorkspace } from '../api/types';
+import type { CrmWorkspace, RepairOrder } from '../api/types';
 
 vi.mock('../api/service', () => ({
   createCustomer: vi.fn(),
@@ -279,4 +279,45 @@ test('summary cards use dashboard composition and accessible navigation', () => 
   expect(screen.getByRole('link', { name: 'Клієнти: 2' }).getAttribute('href')).toBe(
     '/dashboard/clients'
   );
+});
+
+test('body diagram saves paint selections alongside unchanged work items and price', async () => {
+  vi.mocked(updateOrder).mockResolvedValue({ ok: true, data: null });
+  const order: RepairOrder = {
+    id: first,
+    number: 1,
+    customerId: first,
+    vehicleId: carId,
+    requestId: null,
+    description: 'Фарбування авто',
+    createdAt: '2026-10-31',
+    status: 'in_progress',
+    plannedIntakeDate: null,
+    plannedDeliveryDate: null,
+    actualIntakeDate: '2026-10-31',
+    actualReadyDate: null,
+    actualDeliveryDate: null,
+    items: [{ description: 'Підготовка', quantity: 1, unitPriceCents: 50000 }],
+    totalCents: 50000
+  };
+  renderForm(<OrderForm data={data} order={order} onSaved={vi.fn()} />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Капот' }));
+  expect(screen.getByRole('list', { name: 'Позначені деталі' }).textContent).toContain(
+    'Фарбування з однієї сторони'
+  );
+  await user.click(screen.getByRole('button', { name: 'Фарбування з двох сторін' }));
+  await user.click(screen.getByRole('button', { name: 'Капот: Одна сторона' }));
+  expect(screen.getByRole('list', { name: 'Позначені деталі' }).textContent).toContain(
+    'Фарбування з двох сторін'
+  );
+  expect(screen.getByText(/Разом:/).textContent).toContain('500,00');
+  await user.click(screen.getByRole('button', { name: 'Зберегти замовлення' }));
+  await waitFor(() => expect(updateOrder).toHaveBeenCalledOnce());
+  expect(updateOrder).toHaveBeenCalledWith({
+    id: first,
+    description: order.description,
+    items: [{ description: 'Підготовка', quantity: 1, unitPrice: 500 }],
+    paintPlan: [{ partId: 'hood', mode: 'both_sides' }]
+  });
 });
