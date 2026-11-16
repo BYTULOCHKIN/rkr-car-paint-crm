@@ -2,6 +2,7 @@
 
 import { getOrganizationContext } from '../server/organization';
 import { z } from 'zod';
+import { executorTransition } from '../lib/executor-workflow';
 import { CrmError } from '../server/repository';
 import {
   customerSchema,
@@ -10,7 +11,8 @@ import {
   orderSchema,
   updateOrderSchema,
   updateVinSchema,
-  workflowSchema
+  workflowSchema,
+  advanceOrderSchema
 } from '../schemas/crm';
 import type {
   CustomerInput,
@@ -18,7 +20,8 @@ import type {
   RequestInput,
   OrderInput,
   UpdateOrderInput,
-  WorkflowInput
+  WorkflowInput,
+  AdvanceOrderInput
 } from '../schemas/crm';
 import type { ActionResult, CrmWorkspace, OrderDocument } from './types';
 import { readCatalog, readVin } from '../server/vehicle-catalog';
@@ -69,8 +72,10 @@ async function write<T>(
   }
 }
 
-export async function getWorkspace(): Promise<CrmWorkspace> {
+export async function getWorkspace(expectedOrgId?: string | null): Promise<CrmWorkspace> {
   const { repository, access, team } = await getOrganizationContext();
+  if (expectedOrgId && expectedOrgId !== access.orgId)
+    throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
   return { ...repository.workspace(), access, team };
 }
 
@@ -91,19 +96,19 @@ export async function assignVehicle(input: {
 
 export async function updateWorkflow(input: WorkflowInput): Promise<ActionResult<null>> {
   return write((repository, context) => {
-    const value = workflowSchema.parse(input);
-    if (context.access.role !== 'admin') {
-      if (value.kind !== 'order')
-        throw new CrmError('Виконавець може змінювати лише статуси замовлень');
-      const order = repository.workspace().orders.find((order) => order.id === value.id);
-      if (!order) throw new CrmError('Замовлення не знайдено');
-      if (
-        (order.plannedIntakeDate ?? '') !== value.plannedIntakeDate ||
-        (order.plannedDeliveryDate ?? '') !== value.plannedDeliveryDate
-      )
-        throw new CrmError('Планові дати може змінювати лише адміністратор');
-    }
-    repository.updateWorkflow(value, historyActor(context));
+    repository.updateWorkflow(workflowSchema.parse(input), historyActor(context));
+    return null;
+  });
+}
+
+export async function advanceOrder(input: AdvanceOrderInput): Promise<ActionResult<null>> {
+  return write((repository, context) => {
+    const value = advanceOrderSchema.parse(input);
+    const order = repository.workspace().orders.find((order) => order.id === value.id);
+    if (!order) throw new CrmError('Замовлення не знайдено');
+    const transition = executorTransition(order, value);
+    if (!transition.ok) throw new CrmError(transition.error);
+    repository.updateWorkflow(transition.data, historyActor(context));
     return null;
   }, 'read');
 }
@@ -185,7 +190,9 @@ export async function getOrderDocument(id: string): Promise<OrderDocument | null
   return customer && vehicle ? { order, customer, vehicle } : null;
 }
 
-export async function getTeam() {
+export async function getTeam(expectedOrgId?: string | null) {
   const { access, team } = await getOrganizationContext();
+  if (expectedOrgId && expectedOrgId !== access.orgId)
+    throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
   return { access, team };
 }

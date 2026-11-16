@@ -1,4 +1,6 @@
-import type { CrmWorkspace, Vehicle } from '@/features/crm/api/types';
+import { executorTransition } from '@/features/crm/lib/executor-workflow';
+import type { AdvanceOrderInput } from '@/features/crm/schemas/crm';
+import type { CrmWorkspace, TeamMember, Vehicle } from '@/features/crm/api/types';
 import type { CustomerInput, VehicleInput, OrderInput } from '@/features/crm/schemas/crm';
 const uuid = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(12, '0')}`;
 const longDescription =
@@ -93,7 +95,27 @@ if (location.pathname.endsWith('/overview')) {
 export async function getWorkspace() {
   if (new URLSearchParams(location.search).has('empty'))
     return { customers: [], vehicles: [], orders: [], requests: [], events: [] };
-  return structuredClone(data);
+  const result = structuredClone(data);
+  result.access = {
+    userId: 'user_worker',
+    orgId: 'org_test',
+    role: new URLSearchParams(location.search).get('role') === 'worker' ? 'worker' : 'admin'
+  };
+  result.team = [
+    {
+      id: 'user_owner',
+      name: 'Олена Адміністратор',
+      identifier: 'owner@example.com',
+      role: 'admin'
+    },
+    { id: 'user_worker', name: 'Маляр Андрій', identifier: 'worker@example.com', role: 'worker' }
+  ];
+  result.orders = result.orders.map((order) => ({
+    ...order,
+    assigneeId: order.assigneeId ?? 'user_owner',
+    assigneeName: order.assigneeName ?? 'Олена Адміністратор'
+  }));
+  return result;
 }
 export async function getVehicleCatalog(make: string) {
   return {
@@ -145,5 +167,23 @@ export async function assignVehicle() {
 }
 export async function deleteVehicle(id: Vehicle['id']) {
   data.vehicles = data.vehicles.filter((entry) => entry.id !== id);
+  return { ok: true as const, data: null };
+}
+
+export async function getTeam() {
+  const workspace = await getWorkspace();
+  return { access: workspace.access!, team: workspace.team ?? ([] as TeamMember[]) };
+}
+export async function advanceOrder(input: AdvanceOrderInput) {
+  const order = data.orders.find((order) => order.id === input.id);
+  if (!order) return { ok: false as const, error: 'Замовлення не знайдено' };
+  const next = executorTransition(order, input);
+  if (!next.ok) return next;
+  Object.assign(order, {
+    status: next.data.status,
+    actualReadyDate: next.data.actualReadyDate || null,
+    actualDeliveryDate: next.data.actualDeliveryDate || null,
+    workflowRevision: (order.workflowRevision ?? 0) + 1
+  });
   return { ok: true as const, data: null };
 }

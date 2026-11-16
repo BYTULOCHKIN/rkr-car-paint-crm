@@ -8,6 +8,7 @@ import {
   updateVehicleVin,
   getWorkspace,
   getTeam,
+  advanceOrder,
   updateWorkflow,
   getVehicleCatalog,
   decodeVehicleVin,
@@ -39,7 +40,7 @@ export const crmQueries = {
   team: (userId: string, orgId: string) =>
     queryOptions({
       queryKey: ['crm', userId, orgId, 'team'] as const,
-      queryFn: () => getTeam(),
+      queryFn: () => getTeam(orgId),
       staleTime: 0,
       refetchInterval: 30_000
     }),
@@ -47,11 +48,16 @@ export const crmQueries = {
   workspace: (userId: string, orgId?: string | null) =>
     queryOptions({
       queryKey: [...crmQueries.all(), userId, orgId ?? 'legacy', 'workspace'] as const,
-      queryFn: () => getWorkspace()
+      queryFn: () => getWorkspace(orgId)
     })
 };
 
 export const crmMutations = {
+  advance: () =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof advanceOrder>[0]) =>
+        unwrap(await advanceOrder(input))
+    }),
   updateVehicle: () =>
     mutationOptions({
       mutationFn: async (input: Parameters<typeof updateVehicle>[0]) =>

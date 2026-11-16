@@ -320,7 +320,7 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
           actions={[
             { label: 'Відкрити', onClick: () => setEditor({ type: 'order', order: row.original }) },
             {
-              label: 'Статус і дати',
+              label: data.access?.role === 'worker' ? 'Оновити статус' : 'Статус і дати',
               onClick: () =>
                 setEditor({ type: 'workflow', target: { kind: 'order', record: row.original } })
             }
@@ -448,6 +448,12 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
         ? 'Нова заявка'
         : 'Нове замовлення';
 
+  if (data.access?.role === 'worker' && view !== 'orders')
+    return (
+      <p className='text-sm text-muted-foreground'>
+        Цей розділ доступний адміністратору. Для роботи перейдіть до замовлень.
+      </p>
+    );
   return (
     <div className='flex flex-1 flex-col gap-4'>
       <SummaryCards data={data} />
@@ -474,7 +480,7 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
             {params.requestStatus === 'all' ? 'Показати лише активні' : 'Показати всі заявки'}
           </Button>
         )}
-        <Button onClick={create}>{createLabel}</Button>
+        {data.access?.role !== 'worker' && <Button onClick={create}>{createLabel}</Button>}
       </div>
       {empty ? (
         <Empty className='min-h-64 rounded-xl border'>
@@ -494,7 +500,7 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
                   : 'Візьміть заявку в роботу або створіть замовлення напряму.'}
             </EmptyDescription>
           </EmptyHeader>
-          <Button onClick={create}>{createLabel}</Button>
+          {data.access?.role !== 'worker' && <Button onClick={create}>{createLabel}</Button>}
         </Empty>
       ) : view === 'customers' ? (
         <CrmTable rows={customers} columns={customerColumns} label='Клієнти' />

@@ -1,5 +1,7 @@
 'use client';
 
+import { ExecutorAdvance } from './executor-advance';
+import { OrderReadView } from './order-read-view';
 import { useEffect, useId, useMemo, useState } from 'react';
 import {
   Dialog,
@@ -64,7 +66,16 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
   const [footer, setFooter] = useState<HTMLDivElement | null>(null);
   const formId = useId();
   const formLayout = useMemo(() => ({ formId, footer }), [formId, footer]);
-  const readOnly = editor.type === 'history' || editor.type === 'vehicleDetails';
+  const worker = data.access?.role === 'worker';
+  const denied =
+    worker &&
+    !(
+      editor.type === 'history' ||
+      editor.type === 'vehicleDetails' ||
+      (editor.type === 'order' && editor.order) ||
+      (editor.type === 'workflow' && editor.target.kind === 'order')
+    );
+  const readOnly = worker || editor.type === 'history' || editor.type === 'vehicleDetails';
   useEffect(() => {
     if (!state.dirty) return;
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -166,138 +177,169 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
               data-slot='crm-dialog-body'
               className='relative flex min-h-0 flex-col gap-5 overflow-y-auto overscroll-contain px-5 py-5 [scrollbar-gutter:stable] sm:px-6'
             >
-              {editor.type === 'customer' && <CustomerForm {...props} />}
-              {editor.type === 'vehicleDetails' && (
-                <VehicleDetails
-                  vehicle={editor.vehicle}
-                  data={data}
-                  onSelectOrder={onSelectOrder}
-                />
-              )}
-              {editor.type === 'deleteVehicle' && (
-                <DeleteVehicle vehicle={editor.vehicle} {...props} />
-              )}
-              {editor.type === 'owner' && (
-                <VehicleOwnerForm vehicle={editor.vehicle} data={data} {...props} />
-              )}
-              {editor.type === 'vehicle' && (
-                <VehicleForm
-                  customer={editor.customer}
-                  vehicle={editor.vehicle}
-                  data={data}
-                  {...props}
-                />
-              )}
-              {editor.type === 'vin' && <VinForm vehicle={editor.vehicle} {...props} />}
-              {editor.type === 'request' && <RequestForm data={data} {...props} />}
-              {editor.type === 'workflow' && (
+              {denied ? (
+                <p role='alert'>Ця дія доступна лише адміністратору.</p>
+              ) : (
                 <>
-                  <section className='flex flex-col gap-1 rounded-lg border p-3'>
-                    <h3 className='text-sm font-medium'>Потрібні роботи</h3>
-                    <p className='text-muted-foreground text-sm break-words whitespace-pre-wrap'>
-                      {editor.target.record.description}
-                    </p>
-                  </section>
-                  <WorkflowDates target={editor.target} />
-                  <WorkflowForm
-                    target={editor.target}
-                    requestedStatus={editor.requestedStatus}
-                    {...props}
-                  />
-                  <WorkflowHistory target={editor.target} data={data} />
-                </>
-              )}
-              {editor.type === 'order' && (
-                <>
-                  {editor.order && (
-                    <div className='flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3'>
-                      <p className='text-sm text-muted-foreground'>
-                        {state.dirty
-                          ? 'Збережіть зміни перед друком.'
-                          : 'Друк збереженого замовлення зі схемою кузова.'}
-                      </p>
-                      {state.dirty || state.pending ? (
-                        <Button disabled variant='outline'>
-                          Друк замовлення
-                        </Button>
+                  {editor.type === 'customer' && <CustomerForm {...props} />}
+                  {editor.type === 'vehicleDetails' && (
+                    <VehicleDetails
+                      vehicle={editor.vehicle}
+                      data={data}
+                      onSelectOrder={onSelectOrder}
+                    />
+                  )}
+                  {editor.type === 'deleteVehicle' && (
+                    <DeleteVehicle vehicle={editor.vehicle} {...props} />
+                  )}
+                  {editor.type === 'owner' && (
+                    <VehicleOwnerForm vehicle={editor.vehicle} data={data} {...props} />
+                  )}
+                  {editor.type === 'vehicle' && (
+                    <VehicleForm
+                      customer={editor.customer}
+                      vehicle={editor.vehicle}
+                      data={data}
+                      {...props}
+                    />
+                  )}
+                  {editor.type === 'vin' && <VinForm vehicle={editor.vehicle} {...props} />}
+                  {editor.type === 'request' && <RequestForm data={data} {...props} />}
+                  {editor.type === 'workflow' && (
+                    <>
+                      <section className='flex flex-col gap-1 rounded-lg border p-3'>
+                        <h3 className='text-sm font-medium'>Потрібні роботи</h3>
+                        <p className='text-muted-foreground text-sm break-words whitespace-pre-wrap'>
+                          {editor.target.record.description}
+                        </p>
+                      </section>
+                      <WorkflowDates target={editor.target} />
+                      {worker && editor.target.kind === 'order' ? (
+                        <ExecutorAdvance order={editor.target.record} {...props} />
                       ) : (
-                        <a
-                          href={`/print/orders/${editor.order.id}`}
-                          target='_blank'
-                          rel='noopener noreferrer'
-                          className={buttonVariants({ variant: 'outline' })}
-                        >
-                          Друк замовлення
-                        </a>
+                        <WorkflowForm
+                          target={editor.target}
+                          requestedStatus={editor.requestedStatus}
+                          {...props}
+                        />
                       )}
+                      <WorkflowHistory target={editor.target} data={data} />
+                    </>
+                  )}
+                  {editor.type === 'order' && (
+                    <>
+                      {editor.order && (
+                        <div className='flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3'>
+                          <p className='text-sm text-muted-foreground'>
+                            {state.dirty
+                              ? 'Збережіть зміни перед друком.'
+                              : 'Друк збереженого замовлення зі схемою кузова.'}
+                          </p>
+                          {state.dirty || state.pending ? (
+                            <Button disabled variant='outline'>
+                              Друк замовлення
+                            </Button>
+                          ) : (
+                            <a
+                              href={`/print/orders/${editor.order.id}`}
+                              target='_blank'
+                              rel='noopener noreferrer'
+                              className={buttonVariants({ variant: 'outline' })}
+                            >
+                              Друк замовлення
+                            </a>
+                          )}
+                        </div>
+                      )}
+                      {editor.order && (
+                        <WorkflowDates target={{ kind: 'order', record: editor.order }} />
+                      )}
+                      {worker && editor.order ? (
+                        <>
+                          <OrderReadView order={editor.order} data={data} />
+                          <ExecutorAdvance order={editor.order} {...props} />
+                        </>
+                      ) : (
+                        <OrderForm
+                          data={data}
+                          request={editor.request}
+                          order={editor.order}
+                          {...props}
+                        />
+                      )}
+                      {editor.order && (
+                        <WorkflowHistory
+                          target={{ kind: 'order', record: editor.order }}
+                          data={data}
+                        />
+                      )}
+                    </>
+                  )}
+                  {editor.type === 'history' && (
+                    <div className='flex flex-col gap-4'>
+                      <div className='flex flex-col gap-2 rounded-lg border p-4 text-sm'>
+                        <a
+                          href={`tel:${editor.customer.phone}`}
+                          className='w-fit underline underline-offset-4'
+                        >
+                          {editor.customer.phone}
+                        </a>
+                        {editor.customer.notes && (
+                          <p className='text-muted-foreground break-words whitespace-pre-wrap'>
+                            {editor.customer.notes}
+                          </p>
+                        )}
+                      </div>
+                      {!data.vehicles.some(
+                        (vehicle) => vehicle.customerId === editor.customer.id
+                      ) && (
+                        <Empty>
+                          <EmptyHeader>
+                            <EmptyTitle>Автомобілів ще немає</EmptyTitle>
+                            <EmptyDescription>
+                              Додайте перший автомобіль у рядку клієнта.
+                            </EmptyDescription>
+                          </EmptyHeader>
+                        </Empty>
+                      )}
+                      {data.vehicles
+                        .filter((vehicle) => vehicle.customerId === editor.customer.id)
+                        .map((vehicle) => {
+                          const history = data.orders.filter(
+                            (order) => order.vehicleId === vehicle.id
+                          );
+                          return (
+                            <section
+                              key={vehicle.id}
+                              className='flex flex-col gap-2 rounded-lg border p-4'
+                            >
+                              <h3 className='font-medium'>{vehicleLabel(vehicle)}</h3>
+                              <p className='text-muted-foreground font-mono text-xs'>
+                                {vehicle.vin || 'VIN ще не додано'}
+                              </p>
+                              {history.length ? (
+                                history.map((order) => (
+                                  <Button
+                                    key={order.id}
+                                    variant='outline'
+                                    onClick={() => onSelectOrder(order)}
+                                  >
+                                    №{order.number} ·{' '}
+                                    {new Intl.DateTimeFormat('uk-UA').format(
+                                      new Date(order.createdAt)
+                                    )}{' '}
+                                    · {money(order.totalCents)}
+                                  </Button>
+                                ))
+                              ) : (
+                                <p className='text-muted-foreground text-sm'>Замовлень ще немає.</p>
+                              )}
+                            </section>
+                          );
+                        })}
                     </div>
                   )}
-                  {editor.order && (
-                    <WorkflowDates target={{ kind: 'order', record: editor.order }} />
-                  )}
-                  <OrderForm data={data} request={editor.request} order={editor.order} {...props} />
-                  {editor.order && (
-                    <WorkflowHistory target={{ kind: 'order', record: editor.order }} data={data} />
-                  )}
                 </>
-              )}
-              {editor.type === 'history' && (
-                <div className='flex flex-col gap-4'>
-                  <div className='flex flex-col gap-2 rounded-lg border p-4 text-sm'>
-                    <a
-                      href={`tel:${editor.customer.phone}`}
-                      className='w-fit underline underline-offset-4'
-                    >
-                      {editor.customer.phone}
-                    </a>
-                    {editor.customer.notes && (
-                      <p className='text-muted-foreground break-words whitespace-pre-wrap'>
-                        {editor.customer.notes}
-                      </p>
-                    )}
-                  </div>
-                  {!data.vehicles.some((vehicle) => vehicle.customerId === editor.customer.id) && (
-                    <Empty>
-                      <EmptyHeader>
-                        <EmptyTitle>Автомобілів ще немає</EmptyTitle>
-                        <EmptyDescription>
-                          Додайте перший автомобіль у рядку клієнта.
-                        </EmptyDescription>
-                      </EmptyHeader>
-                    </Empty>
-                  )}
-                  {data.vehicles
-                    .filter((vehicle) => vehicle.customerId === editor.customer.id)
-                    .map((vehicle) => {
-                      const history = data.orders.filter((order) => order.vehicleId === vehicle.id);
-                      return (
-                        <section
-                          key={vehicle.id}
-                          className='flex flex-col gap-2 rounded-lg border p-4'
-                        >
-                          <h3 className='font-medium'>{vehicleLabel(vehicle)}</h3>
-                          <p className='text-muted-foreground font-mono text-xs'>
-                            {vehicle.vin || 'VIN ще не додано'}
-                          </p>
-                          {history.length ? (
-                            history.map((order) => (
-                              <Button
-                                key={order.id}
-                                variant='outline'
-                                onClick={() => onSelectOrder(order)}
-                              >
-                                №{order.number} ·{' '}
-                                {new Intl.DateTimeFormat('uk-UA').format(new Date(order.createdAt))}{' '}
-                                · {money(order.totalCents)}
-                              </Button>
-                            ))
-                          ) : (
-                            <p className='text-muted-foreground text-sm'>Замовлень ще немає.</p>
-                          )}
-                        </section>
-                      );
-                    })}
-                </div>
               )}
             </div>
             <div
@@ -309,7 +351,7 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
             >
               {readOnly && (
                 <div className='flex justify-end'>
-                  <Button variant='outline' onClick={requestClose}>
+                  <Button variant='outline' disabled={state.pending} onClick={requestClose}>
                     Закрити вікно
                   </Button>
                 </div>

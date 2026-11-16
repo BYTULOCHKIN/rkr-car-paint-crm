@@ -47,6 +47,11 @@ export default defineConfig({
       },
       resolveId(source, importer) {
         if (
+          source === '@clerk/nextjs' &&
+          importer?.replaceAll('\\', '/').includes('/features/crm/components/team-view')
+        )
+          return `${root}/tests/browser/fixture/clerk-team.tsx`;
+        if (
           importer?.replaceAll('\\', '/').includes('/features/crm/api/queries') &&
           source === './service'
         )

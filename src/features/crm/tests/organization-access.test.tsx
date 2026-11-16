@@ -1,3 +1,5 @@
+import { advanceOrder, updateWorkflow } from '../api/service';
+import { businessToday } from '../lib/workflow';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 import { getOrganizationRepository } from '../server/repository';
@@ -30,7 +32,8 @@ const repository = {
   workspace: vi.fn(() => workspace),
   createCustomer: vi.fn(),
   createOrder: vi.fn(() => 'order-created'),
-  updateOrder: vi.fn()
+  updateOrder: vi.fn(),
+  updateWorkflow: vi.fn()
 };
 beforeEach(() => {
   vi.clearAllMocks();
@@ -61,11 +64,13 @@ beforeEach(() => {
 
 test('membership and role are read from Clerk and private metadata is not exposed', async () => {
   const data = await getWorkspace();
+  await expect(getWorkspace('org_B')).rejects.toThrow('Автомалярку змінено');
   expect(data.access).toEqual({ userId: 'user_admin', orgId: 'org_A', role: 'admin' });
   expect(data.team).toEqual([
     { id: 'user_admin', name: 'Олена', identifier: 'owner@example.com', role: 'admin' }
   ]);
   expect(getOrganizationRepository).toHaveBeenCalledWith('org_A', 'user_admin', true);
+  await expect(getWorkspace('org_B')).rejects.toThrow('Автомалярку змінено');
   expect(crmQueries.workspace('user_admin', 'org_A').queryKey).not.toEqual(
     crmQueries.workspace('user_admin', 'org_B').queryKey
   );
@@ -168,4 +173,81 @@ test('reassignment validates the new member, preserves inactive historical assig
     'Олена',
     { id: 'user_admin', name: 'Олена' }
   );
+});
+
+test('worker advances any shop order through a dedicated strict endpoint but cannot edit plans or priced work', async () => {
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [
+      {
+        role: 'org:member',
+        publicUserData: { userId: 'user_admin', identifier: 'worker@example.com' }
+      }
+    ]
+  });
+  const order: RepairOrder = {
+    id: '00000000-0000-4000-8000-000000000001',
+    number: 1,
+    requestId: null,
+    customerId: 'c',
+    vehicleId: 'v',
+    description: 'Роботи',
+    createdAt: '',
+    status: 'in_progress',
+    plannedIntakeDate: '2020-01-01',
+    plannedDeliveryDate: '2020-01-10',
+    actualIntakeDate: '2020-01-02',
+    actualReadyDate: null,
+    actualDeliveryDate: null,
+    items: [],
+    totalCents: 0,
+    assigneeId: 'user_other',
+    workflowRevision: 2
+  };
+  repository.workspace.mockReturnValue({ ...workspace, orders: [order] });
+  const input = { id: order.id, expectedStatus: order.status, expectedRevision: 2 };
+  expect((await advanceOrder(input)).ok).toBe(true);
+  expect(repository.updateWorkflow).toHaveBeenCalledWith(
+    expect.objectContaining({
+      status: 'ready',
+      actualReadyDate: businessToday(),
+      plannedDeliveryDate: '2020-01-10',
+      actualIntakeDate: '2020-01-02'
+    }),
+    { id: 'user_admin', name: 'worker@example.com' }
+  );
+  repository.updateWorkflow.mockClear();
+  const forged = { ...input, actualReadyDate: '1999-01-01', status: 'delivered', unitPrice: 1 };
+  expect((await advanceOrder(forged)).ok).toBe(false);
+  expect((await advanceOrder({ ...input, expectedRevision: 1 })).ok).toBe(false);
+  expect((await advanceOrder({ ...input, id: '00000000-0000-4000-8000-000000000099' })).ok).toBe(
+    false
+  );
+  expect(
+    (
+      await updateOrder({
+        id: order.id,
+        description: 'Змінено',
+        items: [{ description: 'Роботи', quantity: 1, unitPrice: 1 }]
+      })
+    ).ok
+  ).toBe(false);
+  expect(
+    (
+      await updateWorkflow({
+        kind: 'order',
+        id: order.id,
+        expectedStatus: order.status,
+        expectedRevision: 2,
+        status: 'delivered',
+        plannedIntakeDate: '',
+        plannedDeliveryDate: '',
+        actualIntakeDate: '2020-01-02',
+        actualReadyDate: '2020-01-03',
+        actualDeliveryDate: '2020-01-04',
+        note: 'Підробка'
+      })
+    ).ok
+  ).toBe(false);
+  expect(repository.updateWorkflow).not.toHaveBeenCalled();
 });

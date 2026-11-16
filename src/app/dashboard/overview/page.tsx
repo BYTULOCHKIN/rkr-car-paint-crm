@@ -1,3 +1,5 @@
+import { redirect } from 'next/navigation';
+import { getOrganizationContext } from '@/features/crm/server/organization';
 import { OrganizationBoundary } from '@/features/crm/components/organization-boundary';
 import { Suspense } from 'react';
 import Link from 'next/link';
@@ -34,6 +36,7 @@ export default async function OverviewPage() {
         {null}
       </PageContainer>
     );
+  if ((await getOrganizationContext()).access.role === 'worker') redirect('/dashboard/orders');
   const queryClient = getQueryClient();
   void queryClient.prefetchQuery(crmQueries.workspace(userId, orgId));
   return (

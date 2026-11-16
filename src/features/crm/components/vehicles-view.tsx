@@ -108,6 +108,13 @@ export function VehiclesView({ userId, orgId }: { userId: string; orgId?: string
       ),
     [data, search]
   );
+  if (data.access?.role === 'worker')
+    return (
+      <p className='text-sm text-muted-foreground'>
+        Керування автомобілями доступне адміністратору. Замовлення містять інформацію про
+        автомобілі.
+      </p>
+    );
   return (
     <div className='flex flex-1 flex-col gap-4'>
       <div className='flex flex-wrap gap-3'>

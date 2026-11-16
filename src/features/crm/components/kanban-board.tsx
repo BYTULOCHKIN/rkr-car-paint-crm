@@ -59,6 +59,7 @@ interface CardContentProps {
   onOpen?: () => void;
   onStatus?: () => void;
   preview?: boolean;
+  worker?: boolean;
 }
 
 function BoardCardContent({
@@ -66,7 +67,8 @@ function BoardCardContent({
   data,
   onOpen,
   onStatus,
-  preview
+  preview,
+  worker
 }: CardContentProps): ReactElement {
   const { target } = card;
   const customer = data.customers.find((entry) => entry.id === target.record.customerId);
@@ -87,21 +89,22 @@ function BoardCardContent({
         <Badge variant='outline' className='min-w-0'>
           <span className='truncate'>{label}</span>
         </Badge>
-        {preview ? (
-          <span className='flex size-7 shrink-0 items-center justify-center'>
-            <Icons.gripVertical className='size-4' />
-          </span>
-        ) : (
-          <KanbanItemHandle
-            className={cn(
-              buttonVariants({ variant: 'ghost', size: 'icon-sm' }),
-              'shrink-0 touch-none'
-            )}
-            aria-label={`Перемістити ${label} · ${customerName}`}
-          >
-            <Icons.gripVertical aria-hidden />
-          </KanbanItemHandle>
-        )}
+        {!worker &&
+          (preview ? (
+            <span className='flex size-7 shrink-0 items-center justify-center'>
+              <Icons.gripVertical className='size-4' />
+            </span>
+          ) : (
+            <KanbanItemHandle
+              className={cn(
+                buttonVariants({ variant: 'ghost', size: 'icon-sm' }),
+                'shrink-0 touch-none'
+              )}
+              aria-label={`Перемістити ${label} · ${customerName}`}
+            >
+              <Icons.gripVertical aria-hidden />
+            </KanbanItemHandle>
+          ))}
       </div>
       <div className='min-w-0'>
         <h3 className='truncate text-sm font-medium' title={customerName}>
@@ -181,7 +184,7 @@ function BoardCardContent({
           className='h-auto min-h-8 min-w-0 px-2 py-1.5 whitespace-normal'
           onClick={onStatus}
         >
-          Статус і дати
+          {worker ? 'Оновити статус' : 'Статус і дати'}
         </Button>
       </div>
     </article>
@@ -190,6 +193,7 @@ function BoardCardContent({
 
 export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactElement {
   const { data } = useSuspenseQuery(crmQueries.workspace(userId, orgId));
+  const worker = data.access?.role === 'worker';
   const [search, setSearch] = useState('');
   const [editor, setEditor] = useState<Editor | null>(null);
   const [draft, setDraft] = useState<Columns | null>(null);
@@ -197,8 +201,10 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
   const boardId = useId();
   const cards = useMemo(
     () =>
-      boardRecords(data).map((target) => ({ id: `${target.kind}:${target.record.id}`, target })),
-    [data]
+      boardRecords(data)
+        .filter((target) => !worker || target.kind === 'order')
+        .map((target) => ({ id: `${target.kind}:${target.record.id}`, target })),
+    [data, worker]
   );
   const columns = useMemo(() => {
     const result: Columns = Object.fromEntries(
@@ -292,10 +298,12 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
             setDraft(null);
           }}
         />
-        <Button onClick={() => setEditor({ type: 'request' })}>Нова заявка</Button>
-        <Button variant='outline' onClick={() => setEditor({ type: 'order' })}>
-          Нове замовлення
-        </Button>
+        {!worker && <Button onClick={() => setEditor({ type: 'request' })}>Нова заявка</Button>}
+        {!worker && (
+          <Button variant='outline' onClick={() => setEditor({ type: 'order' })}>
+            Нове замовлення
+          </Button>
+        )}
         <p role='status' aria-live='polite' className='text-muted-foreground text-xs'>
           Показано {visibleCount} із {cards.length}
         </p>
@@ -322,8 +330,10 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
       <Kanban
         value={visible}
         getItemValue={(card) => card.id}
-        onValueChange={setDraft}
-        onDragEnd={finishDrag}
+        onValueChange={(next) => {
+          if (!worker) setDraft(next);
+        }}
+        onDragEnd={worker ? undefined : finishDrag}
         onDragStart={({ active }) => setDraggedId(active.id)}
         onDragCancel={() => {
           setDraft(null);
@@ -339,7 +349,9 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
       >
         <BoardViewport>
           <KanbanBoard className='h-full w-max min-w-full items-stretch gap-4'>
-            {WORKFLOW_COLUMNS.map((column) => (
+            {WORKFLOW_COLUMNS.filter(
+              (column) => !worker || ['in_progress', 'ready', 'delivered'].includes(column.value)
+            ).map((column) => (
               <KanbanColumn
                 key={column.value}
                 value={column.value}
@@ -374,8 +386,14 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
                     </p>
                   )}
                   {visible[column.value]?.map((card) => (
-                    <KanbanItem key={card.id} value={card.id} className='min-w-0 shrink-0'>
+                    <KanbanItem
+                      key={card.id}
+                      value={card.id}
+                      disabled={worker}
+                      className='min-w-0 shrink-0'
+                    >
                       <BoardCardContent
+                        worker={worker}
                         card={card}
                         data={data}
                         onOpen={() => openOrder(card.target)}

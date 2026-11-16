@@ -1,3 +1,4 @@
+import { TeamView } from '@/features/crm/components/team-view';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NuqsAdapter } from 'nuqs/adapters/react';
@@ -18,6 +19,7 @@ import { KBarProvider } from 'kbar';
 
 const route = location.pathname.split('/').pop() ?? 'clients';
 const titles: Record<string, string> = {
+  team: 'Команда',
   overview: 'Огляд автомалярки',
   kanban: 'Дошка робіт',
   clients: 'Клієнти',
@@ -61,7 +63,9 @@ createRoot(document.getElementById('root')!).render(
                     pageTitle={titles[route]}
                     pageDescription='Керування роботою автомалярки'
                   >
-                    {route === 'kanban' ? (
+                    {route === 'team' ? (
+                      <TeamView userId='browser-test' orgId='org_test' />
+                    ) : route === 'kanban' ? (
                       <CrmKanbanBoard userId='browser-test' />
                     ) : route === 'overview' ? (
                       <Overview userId='browser-test' initialToday={businessToday()} />

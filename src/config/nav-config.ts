@@ -46,6 +46,7 @@ export const navGroups: NavGroup[] = [
       },
       {
         title: 'Клієнти та автомобілі',
+        access: { requireOrg: true, role: 'org:admin' },
         url: '#',
         icon: 'teams',
         items: [
@@ -53,7 +54,13 @@ export const navGroups: NavGroup[] = [
           { title: 'Автомобілі', url: '/dashboard/vehicles', icon: 'product' }
         ]
       },
-      { title: 'Заявки', url: '/dashboard/requests', icon: 'kanban', items: [] },
+      {
+        title: 'Заявки',
+        url: '/dashboard/requests',
+        icon: 'kanban',
+        items: [],
+        access: { requireOrg: true, role: 'org:admin' }
+      },
       { title: 'Замовлення', url: '/dashboard/orders', icon: 'product', items: [] },
       { title: 'Автомалярки', url: '/dashboard/workspaces', icon: 'workspace', items: [] },
       {

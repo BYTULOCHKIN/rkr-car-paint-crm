@@ -1,3 +1,5 @@
+import { redirect } from 'next/navigation';
+import { getOrganizationContext } from '@/features/crm/server/organization';
 import Link from 'next/link';
 import { OrganizationBoundary } from '@/features/crm/components/organization-boundary';
 import { Suspense } from 'react';
@@ -48,6 +50,11 @@ export async function CrmPage({ view }: CrmPageProps) {
         {null}
       </PageContainer>
     );
+  if (
+    (await getOrganizationContext()).access.role === 'worker' &&
+    !['orders', 'kanban'].includes(view)
+  )
+    redirect('/dashboard/orders');
   const queryClient = getQueryClient();
   void queryClient.prefetchQuery(crmQueries.workspace(userId, orgId));
   return (

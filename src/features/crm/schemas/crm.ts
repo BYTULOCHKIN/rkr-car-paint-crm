@@ -186,3 +186,12 @@ export type VehicleInput = z.infer<typeof vehicleSchema>;
 export type RequestInput = z.infer<typeof requestSchema>;
 export type OrderInput = z.infer<typeof orderSchema>;
 export type UpdateOrderInput = z.infer<typeof updateOrderSchema>;
+
+export const advanceOrderSchema = z
+  .object({
+    id,
+    expectedStatus: z.enum(['in_progress', 'ready', 'delivered']),
+    expectedRevision: z.number().int().nonnegative()
+  })
+  .strict();
+export type AdvanceOrderInput = z.infer<typeof advanceOrderSchema>;
