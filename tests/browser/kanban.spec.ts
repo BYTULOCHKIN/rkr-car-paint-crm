@@ -3,7 +3,7 @@ import { test, expect, type Page } from '@playwright/test';
 async function openBoard(page: Page, suffix = '') {
   await page.clock.setFixedTime(new Date('2026-10-31T10:00:00Z'));
   await page.goto('/dashboard/kanban' + suffix);
-  await expect(page.locator('[data-slot=kanban-column]')).toHaveCount(5);
+  await expect(page.locator('[data-slot=kanban-column]')).toHaveCount(6);
   await page.evaluate(() => document.fonts.ready);
 }
 
@@ -119,7 +119,7 @@ test('card actions open readable order and workflow dialogs', async ({ page }) =
 test('empty columns and dark theme remain contained at narrow widths', async ({ page }, info) => {
   await page.setViewportSize({ width: 320, height: 640 });
   await openBoard(page, '?empty&dark');
-  await expect(page.getByText('Немає записів', { exact: true })).toHaveCount(5);
+  await expect(page.getByText('Немає записів', { exact: true })).toHaveCount(6);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
     true
   );

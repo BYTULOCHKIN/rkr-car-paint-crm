@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { vinSchema } from '../schemas/crm';
 
 export const FALLBACK_MODELS: Record<string, string[]> = {
+  ZEEKR: ['001'],
   AUDI: ['A3', 'A4', 'A5', 'A6', 'A8', 'Q3', 'Q5', 'Q7'],
   BMW: ['1 Series', '3 Series', '5 Series', '7 Series', 'X1', 'X3', 'X5', 'X6'],
   VOLKSWAGEN: ['Golf', 'Passat', 'Polo', 'Tiguan', 'Touareg', 'Touran', 'Transporter', 'ID.4'],
@@ -99,6 +100,7 @@ export async function readVin(
     Number.isInteger(parsedYear) && parsedYear >= 1900 && parsedYear <= new Date().getFullYear() + 1
       ? parsedYear
       : null;
+  const missing = [!make && 'марку', !model && 'модель', !decodedYear && 'рік'].filter(Boolean);
   return {
     make,
     model,
@@ -106,6 +108,8 @@ export async function readVin(
     message:
       !make && !model && !decodedYear
         ? 'Даних за цим VIN не знайдено. Виберіть марку, модель та рік вручну.'
-        : ''
+        : missing.length
+          ? `За VIN не вдалося визначити ${missing.join(', ')}. Виберіть відсутні дані вручну.`
+          : ''
   };
 }

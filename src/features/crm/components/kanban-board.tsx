@@ -15,6 +15,13 @@ import {
   KanbanItem,
   KanbanItemHandle
 } from '@/components/ui/kanban';
+import {
+  contactSearchValues,
+  customerContacts,
+  contactHref,
+  primaryContact
+} from '../lib/customer-contacts';
+import { StatusBadge } from './status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { buttonVariants } from '@/components/ui/button';
@@ -110,13 +117,16 @@ function BoardCardContent({
         <h3 className='truncate text-sm font-medium' title={customerName}>
           {customerName}
         </h3>
-        {customer?.phone && (
+        {primaryContact(customer) && (
           <a
-            href={`tel:${customer.phone}`}
-            title={customer.phone}
+            href={contactHref(
+              customerContacts(customer).find((contact) => contact.type === 'phone') ??
+                customerContacts(customer)[0]
+            )}
+            title={primaryContact(customer)}
             className='text-muted-foreground block w-fit max-w-full truncate rounded-sm text-xs underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring'
           >
-            {customer.phone}
+            {primaryContact(customer)}
           </a>
         )}
       </div>
@@ -216,7 +226,7 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
       const vehicle = data.vehicles.find((entry) => entry.id === card.target.record.vehicleId);
       const label = [
         customer?.name,
-        customer?.phone,
+        ...contactSearchValues(customer),
         vehicle?.vin,
         vehicle?.plate,
         vehicle?.make,
@@ -350,7 +360,8 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
         <BoardViewport>
           <KanbanBoard className='h-full w-max min-w-full items-stretch gap-4'>
             {WORKFLOW_COLUMNS.filter(
-              (column) => !worker || ['in_progress', 'ready', 'delivered'].includes(column.value)
+              (column) =>
+                !worker || ['created', 'in_progress', 'ready', 'delivered'].includes(column.value)
             ).map((column) => (
               <KanbanColumn
                 key={column.value}
@@ -364,7 +375,7 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
                   className='flex h-14 shrink-0 items-center justify-between gap-2 border-b px-3'
                 >
                   <h2 id={`${boardId}-${column.value}`} className='truncate text-sm font-semibold'>
-                    {column.label}
+                    <StatusBadge status={column.value} />
                   </h2>
                   <Badge
                     variant='secondary'

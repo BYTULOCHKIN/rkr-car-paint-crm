@@ -24,6 +24,7 @@ export const getOrganizationContext = cache(async () => {
       if (!user || !['org:admin', 'org:member'].includes(membership.role)) continue;
       team.push({
         id: user.userId,
+        ...(user.hasImage && user.imageUrl ? { imageUrl: user.imageUrl } : {}),
         name:
           [user.firstName, user.lastName].filter(Boolean).join(' ') ||
           user.identifier ||

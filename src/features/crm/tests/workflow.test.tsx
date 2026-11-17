@@ -1,3 +1,4 @@
+vi.mock('@/features/inventory/api/service', () => import('./inventory-stub'));
 import { beforeEach, expect, test, vi } from 'vitest';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -12,7 +13,9 @@ import type { CrmWorkspace, RepairRequest, RepairOrder } from '../api/types';
 import { businessToday } from '../lib/workflow';
 
 vi.mock('../api/service', () => ({
+  addVehicleModel: vi.fn(),
   createCustomer: vi.fn(),
+  updateCustomer: vi.fn(),
   updateVehicle: vi.fn(),
   deleteVehicle: vi.fn(),
   createVehicle: vi.fn(),

@@ -12,6 +12,7 @@ import {
 import { Button } from './action-button';
 
 interface RowAction {
+  icon?: keyof typeof Icons;
   label: string;
   onClick: () => void;
   disabled?: boolean;
@@ -26,19 +27,23 @@ export function RowActions({ label, actions }: RowActionsProps): ReactElement {
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger render={<Button size='icon-sm' variant='ghost' aria-label={label} />}>
-        <Icons.ellipsis />
+        <Icons.ellipsis aria-hidden />
       </DropdownMenuTrigger>
       <DropdownMenuContent align='end'>
         <DropdownMenuGroup>
-          {actions.map((action) => (
-            <DropdownMenuItem
-              key={action.label}
-              onClick={action.onClick}
-              disabled={action.disabled}
-            >
-              {action.label}
-            </DropdownMenuItem>
-          ))}
+          {actions.map((action) => {
+            const Icon = action.icon ? Icons[action.icon] : undefined;
+            return (
+              <DropdownMenuItem
+                key={action.label}
+                onClick={action.onClick}
+                disabled={action.disabled}
+              >
+                {Icon && <Icon aria-hidden />}
+                {action.label}
+              </DropdownMenuItem>
+            );
+          })}
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>

@@ -57,7 +57,7 @@ export function DataTable<TData extends RowData>({
     <div
       data-slot='data-table'
       dir={dir}
-      className={cn('flex flex-1 flex-col space-y-4', className)}
+      className={cn('flex flex-1 flex-col gap-4 [&_td]:py-1.5', className)}
       {...props}
     >
       {children}

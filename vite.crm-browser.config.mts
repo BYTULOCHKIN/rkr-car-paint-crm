@@ -11,6 +11,7 @@ function productionCss(): string {
 }
 export default defineConfig({
   root: `${root}/tests/browser/fixture`,
+  publicDir: `${root}/public`,
   resolve: {
     alias: {
       '@': `${root}/src`,
@@ -46,6 +47,18 @@ export default defineConfig({
         });
       },
       resolveId(source, importer) {
+        if (
+          source === '@clerk/nextjs' &&
+          ['/components/layout/app-sidebar', '/components/org-switcher', '/hooks/use-nav'].some(
+            (part) => importer?.replaceAll('\\', '/').includes(part)
+          )
+        )
+          return `${root}/tests/browser/fixture/clerk-sidebar.ts`;
+        if (
+          importer?.replaceAll('\\', '/').includes('/features/inventory/api/queries') &&
+          source === './service'
+        )
+          return `${root}/tests/browser/fixture/inventory-service.ts`;
         if (
           source === '@clerk/nextjs' &&
           importer?.replaceAll('\\', '/').includes('/features/crm/components/team-view')

@@ -73,6 +73,8 @@ test('printed order contains customer, vehicle, priced work and the same read-on
       vehicleId: 'v',
       requestId: null,
       description: 'Фарбування кузова',
+      assigneeId: 'user_worker',
+      assigneeName: 'Маляр Андрій',
       createdAt: '2026-11-16',
       status: 'delivered',
       plannedIntakeDate: null,
@@ -92,6 +94,8 @@ test('printed order contains customer, vehicle, priced work and the same read-on
   const { container } = render(<OrderDocument document={document} />);
   expect(screen.getByRole('heading', { name: 'Замовлення №42' })).toBeDefined();
   expect(screen.getByText('Олена')).toBeDefined();
+  expect(container.textContent).not.toContain('Маляр Андрій');
+  expect(container.textContent).not.toContain('Виконавець');
   expect(screen.getByText(/VIN: WVWZZZ1JZXW000001/)).toBeDefined();
   expect(screen.getByRole('table').textContent).toContain('Підготовка поверхні');
   expect(screen.getByText(/Разом:/).textContent).toContain('246,90');

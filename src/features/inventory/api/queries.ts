@@ -1,0 +1,65 @@
+import { queryOptions, mutationOptions } from '@tanstack/react-query';
+import type { ActionResult } from '@/features/crm/api/types';
+import {
+  getInventory,
+  createStockItem,
+  updateStockItem,
+  archiveStockItem,
+  receiveStock,
+  adjustStock,
+  consumeStock,
+  reverseConsumption
+} from './service';
+
+function unwrap<T>(result: ActionResult<T>): T {
+  if (!result.ok) throw new Error(result.error);
+  return result.data;
+}
+
+export const inventoryQueries = {
+  all: () => ['inventory'] as const,
+  workspace: (userId: string, orgId: string) =>
+    queryOptions({
+      queryKey: [...inventoryQueries.all(), userId, orgId] as const,
+      queryFn: () => getInventory(orgId),
+      staleTime: 0,
+      refetchInterval: 30_000
+    })
+};
+export const inventoryMutations = {
+  create: (orgId: string) =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof createStockItem>[1]) =>
+        unwrap(await createStockItem(orgId, input))
+    }),
+  update: (orgId: string) =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof updateStockItem>[1]) =>
+        unwrap(await updateStockItem(orgId, input))
+    }),
+  archive: (orgId: string) =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof archiveStockItem>[1]) =>
+        unwrap(await archiveStockItem(orgId, input))
+    }),
+  receive: (orgId: string) =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof receiveStock>[1]) =>
+        unwrap(await receiveStock(orgId, input))
+    }),
+  adjust: (orgId: string) =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof adjustStock>[1]) =>
+        unwrap(await adjustStock(orgId, input))
+    }),
+  consume: (orgId: string) =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof consumeStock>[1]) =>
+        unwrap(await consumeStock(orgId, input))
+    }),
+  reverse: (orgId: string) =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof reverseConsumption>[1]) =>
+        unwrap(await reverseConsumption(orgId, input))
+    })
+};

@@ -24,6 +24,12 @@ import type {
 } from '../schemas/crm';
 import { businessToday } from '../lib/workflow';
 import { paintPlanSchema, workflowSchema } from '../schemas/crm';
+import { InventoryRepository, inventoryTables } from '@/features/inventory/server/repository';
+import { migrateCustomerContacts, replaceCustomerContacts } from './customer-contacts';
+import { customerSchema, updateCustomerSchema, type UpdateCustomerInput } from '../schemas/crm';
+import type { CustomerContact } from '../api/types';
+import { PaymentRepository, migrateCreatedStatus } from './payments';
+import { vehicleModelSchema, type VehicleModelInput } from '../schemas/vehicle-model';
 
 export class CrmError extends Error {}
 
@@ -38,6 +44,8 @@ function normalizedOrderSnapshot(value: OrderSnapshot): string {
 // occurs inside them. Instantiate separately in tests to verify persistence.
 export class CrmRepository {
   private db: DatabaseSync;
+  readonly inventory: InventoryRepository;
+  readonly payments: PaymentRepository;
 
   constructor(filename: string) {
     if (filename !== ':memory:') mkdirSync(dirname(resolve(filename)), { recursive: true });
@@ -165,6 +173,49 @@ export class CrmRepository {
         )
       );
     }
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 9) {
+      this.transaction(() => this.db.exec(`${inventoryTables} PRAGMA user_version = 9;`));
+    }
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 10) {
+      this.transaction(() =>
+        this.db.exec(`
+        CREATE TABLE crm_vehicle_models (
+          make TEXT NOT NULL, model TEXT NOT NULL, modelKey TEXT NOT NULL,
+          PRIMARY KEY(make, modelKey)
+        );
+        PRAGMA user_version = 10;
+      `)
+      );
+    }
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 11)
+      migrateCreatedStatus(this.db);
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 12)
+      this.transaction(() => {
+        migrateCustomerContacts(this.db);
+        this.db.exec('PRAGMA user_version=12');
+      });
+    this.payments = new PaymentRepository(this.db);
+    this.inventory = new InventoryRepository(this.db);
+  }
+
+  vehicleModels(): { make: string; model: string }[] {
+    return this.db
+      .prepare('SELECT make, model FROM crm_vehicle_models ORDER BY make, model')
+      .all()
+      .map((row) => ({ make: row.make as string, model: row.model as string }));
+  }
+
+  addVehicleModel(input: VehicleModelInput): string {
+    const { make, model } = vehicleModelSchema.parse(input);
+    const key = model.toUpperCase();
+    return this.transaction(() => {
+      this.db
+        .prepare('INSERT OR IGNORE INTO crm_vehicle_models(make, model, modelKey) VALUES (?, ?, ?)')
+        .run(make, model, key);
+      return this.db
+        .prepare('SELECT model FROM crm_vehicle_models WHERE make = ? AND modelKey = ?')
+        .get(make, key)!.model as string;
+    });
   }
 
   /** The legacy installation can only be claimed by its existing owner. */
@@ -202,7 +253,7 @@ export class CrmRepository {
   hasBusinessData(): boolean {
     return !!this.db
       .prepare(
-        'SELECT 1 AS present FROM crm_customers UNION ALL SELECT 1 FROM crm_vehicles UNION ALL SELECT 1 FROM crm_requests UNION ALL SELECT 1 FROM crm_orders LIMIT 1'
+        'SELECT 1 AS present FROM crm_customers UNION ALL SELECT 1 FROM crm_vehicles UNION ALL SELECT 1 FROM crm_requests UNION ALL SELECT 1 FROM crm_orders UNION ALL SELECT 1 FROM stock_items UNION ALL SELECT 1 FROM crm_vehicle_models LIMIT 1'
       )
       .get();
   }
@@ -301,6 +352,25 @@ export class CrmRepository {
       .prepare('SELECT * FROM crm_customers ORDER BY createdAt DESC, id')
       .all()
       .map((row) => ({ ...row })) as unknown as Customer[];
+    const contacts = this.db
+      .prepare(
+        'SELECT id, customerId, type, value FROM crm_customer_contacts ORDER BY position, id'
+      )
+      .all();
+    const byCustomer = new Map<string, CustomerContact[]>();
+    for (const row of contacts) {
+      const list = byCustomer.get(row.customerId as string) ?? [];
+      list.push({
+        id: row.id as string,
+        type: row.type as CustomerContact['type'],
+        value: row.value as string
+      });
+      byCustomer.set(row.customerId as string, list);
+    }
+    for (const customer of customers) {
+      customer.contacts = byCustomer.get(customer.id) ?? [];
+      customer.phone = customer.contacts.find((contact) => contact.type === 'phone')?.value ?? '';
+    }
     const vehicles = this.db
       .prepare('SELECT * FROM crm_vehicles ORDER BY createdAt DESC, rowid DESC')
       .all()
@@ -348,15 +418,52 @@ export class CrmRepository {
         actualDateChanges:
           typeof row.actualDateChanges === 'string' ? JSON.parse(row.actualDateChanges) : null
       })) as unknown as WorkflowEvent[];
-    return { customers, vehicles, requests, orders, events };
+    return { customers, vehicles, requests, orders, events, payments: this.payments.list() };
   }
 
   createCustomer(input: CustomerInput): string {
+    const value = customerSchema.parse(input);
+    const contacts = value.contacts ?? [{ type: 'phone' as const, value: value.phone! }];
     const id = randomUUID();
-    this.db
-      .prepare('INSERT INTO crm_customers VALUES (?, ?, ?, ?, ?)')
-      .run(id, input.name, input.phone, input.notes, new Date().toISOString());
-    return id;
+    return this.transaction(() => {
+      this.db
+        .prepare(
+          'INSERT INTO crm_customers (id, name, phone, notes, createdAt) VALUES (?, ?, ?, ?, ?)'
+        )
+        .run(
+          id,
+          value.name,
+          contacts.find((contact) => contact.type === 'phone')?.value ?? '',
+          value.notes,
+          new Date().toISOString()
+        );
+      replaceCustomerContacts(this.db, id, contacts);
+      return id;
+    });
+  }
+
+  updateCustomer(input: UpdateCustomerInput): void {
+    const value = updateCustomerSchema.parse(input);
+    const contacts = value.contacts ?? [{ type: 'phone' as const, value: value.phone! }];
+    this.transaction(() => {
+      const current = this.db
+        .prepare('SELECT revision FROM crm_customers WHERE id=?')
+        .get(value.id);
+      if (!current) throw new CrmError('Клієнта не знайдено');
+      if (current.revision !== value.expectedRevision)
+        throw new CrmError('Клієнта вже змінено в іншому вікні. Відкрийте картку повторно.');
+      this.db
+        .prepare(
+          'UPDATE crm_customers SET name=?, phone=?, notes=?, revision=revision+1 WHERE id=?'
+        )
+        .run(
+          value.name,
+          contacts.find((contact) => contact.type === 'phone')?.value ?? '',
+          value.notes,
+          value.id
+        );
+      replaceCustomerContacts(this.db, value.id, contacts);
+    });
   }
 
   createVehicle(input: VehicleInput): string {
@@ -503,8 +610,8 @@ export class CrmRepository {
       const vehicle = this.vehicleFor(input.customerId, input.vehicleId);
       if (!vehicle.vin) throw new CrmError('Додайте VIN автомобіля перед початком робіт');
       this.checkPlan(input.plannedIntakeDate, input.plannedDeliveryDate);
-      const actualIntakeDate = input.actualIntakeDate || businessToday();
-      if (actualIntakeDate > businessToday())
+      const actualIntakeDate = input.actualIntakeDate || null;
+      if (actualIntakeDate && actualIntakeDate > businessToday())
         throw new CrmError('Фактична дата прийому не може бути в майбутньому');
       let source: RepairRequest | undefined;
       if (input.requestId) {
@@ -531,7 +638,7 @@ export class CrmRepository {
       const id = randomUUID();
       this.db
         .prepare(
-          'INSERT INTO crm_orders (id, requestId, customerId, vehicleId, description, createdAt, plannedIntakeDate, plannedDeliveryDate, actualIntakeDate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          "INSERT INTO crm_orders (id, requestId, customerId, vehicleId, description, createdAt, plannedIntakeDate, plannedDeliveryDate, actualIntakeDate, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'created')"
         )
         .run(
           id,
@@ -558,8 +665,10 @@ export class CrmRepository {
         kind: 'order',
         recordId: id,
         fromStatus: null,
-        toStatus: 'in_progress',
-        actualDateChanges: [{ field: 'actualIntakeDate', before: null, after: actualIntakeDate }],
+        toStatus: 'created',
+        actualDateChanges: actualIntakeDate
+          ? [{ field: 'actualIntakeDate', before: null, after: actualIntakeDate }]
+          : [],
         previousIntakeDate: null,
         previousDeliveryDate: null,
         plannedIntakeDate: plannedIntakeDate || null,
@@ -604,6 +713,21 @@ export class CrmRepository {
         )
         .all(input.id)
         .map((row) => ({ ...row })) as unknown as OrderItem[];
+      const paid = this.payments
+        .list()
+        .filter((entry) => entry.orderId === input.id)
+        .reduce(
+          (sum, entry) => sum + (entry.kind === 'payment' ? entry.amountCents : -entry.amountCents),
+          0
+        );
+      const newTotal = input.items.reduce(
+        (sum, item) => sum + item.quantity * Math.round(item.unitPrice * 100),
+        0
+      );
+      if (newTotal < paid)
+        throw new CrmError(
+          'Вартість не може бути меншою за отриману оплату. Спочатку скасуйте помилковий платіж.'
+        );
       const before: OrderSnapshot = {
         assigneeId: current.assigneeId ?? null,
         assigneeName: current.assigneeName ?? null,
@@ -753,12 +877,12 @@ const globalDb = globalThis as typeof globalThis & {
 export function getCrmRepository(): CrmRepository {
   if (
     globalDb.crmRepository &&
-    (globalDb.crmSchemaVersion !== 8 || !(globalDb.crmRepository instanceof CrmRepository))
+    (globalDb.crmSchemaVersion !== 12 || !(globalDb.crmRepository instanceof CrmRepository))
   ) {
     globalDb.crmRepository.close();
     globalDb.crmRepository = undefined;
   }
-  globalDb.crmSchemaVersion = 8;
+  globalDb.crmSchemaVersion = 12;
   return (globalDb.crmRepository ??= new CrmRepository(
     process.env.CRM_DATABASE_PATH || resolve('data/crm.sqlite')
   ));

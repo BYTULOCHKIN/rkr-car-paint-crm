@@ -116,7 +116,7 @@ export function CrmTable<T extends { id: string }>({
         aria-label={label}
         emptyMessage='За цим пошуком записів не знайдено.'
         pagination={<CrmPagination table={table} />}
-        className='min-w-0 [&_table]:table-fixed [&_td]:px-3 [&_td]:py-3 [&_th]:px-3'
+        className='min-w-0 [&_table]:table-fixed [&_td]:px-3 [&_td]:py-1.5 [&_th]:px-3'
       />
     </div>
   );

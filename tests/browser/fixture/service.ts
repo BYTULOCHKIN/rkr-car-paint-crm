@@ -1,7 +1,13 @@
+import { businessToday } from '@/features/crm/lib/workflow';
 import { executorTransition } from '@/features/crm/lib/executor-workflow';
 import type { AdvanceOrderInput } from '@/features/crm/schemas/crm';
 import type { CrmWorkspace, TeamMember, Vehicle } from '@/features/crm/api/types';
-import type { CustomerInput, VehicleInput, OrderInput } from '@/features/crm/schemas/crm';
+import type {
+  CustomerInput,
+  UpdateCustomerInput,
+  VehicleInput,
+  OrderInput
+} from '@/features/crm/schemas/crm';
 const uuid = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(12, '0')}`;
 const longDescription =
   'Рихтування та фарбування переднього бампера, підготовка поверхні, підбір кольору та фінішне полірування. '.repeat(
@@ -92,10 +98,103 @@ if (location.pathname.endsWith('/overview')) {
     data.orders[month].createdAt = `2026-${String(5 + month).padStart(2, '0')}-10T12:00:00Z`;
   }
 }
+let initializedCreatedDemo = false;
 export async function getWorkspace() {
+  if (new URLSearchParams(location.search).has('createdDemo') && !initializedCreatedDemo) {
+    initializedCreatedDemo = true;
+    data.orders[0].status = 'created';
+    data.orders[0].actualIntakeDate = null;
+  }
   if (new URLSearchParams(location.search).has('empty'))
     return { customers: [], vehicles: [], orders: [], requests: [], events: [] };
   const result = structuredClone(data);
+  if (new URLSearchParams(location.search).has('trendDemo')) {
+    for (const order of result.orders) {
+      order.createdAt = '2026-11-01T10:00:00Z';
+      order.status = 'in_progress';
+      order.actualIntakeDate = '2026-11-01';
+      order.actualReadyDate = null;
+      order.actualDeliveryDate = null;
+    }
+    Object.assign(result.orders[0], {
+      createdAt: '2026-09-01T10:00:00Z',
+      status: 'delivered',
+      actualIntakeDate: '2026-09-01',
+      actualReadyDate: '2026-09-09',
+      actualDeliveryDate: '2026-09-10'
+    });
+    result.payments = [
+      {
+        id: uuid(995),
+        operationId: uuid(995),
+        orderId: result.orders[0].id,
+        kind: 'payment',
+        amountCents: 1000000,
+        reversalOf: null,
+        note: '',
+        createdAt: '2026-10-05T10:00:00Z',
+        actor: { id: 'admin', name: 'Адмін' }
+      },
+      {
+        id: uuid(996),
+        operationId: uuid(996),
+        orderId: result.orders[0].id,
+        kind: 'payment',
+        amountCents: 500000,
+        reversalOf: null,
+        note: '',
+        createdAt: '2026-11-02T10:00:00Z',
+        actor: { id: 'admin', name: 'Адмін' }
+      },
+      {
+        id: uuid(997),
+        operationId: uuid(997),
+        orderId: result.orders[0].id,
+        kind: 'payment',
+        amountCents: 1500000,
+        reversalOf: null,
+        note: '',
+        createdAt: '2026-11-10T10:00:00Z',
+        actor: { id: 'admin', name: 'Адмін' }
+      }
+    ];
+  }
+  if (new URLSearchParams(location.search).has('paymentDemo')) {
+    for (const order of result.orders) {
+      order.status = 'in_progress';
+      order.actualReadyDate = null;
+      order.actualDeliveryDate = null;
+    }
+    result.orders[0].actualReadyDate = businessToday();
+    result.orders[0].status = 'delivered';
+    result.orders[0].actualDeliveryDate = businessToday();
+    result.payments = [
+      {
+        id: uuid(990),
+        operationId: uuid(991),
+        orderId: result.orders[0].id,
+        kind: 'payment',
+        amountCents: 1000000,
+        reversalOf: null,
+        note: '',
+        createdAt: new Date().toISOString(),
+        actor: { id: 'user_owner', name: 'Олена' }
+      }
+    ];
+  }
+  if (new URLSearchParams(location.search).has('orderStatuses')) {
+    result.orders[1].status = 'ready';
+    result.orders[2].status = 'delivered';
+  }
+  if (new URLSearchParams(location.search).has('brandAvatars')) {
+    result.vehicles[0].make = 'ZEEKR';
+    result.vehicles[1].make = 'Mercedes Benz';
+    result.vehicles[2].make = 'Unknown brand';
+  }
+  if (new URLSearchParams(location.search).has('customerDates')) {
+    result.customers[0].createdAt = '2025-01-01T00:00:00Z';
+    result.customers[1].createdAt = '2026-11-01T00:00:00Z';
+  }
   result.access = {
     userId: 'user_worker',
     orgId: 'org_test',
@@ -117,10 +216,18 @@ export async function getWorkspace() {
   }));
   return result;
 }
+const localModels: { make: string; model: string }[] = [];
+export async function addVehicleModel(input: { make: string; model: string }) {
+  localModels.push(input);
+  return { ok: true as const, data: input.model };
+}
 export async function getVehicleCatalog(make: string) {
   return {
     makes: ['VOLKSWAGEN', 'BMW', 'FORD'],
-    models: make === 'BMW' ? ['X3', 'X5'] : ['Passat Alltrack', 'Golf'],
+    models: [
+      ...(make === 'BMW' ? ['X3', 'X5'] : ['Passat Alltrack', 'Golf']),
+      ...localModels.filter((entry) => entry.make === make).map((entry) => entry.model)
+    ],
     warning: null
   };
 }
@@ -129,7 +236,18 @@ export async function decodeVehicleVin() {
 }
 export async function createCustomer(input: CustomerInput) {
   const id = crypto.randomUUID();
-  data.customers.push({ ...input, id, createdAt: new Date().toISOString() });
+  const contacts = (input.contacts ?? [{ type: 'phone' as const, value: input.phone ?? '' }]).map(
+    (contact) => ({ ...contact, id: crypto.randomUUID() })
+  );
+  data.customers.push({
+    name: input.name,
+    notes: input.notes,
+    phone: contacts.find((contact) => contact.type === 'phone')?.value ?? '',
+    contacts,
+    revision: 0,
+    id,
+    createdAt: new Date().toISOString()
+  });
   return { ok: true as const, data: id };
 }
 export async function createVehicle(input: VehicleInput) {
@@ -181,9 +299,77 @@ export async function advanceOrder(input: AdvanceOrderInput) {
   if (!next.ok) return next;
   Object.assign(order, {
     status: next.data.status,
+    actualIntakeDate: next.data.actualIntakeDate || null,
     actualReadyDate: next.data.actualReadyDate || null,
     actualDeliveryDate: next.data.actualDeliveryDate || null,
     workflowRevision: (order.workflowRevision ?? 0) + 1
+  });
+  return { ok: true as const, data: null };
+}
+
+export async function receivePayment(
+  orgId: string,
+  input: { orderId: string; operationId: string; amount: string; note: string }
+) {
+  if (orgId !== 'org_test') return { ok: false as const, error: 'Автомалярку змінено' };
+  const order = data.orders.find((entry) => entry.id === input.orderId)!;
+  data.payments ??= [];
+  const paid = data.payments
+    .filter((entry) => entry.orderId === order.id)
+    .reduce(
+      (sum, entry) => sum + (entry.kind === 'payment' ? entry.amountCents : -entry.amountCents),
+      0
+    );
+  const amountCents = Math.round(Number(input.amount.replace(',', '.')) * 100);
+  if (amountCents + paid > order.totalCents)
+    return { ok: false as const, error: 'Оплата перевищує залишок до сплати' };
+  const id = crypto.randomUUID();
+  data.payments.push({
+    id,
+    operationId: input.operationId,
+    orderId: input.orderId,
+    kind: 'payment',
+    amountCents,
+    reversalOf: null,
+    note: input.note,
+    createdAt: new Date().toISOString(),
+    actor: { id: 'user_owner', name: 'Олена Адміністратор' }
+  });
+  return { ok: true as const, data: id };
+}
+export async function reversePayment(
+  _orgId: string,
+  input: { paymentId: string; operationId: string; note: string }
+) {
+  const original = data.payments!.find((entry) => entry.id === input.paymentId)!;
+  const id = crypto.randomUUID();
+  data.payments!.push({
+    ...original,
+    id,
+    operationId: input.operationId,
+    kind: 'reversal',
+    reversalOf: original.id,
+    note: input.note,
+    createdAt: new Date().toISOString()
+  });
+  return { ok: true as const, data: id };
+}
+
+export async function updateCustomer(input: UpdateCustomerInput & { orgId: string }) {
+  const customer = data.customers.find((entry) => entry.id === input.id);
+  if (!customer || input.orgId !== 'org_test')
+    return { ok: false as const, error: 'Клієнта не знайдено' };
+  if ((customer.revision ?? 0) !== input.expectedRevision)
+    return { ok: false as const, error: 'Клієнта вже змінено в іншому вікні' };
+  const contacts = (input.contacts ?? [{ type: 'phone' as const, value: input.phone ?? '' }]).map(
+    (contact) => ({ ...contact, id: crypto.randomUUID() })
+  );
+  Object.assign(customer, {
+    name: input.name,
+    notes: input.notes,
+    contacts,
+    phone: contacts.find((contact) => contact.type === 'phone')?.value ?? '',
+    revision: (customer.revision ?? 0) + 1
   });
   return { ok: true as const, data: null };
 }

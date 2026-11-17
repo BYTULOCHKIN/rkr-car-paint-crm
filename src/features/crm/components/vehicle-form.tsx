@@ -1,6 +1,8 @@
 'use client';
 import { CrmForm } from './dialog-form';
 import { customerChoices } from './choice-options';
+import { AddVehicleModel } from './add-vehicle-model';
+import { VehicleBrandAvatar } from '@/components/vehicle-brand-avatar';
 
 import { useId, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -35,7 +37,10 @@ const schema = vehicleSchema.omit({ year: true }).extend({
 });
 
 function options(values: string[]) {
-  return [...new Set(values.filter(Boolean))].map((value) => ({ value, label: value }));
+  return [...new Set(values.filter(Boolean))].map((value) => ({
+    value,
+    label: value
+  }));
 }
 function recent(values: string[]) {
   return [...new Set(values.filter(Boolean))].slice(0, 5);
@@ -52,6 +57,7 @@ export function VehicleForm({
   const client = useQueryClient();
   const vinHelpId = useId();
   const [decoding, setDecoding] = useState(false);
+  const [modelState, setModelState] = useState({ dirty: false, pending: false });
   const [message, setMessage] = useState('');
   const feedback = {
     onSuccess: () => {
@@ -81,12 +87,13 @@ export function VehicleForm({
     },
     validators: { onSubmit: schema },
     onSubmit: async ({ value }) => {
+      if (modelState.dirty || modelState.pending) return;
       const input = { ...value, year: Number(value.year) };
       if (vehicle) await update.mutateAsync({ ...input, id: vehicle.id }).catch(() => undefined);
       else await create.mutateAsync(input).catch(() => undefined);
     }
   });
-  const makes = useQuery(crmQueries.catalog(''));
+  const makes = useQuery(crmQueries.catalog('', data.access?.orgId));
 
   async function decode(): Promise<void> {
     const vin = form.getFieldValue('vin').trim().toUpperCase();
@@ -105,7 +112,7 @@ export function VehicleForm({
       if (result.model) form.setFieldValue('model', result.model);
       if (result.year) form.setFieldValue('year', String(result.year));
       form.setFieldValue('vin', vin);
-      setMessage(!result.make && !result.model && !result.year ? result.message : '');
+      setMessage(!result.make || !result.model || !result.year ? result.message : '');
     } catch {
       setMessage('Не вдалося отримати дані VIN. Спробуйте ще раз або виберіть дані вручну.');
     } finally {
@@ -122,8 +129,8 @@ export function VehicleForm({
     >
       <form.Subscribe
         selector={(state) => ({
-          dirty: !state.isDefaultValue,
-          pending: state.isSubmitting || decoding
+          dirty: !state.isDefaultValue || modelState.dirty,
+          pending: state.isSubmitting || decoding || modelState.pending
         })}
       >
         {(state) => <FormStatus {...state} onChange={onStateChange} />}
@@ -153,7 +160,8 @@ export function VehicleForm({
                     </TooltipTrigger>
                     <TooltipContent id={vinHelpId} role='tooltip'>
                       Дані за VIN можуть бути неповними — перевірте їх. Пошук надсилає VIN до NHTSA
-                      vPIC.{linked && ' VIN авто з історією змінювати не можна.'}
+                      vPIC.
+                      {linked && ' VIN авто з історією змінювати не можна.'}
                     </TooltipContent>
                   </Tooltip>
                 }
@@ -183,11 +191,14 @@ export function VehicleForm({
               <>
                 <form.AppField
                   name='make'
-                  listeners={{ onChange: () => form.setFieldValue('model', '') }}
+                  listeners={{
+                    onChange: () => form.setFieldValue('model', '')
+                  }}
                 >
                   {(field) => (
                     <field.ComboboxField
                       label='Марка'
+                      renderIcon={(option) => <VehicleBrandAvatar make={option.value} size='sm' />}
                       required
                       placeholder='Виберіть марку'
                       searchPlaceholder='Пошук марки…'
@@ -229,7 +240,7 @@ export function VehicleForm({
                             emptyMessage={
                               !make
                                 ? 'Спочатку виберіть марку'
-                                : 'Моделей немає в довіднику. Спробуйте отримати дані за VIN.'
+                                : 'Моделей немає в довіднику. Додайте модель кнопкою нижче.'
                             }
                             recentValues={recent(
                               data.vehicles
@@ -239,6 +250,19 @@ export function VehicleForm({
                           />
                         )}
                       </form.AppField>
+                      {data.access?.role === 'admin' && (
+                        <AddVehicleModel
+                          key={make}
+                          make={make}
+                          orgId={data.access.orgId}
+                          choices={choices}
+                          onStateChange={setModelState}
+                          onSelect={(model) => {
+                            if (form.getFieldValue('make') === make)
+                              form.setFieldValue('model', model);
+                          }}
+                        />
+                      )}
                       {warning && (
                         <p role='status' className='text-muted-foreground text-sm'>
                           {warning}
@@ -286,7 +310,8 @@ export function VehicleForm({
             {(field) => <field.TextField label='Держномер (необов’язково)' />}
           </form.AppField>
           <FormActions
-            pending={mutation.isPending}
+            pending={mutation.isPending || modelState.pending}
+            disabled={modelState.dirty}
             error={mutation.error}
             onCancel={onCancel}
             label={vehicle ? 'Зберегти зміни' : 'Додати автомобіль'}
@@ -310,7 +335,10 @@ interface ModelFieldProps {
   ) => React.ReactNode;
 }
 function ModelField({ make, data, value, render }: ModelFieldProps) {
-  const catalog = useQuery({ ...crmQueries.catalog(make), enabled: !!make });
+  const catalog = useQuery({
+    ...crmQueries.catalog(make, data.access?.orgId),
+    enabled: !!make
+  });
   return render(
     make
       ? options([

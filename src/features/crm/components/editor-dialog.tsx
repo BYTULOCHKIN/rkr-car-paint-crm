@@ -1,6 +1,8 @@
 'use client';
 
 import { ExecutorAdvance } from './executor-advance';
+import { OrderPayments } from './order-payments';
+import { OrderMaterials } from '@/features/inventory/components/order-materials';
 import { OrderReadView } from './order-read-view';
 import { useEffect, useId, useMemo, useState } from 'react';
 import {
@@ -18,7 +20,7 @@ import {
   AlertDialogDescription,
   AlertDialogFooter
 } from '@/components/ui/alert-dialog';
-import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty';
+import { CustomerHistory } from './customer-history';
 import { cn } from '@/lib/utils';
 import { Icons } from '@/components/icons';
 import type {
@@ -32,7 +34,6 @@ import type {
 } from '../api/types';
 import { CustomerForm, VehicleForm, VinForm, RequestForm, OrderForm } from './forms';
 import { Button } from './action-button';
-import { money, vehicleLabel } from './format';
 import type { FormState } from './form-status';
 import { WorkflowForm } from './workflow-form';
 import { WorkflowDates, WorkflowHistory } from './workflow-details';
@@ -45,12 +46,12 @@ export type Editor =
   | { type: 'vehicleDetails'; vehicle: Vehicle }
   | { type: 'deleteVehicle'; vehicle: Vehicle }
   | { type: 'owner'; vehicle: Vehicle }
-  | { type: 'customer' }
+  | { type: 'customer'; customer?: Customer }
   | { type: 'vehicle'; customer?: Customer; vehicle?: Vehicle }
   | { type: 'vin'; vehicle: Vehicle }
   | { type: 'request' }
-  | { type: 'order'; request?: RepairRequest; order?: RepairOrder }
-  | { type: 'history'; customer: Customer }
+  | { type: 'order'; request?: RepairRequest; order?: RepairOrder; historyCustomer?: Customer }
+  | { type: 'history'; customer: Customer; initialVehicleId?: string }
   | { type: 'workflow'; target: WorkflowRecord; requestedStatus?: BoardStatus };
 
 interface CrmEditorDialogProps {
@@ -58,11 +59,27 @@ interface CrmEditorDialogProps {
   data: CrmWorkspace;
   onClose: () => void;
   onSelectOrder: (order: RepairOrder) => void;
+  onBackToHistory?: (customer: Customer, vehicleId: string) => void;
 }
 
-export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEditorDialogProps) {
+export function CrmEditorDialog({
+  editor,
+  data,
+  onClose,
+  onSelectOrder,
+  onBackToHistory
+}: CrmEditorDialogProps) {
   const [state, setState] = useState<FormState>({ dirty: false, pending: false });
+  const [materialsPending, setMaterialsPending] = useState(false);
+  const [paymentState, setPaymentState] = useState<FormState>({ dirty: false, pending: false });
+  const dirty = state.dirty || paymentState.dirty;
+  const busy = state.pending || materialsPending || paymentState.pending;
   const [discard, setDiscard] = useState(false);
+  const [discardDestination, setDiscardDestination] = useState<'close' | 'history'>('close');
+  const backToHistory =
+    editor.type === 'order' && editor.order && editor.historyCustomer && onBackToHistory
+      ? () => onBackToHistory(editor.historyCustomer!, editor.order!.vehicleId)
+      : undefined;
   const [footer, setFooter] = useState<HTMLDivElement | null>(null);
   const formId = useId();
   const formLayout = useMemo(() => ({ formId, footer }), [formId, footer]);
@@ -77,18 +94,28 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
     );
   const readOnly = worker || editor.type === 'history' || editor.type === 'vehicleDetails';
   useEffect(() => {
-    if (!state.dirty) return;
+    if (!dirty) return;
     const beforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
     };
     window.addEventListener('beforeunload', beforeUnload);
     return () => window.removeEventListener('beforeunload', beforeUnload);
-  }, [state.dirty]);
+  }, [dirty]);
 
   function requestClose(): void {
-    if (state.pending) return;
-    if (state.dirty) setDiscard(true);
-    else onClose();
+    if (busy) return;
+    if (dirty) {
+      setDiscardDestination('close');
+      setDiscard(true);
+    } else onClose();
+  }
+
+  function requestHistory(): void {
+    if (busy) return;
+    if (dirty) {
+      setDiscardDestination('history');
+      setDiscard(true);
+    } else backToHistory?.();
   }
 
   const title =
@@ -101,7 +128,9 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
           : editor.type === 'workflow'
             ? 'Статус, дати та перенесення'
             : editor.type === 'customer'
-              ? 'Новий клієнт'
+              ? editor.customer
+                ? 'Редагування клієнта'
+                : 'Новий клієнт'
               : editor.type === 'vehicle'
                 ? editor.vehicle
                   ? 'Редагування автомобіля'
@@ -115,7 +144,7 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
                       : editor.order
                         ? `Замовлення №${editor.order.number}`
                         : editor.request
-                          ? 'Взяти заявку в роботу'
+                          ? 'Створити замовлення із заявки'
                           : 'Нове замовлення';
   const description =
     editor.type === 'vehicleDetails'
@@ -127,7 +156,9 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
           : editor.type === 'workflow'
             ? 'Оновіть план і зафіксуйте фактичні дати, не втрачаючи історії.'
             : editor.type === 'customer'
-              ? 'Додайте контактні дані клієнта.'
+              ? editor.customer
+                ? 'Оновіть ім’я, контакти та нотатки клієнта.'
+                : 'Додайте контактні дані клієнта.'
               : editor.type === 'vehicle'
                 ? 'Виберіть марку, модель та рік автомобіля.'
                 : editor.type === 'vin'
@@ -135,9 +166,13 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
                   : editor.type === 'request'
                     ? 'Виберіть клієнта, його автомобіль та опишіть потрібні роботи.'
                     : editor.type === 'history'
-                      ? 'Замовлення окремо для кожного автомобіля клієнта.'
+                      ? 'Автомобілі клієнта, деталі ремонтів і повна історія замовлень.'
                       : 'Перевірте автомобіль, додайте роботи та вартість кожної позиції.';
-  const props = { onSaved: onClose, onCancel: requestClose, onStateChange: setState };
+  const props = {
+    onSaved: backToHistory ?? onClose,
+    onCancel: requestClose,
+    onStateChange: setState
+  };
 
   return (
     <>
@@ -151,7 +186,11 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
           showCloseButton={false}
           className={cn(
             'flex max-h-[90dvh] min-w-0 flex-col gap-0 overflow-hidden p-0',
-            editor.type === 'order' || editor.type === 'history' ? 'sm:max-w-2xl' : 'sm:max-w-lg'
+            editor.type === 'history'
+              ? 'sm:max-w-5xl'
+              : editor.type === 'order'
+                ? 'sm:max-w-2xl'
+                : 'sm:max-w-lg'
           )}
         >
           <Button
@@ -160,7 +199,7 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
             size='icon-sm'
             className='absolute top-2 right-2'
             aria-label='Закрити'
-            disabled={state.pending}
+            disabled={busy}
             onClick={requestClose}
           >
             <Icons.close />
@@ -181,7 +220,13 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
                 <p role='alert'>Ця дія доступна лише адміністратору.</p>
               ) : (
                 <>
-                  {editor.type === 'customer' && <CustomerForm {...props} />}
+                  {editor.type === 'customer' && (
+                    <CustomerForm
+                      customer={editor.customer}
+                      orgId={data.access?.orgId}
+                      {...props}
+                    />
+                  )}
                   {editor.type === 'vehicleDetails' && (
                     <VehicleDetails
                       vehicle={editor.vehicle}
@@ -228,14 +273,26 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
                   )}
                   {editor.type === 'order' && (
                     <>
+                      {backToHistory && (
+                        <Button
+                          type='button'
+                          variant='outline'
+                          className='self-start'
+                          disabled={busy}
+                          onClick={requestHistory}
+                        >
+                          <Icons.chevronLeft aria-hidden />
+                          До автомобілів клієнта
+                        </Button>
+                      )}
                       {editor.order && (
                         <div className='flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3'>
                           <p className='text-sm text-muted-foreground'>
-                            {state.dirty
+                            {dirty
                               ? 'Збережіть зміни перед друком.'
                               : 'Друк збереженого замовлення зі схемою кузова.'}
                           </p>
-                          {state.dirty || state.pending ? (
+                          {dirty || busy ? (
                             <Button disabled variant='outline'>
                               Друк замовлення
                             </Button>
@@ -261,10 +318,26 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
                         </>
                       ) : (
                         <OrderForm
+                          disabled={paymentState.dirty || paymentState.pending}
                           data={data}
                           request={editor.request}
                           order={editor.order}
                           {...props}
+                        />
+                      )}
+                      {editor.order && data.access && (
+                        <OrderPayments
+                          disabled={state.dirty || state.pending}
+                          orderId={editor.order.id}
+                          data={data}
+                          onStateChange={setPaymentState}
+                        />
+                      )}
+                      {editor.order && data.access && (
+                        <OrderMaterials
+                          order={editor.order}
+                          access={data.access}
+                          onPendingChange={setMaterialsPending}
                         />
                       )}
                       {editor.order && (
@@ -276,68 +349,12 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
                     </>
                   )}
                   {editor.type === 'history' && (
-                    <div className='flex flex-col gap-4'>
-                      <div className='flex flex-col gap-2 rounded-lg border p-4 text-sm'>
-                        <a
-                          href={`tel:${editor.customer.phone}`}
-                          className='w-fit underline underline-offset-4'
-                        >
-                          {editor.customer.phone}
-                        </a>
-                        {editor.customer.notes && (
-                          <p className='text-muted-foreground break-words whitespace-pre-wrap'>
-                            {editor.customer.notes}
-                          </p>
-                        )}
-                      </div>
-                      {!data.vehicles.some(
-                        (vehicle) => vehicle.customerId === editor.customer.id
-                      ) && (
-                        <Empty>
-                          <EmptyHeader>
-                            <EmptyTitle>Автомобілів ще немає</EmptyTitle>
-                            <EmptyDescription>
-                              Додайте перший автомобіль у рядку клієнта.
-                            </EmptyDescription>
-                          </EmptyHeader>
-                        </Empty>
-                      )}
-                      {data.vehicles
-                        .filter((vehicle) => vehicle.customerId === editor.customer.id)
-                        .map((vehicle) => {
-                          const history = data.orders.filter(
-                            (order) => order.vehicleId === vehicle.id
-                          );
-                          return (
-                            <section
-                              key={vehicle.id}
-                              className='flex flex-col gap-2 rounded-lg border p-4'
-                            >
-                              <h3 className='font-medium'>{vehicleLabel(vehicle)}</h3>
-                              <p className='text-muted-foreground font-mono text-xs'>
-                                {vehicle.vin || 'VIN ще не додано'}
-                              </p>
-                              {history.length ? (
-                                history.map((order) => (
-                                  <Button
-                                    key={order.id}
-                                    variant='outline'
-                                    onClick={() => onSelectOrder(order)}
-                                  >
-                                    №{order.number} ·{' '}
-                                    {new Intl.DateTimeFormat('uk-UA').format(
-                                      new Date(order.createdAt)
-                                    )}{' '}
-                                    · {money(order.totalCents)}
-                                  </Button>
-                                ))
-                              ) : (
-                                <p className='text-muted-foreground text-sm'>Замовлень ще немає.</p>
-                              )}
-                            </section>
-                          );
-                        })}
-                    </div>
+                    <CustomerHistory
+                      customer={editor.customer}
+                      data={data}
+                      initialVehicleId={editor.initialVehicleId}
+                      onSelectOrder={onSelectOrder}
+                    />
                   )}
                 </>
               )}
@@ -351,7 +368,7 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
             >
               {readOnly && (
                 <div className='flex justify-end'>
-                  <Button variant='outline' disabled={state.pending} onClick={requestClose}>
+                  <Button variant='outline' disabled={busy} onClick={requestClose}>
                     Закрити вікно
                   </Button>
                 </div>
@@ -372,7 +389,10 @@ export function CrmEditorDialog({ editor, data, onClose, onSelectOrder }: CrmEdi
             <Button variant='outline' onClick={() => setDiscard(false)}>
               Продовжити редагування
             </Button>
-            <Button variant='destructive' onClick={onClose}>
+            <Button
+              variant='destructive'
+              onClick={() => (discardDestination === 'history' ? backToHistory?.() : onClose())}
+            >
               Скасувати зміни
             </Button>
           </AlertDialogFooter>

@@ -1,14 +1,22 @@
+vi.mock('@/features/inventory/api/service', () => import('./inventory-stub'));
 import { beforeEach, expect, test, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { VehicleForm } from '../components/vehicle-form';
-import { createVehicle, decodeVehicleVin, updateVehicle, deleteVehicle } from '../api/service';
+import {
+  addVehicleModel,
+  createVehicle,
+  decodeVehicleVin,
+  updateVehicle,
+  deleteVehicle
+} from '../api/service';
 import { CrmEditorDialog } from '../components/editor-dialog';
 import { VehicleActions } from '../components/vehicle-actions';
 import type { CrmWorkspace, Vehicle } from '../api/types';
 
 vi.mock('../api/service', () => ({
+  addVehicleModel: vi.fn(),
   getVehicleCatalog: vi.fn(async (make: string) => ({
     makes: ['FORD', 'BMW'],
     models: make === 'BMW' ? ['X3', 'X5'] : ['Focus', 'Fiesta'],
@@ -19,6 +27,7 @@ vi.mock('../api/service', () => ({
   deleteVehicle: vi.fn(),
   createVehicle: vi.fn(),
   createCustomer: vi.fn(),
+  updateCustomer: vi.fn(),
   createRequest: vi.fn(),
   createOrder: vi.fn(),
   updateOrder: vi.fn(),
@@ -198,4 +207,51 @@ test('vehicle menu opens the editor; deleting requires separate confirmation', a
   await user.click(screen.getByRole('button', { name: 'Видалити автомобіль' }));
   await waitFor(() => expect(close).toHaveBeenCalledOnce());
   expect(deleteVehicle).toHaveBeenCalledWith(existing.id);
+});
+
+test('admin can add a missing model and immediately select it without submitting the vehicle', async () => {
+  const saved = setup({ ...empty, access: { userId: 'admin', orgId: 'org_A', role: 'admin' } });
+  const user = userEvent.setup();
+  vi.mocked(addVehicleModel).mockResolvedValue({ ok: true, data: '001' });
+  await choose('Марка *', 'FORD');
+  await user.click(screen.getByRole('button', { name: 'Додати модель' }));
+  expect(
+    (screen.getByRole('button', { name: 'Додати автомобіль' }) as HTMLButtonElement).disabled
+  ).toBe(true);
+  await user.type(screen.getByRole('textbox', { name: 'Назва моделі *' }), '001');
+  await user.keyboard('{Enter}');
+  await waitFor(() =>
+    expect(addVehicleModel).toHaveBeenCalledWith({ make: 'FORD', model: '001', orgId: 'org_A' })
+  );
+  await waitFor(() =>
+    expect(screen.getByRole('combobox', { name: 'Модель *' }).textContent).toContain('001')
+  );
+  expect(createVehicle).not.toHaveBeenCalled();
+  expect(saved).not.toHaveBeenCalled();
+});
+
+test('existing model is selected without a duplicate write, and failed additions remain editable', async () => {
+  setup({ ...empty, access: { userId: 'admin', orgId: 'org_A', role: 'admin' } });
+  const user = userEvent.setup();
+  await choose('Марка *', 'FORD');
+  await user.click(screen.getByRole('button', { name: 'Додати модель' }));
+  await user.type(screen.getByRole('textbox', { name: 'Назва моделі *' }), ' focus ');
+  await user.click(screen.getByRole('button', { name: 'Додати й вибрати' }));
+  await waitFor(() =>
+    expect(screen.getByRole('combobox', { name: 'Модель *' }).textContent).toContain('Focus')
+  );
+  expect(addVehicleModel).not.toHaveBeenCalled();
+  vi.mocked(addVehicleModel).mockResolvedValue({ ok: false, error: 'Помилка збереження моделі' });
+  await user.click(screen.getByRole('button', { name: 'Додати модель' }));
+  await user.type(screen.getByRole('textbox', { name: 'Назва моделі *' }), '002');
+  await user.click(screen.getByRole('button', { name: 'Додати й вибрати' }));
+  expect(await screen.findByText('Помилка збереження моделі')).toBeTruthy();
+  expect((screen.getByRole('textbox', { name: 'Назва моделі *' }) as HTMLInputElement).value).toBe(
+    '002'
+  );
+});
+
+test('workers do not receive the custom model action', () => {
+  setup({ ...empty, access: { userId: 'worker', orgId: 'org_A', role: 'worker' } });
+  expect(screen.queryByRole('button', { name: 'Додати модель' })).toBeNull();
 });

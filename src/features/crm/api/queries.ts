@@ -1,6 +1,10 @@
 import { mutationOptions, queryOptions } from '@tanstack/react-query';
 import {
   createCustomer,
+  updateCustomer,
+  receivePayment,
+  reversePayment,
+  addVehicleModel,
   createVehicle,
   createRequest,
   createOrder,
@@ -24,10 +28,10 @@ function unwrap<T>(result: ActionResult<T>): T {
 }
 
 export const crmQueries = {
-  catalog: (make: string) =>
+  catalog: (make: string, orgId?: string) =>
     queryOptions({
-      queryKey: ['vehicle-catalog', make],
-      queryFn: () => getVehicleCatalog(make),
+      queryKey: ['vehicle-catalog', orgId ?? 'legacy', make],
+      queryFn: () => getVehicleCatalog(make, orgId),
       staleTime: 86400000
     }),
   vin: (vin: string, year?: number) =>
@@ -53,6 +57,36 @@ export const crmQueries = {
 };
 
 export const crmMutations = {
+  updateCustomer: () =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof updateCustomer>[0]) =>
+        unwrap(await updateCustomer(input))
+    }),
+  receivePayment: () =>
+    mutationOptions({
+      mutationFn: async ({
+        orgId,
+        input
+      }: {
+        orgId: string;
+        input: Parameters<typeof receivePayment>[1];
+      }) => unwrap(await receivePayment(orgId, input))
+    }),
+  reversePayment: () =>
+    mutationOptions({
+      mutationFn: async ({
+        orgId,
+        input
+      }: {
+        orgId: string;
+        input: Parameters<typeof reversePayment>[1];
+      }) => unwrap(await reversePayment(orgId, input))
+    }),
+  vehicleModel: () =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof addVehicleModel>[0]) =>
+        unwrap(await addVehicleModel(input))
+    }),
   advance: () =>
     mutationOptions({
       mutationFn: async (input: Parameters<typeof advanceOrder>[0]) =>
@@ -64,7 +98,9 @@ export const crmMutations = {
         unwrap(await updateVehicle(input))
     }),
   deleteVehicle: () =>
-    mutationOptions({ mutationFn: async (id: string) => unwrap(await deleteVehicle(id)) }),
+    mutationOptions({
+      mutationFn: async (id: string) => unwrap(await deleteVehicle(id))
+    }),
   assignVehicle: () =>
     mutationOptions({
       mutationFn: async (input: Parameters<typeof assignVehicle>[0]) =>

@@ -4,6 +4,8 @@ import { OrganizationProfile } from '@clerk/nextjs';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { OverflowText } from '@/components/data-table/table-cell-preview';
+import { PersonAvatar } from '@/components/person-avatar';
 import {
   Table,
   TableBody,
@@ -32,7 +34,7 @@ export function TeamView({ userId, orgId }: TeamViewProps) {
       </Alert>
       <section className='min-w-0 rounded-xl border p-4'>
         <h2 className='mb-3 text-base font-semibold'>Активні учасники</h2>
-        <Table>
+        <Table className='[&_td]:py-1.5'>
           <TableHeader>
             <TableRow>
               <TableHead>Учасник</TableHead>
@@ -42,9 +44,21 @@ export function TeamView({ userId, orgId }: TeamViewProps) {
           <TableBody>
             {data.team.map((member) => (
               <TableRow key={member.id}>
-                <TableCell className='whitespace-normal [overflow-wrap:anywhere]'>
-                  <p className='font-medium'>{member.name}</p>
-                  <p className='text-xs text-muted-foreground'>{member.identifier}</p>
+                <TableCell className='max-w-64'>
+                  <div className='flex min-w-0 items-center gap-3'>
+                    <PersonAvatar
+                      identity={`user:${member.id}`}
+                      name={member.name}
+                      imageUrl={member.imageUrl}
+                    />
+                    <div className='min-w-0'>
+                      <OverflowText text={member.name} className='font-medium' />
+                      <OverflowText
+                        text={member.identifier}
+                        className='text-xs text-muted-foreground'
+                      />
+                    </div>
+                  </div>
                 </TableCell>
                 <TableCell>
                   <Badge variant={member.role === 'admin' ? 'default' : 'secondary'}>

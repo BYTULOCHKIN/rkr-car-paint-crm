@@ -1,3 +1,4 @@
+vi.mock('@/features/inventory/api/service', () => import('./inventory-stub'));
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -11,7 +12,9 @@ import { useAppForm } from '@/lib/form';
 import type { CrmWorkspace, RepairOrder } from '../api/types';
 
 vi.mock('../api/service', () => ({
+  addVehicleModel: vi.fn(),
   createCustomer: vi.fn(),
+  updateCustomer: vi.fn(),
   updateVehicle: vi.fn(),
   deleteVehicle: vi.fn(),
   createVehicle: vi.fn(),
@@ -163,7 +166,7 @@ describe('CRM dependent fields', () => {
       (screen.getByRole('combobox', { name: 'Автомобіль *' }) as HTMLButtonElement).disabled
     ).toBe(true);
     expect(
-      (screen.getByRole('button', { name: 'Взяти в роботу' }) as HTMLButtonElement).disabled
+      (screen.getByRole('button', { name: 'Створити замовлення' }) as HTMLButtonElement).disabled
     ).toBe(true);
   });
 
@@ -355,11 +358,11 @@ test('conversion requires selecting an active team member and submits the select
   );
   const user = userEvent.setup();
   await user.type(screen.getByRole('textbox', { name: 'Робота 1 *' }), 'Фарбування бампера');
-  await user.click(screen.getByRole('button', { name: 'Взяти в роботу' }));
+  await user.click(screen.getByRole('button', { name: 'Створити замовлення' }));
   expect(createOrder).not.toHaveBeenCalled();
   expect(await screen.findByText('Виберіть виконавця')).toBeDefined();
   await select('Виконавець *', /Маляр Андрій/);
-  await user.click(screen.getByRole('button', { name: 'Взяти в роботу' }));
+  await user.click(screen.getByRole('button', { name: 'Створити замовлення' }));
   await waitFor(() => expect(createOrder).toHaveBeenCalledOnce());
   expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({ assigneeId: 'user_worker' }));
 });

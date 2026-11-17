@@ -1,8 +1,7 @@
-import Link from 'next/link';
+import { SummaryCardLink } from '@/components/summary-card-link';
 import { Icons } from '@/components/icons';
 import { cn } from '@/lib/utils';
 import {
-  Card,
   CardAction,
   CardDescription,
   CardFooter,
@@ -23,32 +22,37 @@ export function SummaryCards({ data, compactOnMobile = false }: SummaryCardsProp
       count: data.customers.length,
       href: '/dashboard/clients',
       description: `Автомобілів у базі: ${data.vehicles.length}`,
-      icon: Icons.teams
+      icon: Icons.customers
     },
     {
       title: 'Активні заявки',
       count: data.requests.filter((request) => request.status !== 'converted').length,
       href: '/dashboard/requests',
       description: `Заплановано: ${data.requests.filter((request) => request.status === 'scheduled').length}`,
-      icon: Icons.kanban
+      icon: Icons.requests
     },
     {
       title: 'Замовлення в роботі',
       count: data.orders.filter((order) => order.status !== 'delivered').length,
       href: '/dashboard/orders',
       description: `Готові до видачі: ${data.orders.filter((order) => order.status === 'ready').length}`,
-      icon: Icons.product
+      icon: Icons.orders
     }
   ];
   return (
     <div
       className={cn(
-        'grid gap-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card *:data-[slot=card]:shadow-xs sm:grid-cols-3',
+        'grid gap-4 sm:grid-cols-3',
         compactOnMobile ? 'grid-cols-3 gap-2 sm:gap-4' : 'grid-cols-1'
       )}
     >
       {cards.map(({ title, count, href, description, icon: Icon }) => (
-        <Card key={href} className='@container/card relative min-w-0'>
+        <SummaryCardLink
+          key={href}
+          href={href}
+          label={`${title}: ${count}`}
+          className='@container/card'
+        >
           <CardHeader className={cn(compactOnMobile && 'px-3 pb-3 sm:px-4 sm:pb-0')}>
             <CardDescription
               className={cn(compactOnMobile && 'min-h-8 text-xs sm:min-h-0 sm:text-sm')}
@@ -61,13 +65,7 @@ export function SummaryCards({ data, compactOnMobile = false }: SummaryCardsProp
                 compactOnMobile && 'col-start-1 row-start-2'
               )}
             >
-              <Link
-                href={href}
-                className='after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none after:focus-visible:ring-2 after:focus-visible:ring-ring'
-                aria-label={`${title}: ${count}`}
-              >
-                {count}
-              </Link>
+              {count}
             </CardTitle>
             <CardAction className={cn(compactOnMobile && 'hidden sm:block')}>
               <Icon aria-hidden className='text-muted-foreground size-5' />
@@ -81,7 +79,7 @@ export function SummaryCards({ data, compactOnMobile = false }: SummaryCardsProp
           >
             {description}
           </CardFooter>
-        </Card>
+        </SummaryCardLink>
       ))}
     </div>
   );

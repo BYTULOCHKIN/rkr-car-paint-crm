@@ -39,6 +39,7 @@ export const navGroups: NavGroup[] = [
     items: [
       {
         title: 'Огляд',
+        access: { requireOrg: true, role: 'org:admin' },
         url: '/dashboard/overview',
         icon: 'dashboard',
         shortcut: ['d', 'd'],
@@ -48,21 +49,28 @@ export const navGroups: NavGroup[] = [
         title: 'Клієнти та автомобілі',
         access: { requireOrg: true, role: 'org:admin' },
         url: '#',
-        icon: 'teams',
+        icon: 'customers',
         items: [
-          { title: 'Клієнти', url: '/dashboard/clients', icon: 'teams' },
-          { title: 'Автомобілі', url: '/dashboard/vehicles', icon: 'product' }
+          { title: 'Клієнти', url: '/dashboard/clients', icon: 'customers' },
+          { title: 'Автомобілі', url: '/dashboard/vehicles', icon: 'car' }
         ]
       },
       {
         title: 'Заявки',
         url: '/dashboard/requests',
-        icon: 'kanban',
+        icon: 'requests',
         items: [],
         access: { requireOrg: true, role: 'org:admin' }
       },
-      { title: 'Замовлення', url: '/dashboard/orders', icon: 'product', items: [] },
-      { title: 'Автомалярки', url: '/dashboard/workspaces', icon: 'workspace', items: [] },
+      { title: 'Замовлення', url: '/dashboard/orders', icon: 'orders', items: [] },
+      {
+        title: 'Склад',
+        url: '/dashboard/inventory',
+        icon: 'inventory',
+        items: [],
+        access: { requireOrg: true }
+      },
+      { title: 'Автомалярки', url: '/dashboard/workspaces', icon: 'garage', items: [] },
       {
         title: 'Команда',
         url: '/dashboard/workspaces/team',

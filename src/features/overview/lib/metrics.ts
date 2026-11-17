@@ -1,3 +1,4 @@
+import { paymentBalance } from '@/features/crm/lib/payment-balance';
 import type {
   BoardStatus,
   CrmWorkspace,
@@ -25,6 +26,11 @@ export interface ScheduleEntry {
 }
 
 export interface OverviewMetrics {
+  monthlyReceiptsCents: number;
+  debtCents: number;
+  debtOrderCount: number;
+  pendingPaymentCents: number;
+  createdOrders: number;
   activeRequests: number;
   backlog: number;
   scheduled: number;
@@ -122,7 +128,31 @@ export function overviewMetrics(data: CrmWorkspace, today = businessToday()): Ov
     if (month) month.orders++;
   }
 
+  const payments = data.payments ?? [];
+  const cancelled = new Set(
+    payments.filter((entry) => entry.kind === 'reversal').map((entry) => entry.reversalOf)
+  );
+  const monthlyReceiptsCents = payments
+    .filter(
+      (entry) =>
+        entry.kind === 'payment' &&
+        !cancelled.has(entry.id) &&
+        businessToday(new Date(entry.createdAt)).startsWith(today.slice(0, 7)) &&
+        businessToday(new Date(entry.createdAt)) <= today
+    )
+    .reduce((sum, entry) => sum + entry.amountCents, 0);
+  const balances = data.orders.map((order) => ({ order, ...paymentBalance(order, payments) }));
+  const debts = balances.filter(
+    (entry) => entry.order.status === 'delivered' && entry.remainingCents > 0
+  );
   return {
+    monthlyReceiptsCents,
+    debtCents: debts.reduce((sum, entry) => sum + entry.remainingCents, 0),
+    debtOrderCount: debts.length,
+    pendingPaymentCents: balances
+      .filter((entry) => entry.order.status !== 'delivered')
+      .reduce((sum, entry) => sum + entry.remainingCents, 0),
+    createdOrders: data.orders.filter((order) => order.status === 'created').length,
     activeRequests: activeRequests.length,
     backlog: activeRequests.filter((target) => target.record.status === 'backlog').length,
     scheduled: activeRequests.filter((target) => target.record.status === 'scheduled').length,

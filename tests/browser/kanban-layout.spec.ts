@@ -4,7 +4,7 @@ test('production sidebar layout contains the board and keeps Delivered reachable
   page
 }, info) => {
   await page.goto('/dashboard/kanban');
-  await expect(page.locator('[data-slot=kanban-column]')).toHaveCount(5);
+  await expect(page.locator('[data-slot=kanban-column]')).toHaveCount(6);
   const main = page.locator('[data-slot=sidebar-inset]');
   const board = page.locator('[data-slot=crm-board-scroll]');
   const widths = await page.evaluate(() => {
@@ -48,7 +48,14 @@ test('visible navigation buttons reach Delivered and return to Backlog', async (
   const previous = page.getByRole('button', { name: 'Прокрутити дошку ліворуч', exact: true });
   await expect(next).toBeEnabled();
   await expect(previous).toBeDisabled();
-  for (let step = 0; step < 8 && (await next.isEnabled()); step++) {
+  for (
+    let step = 0;
+    step < 8 &&
+    (await board.evaluate(
+      (element) => element.scrollLeft + element.clientWidth < element.scrollWidth - 1
+    ));
+    step++
+  ) {
     const before = await board.evaluate((element) => element.scrollLeft);
     await next.click();
     await expect
@@ -74,7 +81,11 @@ test('visible navigation buttons reach Delivered and return to Backlog', async (
   await expect(page.getByRole('heading', { name: 'Видано', exact: true })).toBeInViewport({
     ratio: 1
   });
-  for (let step = 0; step < 8 && (await previous.isEnabled()); step++) {
+  for (
+    let step = 0;
+    step < 8 && (await board.evaluate((element) => element.scrollLeft > 1));
+    step++
+  ) {
     const before = await board.evaluate((element) => element.scrollLeft);
     await previous.click();
     await expect.poll(() => board.evaluate((element) => element.scrollLeft)).toBeLessThan(before);
@@ -92,7 +103,7 @@ test('open and collapsed sidebars never expand the page at common desktop widths
     await page.setViewportSize({ width, height: 900 });
     for (const sidebar of ['open', 'closed']) {
       await page.goto(`/dashboard/kanban?sidebar=${sidebar}`);
-      await expect(page.locator('[data-slot=kanban-column]')).toHaveCount(5);
+      await expect(page.locator('[data-slot=kanban-column]')).toHaveCount(6);
       const bounds = await page.locator('[data-slot=sidebar-inset]').boundingBox();
       expect(bounds!.x + bounds!.width, `${width}px, sidebar ${sidebar}`).toBeLessThanOrEqual(
         width + 1

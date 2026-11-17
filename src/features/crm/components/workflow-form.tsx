@@ -45,7 +45,9 @@ export function WorkflowForm({
       status,
       plannedIntakeDate: status === 'backlog' ? '' : (target.record.plannedIntakeDate ?? ''),
       plannedDeliveryDate: target.record.plannedDeliveryDate ?? '',
-      actualIntakeDate: order?.actualIntakeDate ?? '',
+      actualIntakeDate:
+        order?.actualIntakeDate ||
+        (target.kind === 'order' && status !== 'created' ? businessToday() : ''),
       actualReadyDate: ['ready', 'delivered'].includes(status)
         ? order?.actualReadyDate || businessToday()
         : '',
@@ -61,7 +63,7 @@ export function WorkflowForm({
   const options = WORKFLOW_COLUMNS.filter((column) =>
     target.kind === 'request'
       ? ['backlog', 'scheduled'].includes(column.value)
-      : ['in_progress', 'ready', 'delivered'].includes(column.value)
+      : ['created', 'in_progress', 'ready', 'delivered'].includes(column.value)
   );
   return (
     <CrmForm
@@ -83,6 +85,8 @@ export function WorkflowForm({
               onChange: ({ value }) => {
                 if (value === 'backlog') form.setFieldValue('plannedIntakeDate', '');
                 if (target.kind === 'order') {
+                  if (value !== 'created' && !form.getFieldValue('actualIntakeDate'))
+                    form.setFieldValue('actualIntakeDate', businessToday());
                   form.setFieldValue(
                     'actualReadyDate',
                     ['ready', 'delivered'].includes(value)
@@ -127,15 +131,19 @@ export function WorkflowForm({
           </FieldGroup>
           {target.kind === 'order' && (
             <>
-              <form.AppField name='actualIntakeDate'>
-                {(field) => (
-                  <field.CalendarDateField
-                    label='Фактичний прийом'
-                    required
-                    max={businessToday()}
-                  />
+              <form.Subscribe selector={(state) => state.values.status}>
+                {(current) => (
+                  <form.AppField name='actualIntakeDate'>
+                    {(field) => (
+                      <field.CalendarDateField
+                        label='Фактичний прийом'
+                        required={current !== 'created'}
+                        max={businessToday()}
+                      />
+                    )}
+                  </form.AppField>
                 )}
-              </form.AppField>
+              </form.Subscribe>
               <form.Subscribe selector={(state) => state.values.status}>
                 {(current) => (
                   <>

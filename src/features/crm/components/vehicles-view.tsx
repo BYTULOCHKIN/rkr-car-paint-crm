@@ -6,7 +6,9 @@ import { parseAsInteger, parseAsString, useQueryStates } from 'nuqs';
 import type { ColumnDef } from '@tanstack/react-table';
 import { DataTableColumnHeader } from '@/components/data-table/data-table-column-header';
 import type { DataTableFeatures } from '@/lib/data-table-features';
+import { OverflowText } from '@/components/data-table/table-cell-preview';
 import { Input } from '@/components/ui/input';
+import { VehicleBrandAvatar } from '@/components/vehicle-brand-avatar';
 import { crmQueries } from '../api/queries';
 import type { Vehicle, CrmWorkspace } from '../api/types';
 import { CrmEditorDialog, type Editor } from './editor-dialog';
@@ -23,18 +25,20 @@ function columnsFor(
       id: 'make',
       size: 160,
       accessorKey: 'make',
-      header: ({ column }) => <DataTableColumnHeader column={column} label='Марка' />
+      header: ({ column }) => <DataTableColumnHeader column={column} label='Марка' />,
+      cell: ({ row }) => (
+        <div className='flex min-w-0 items-center gap-3'>
+          <VehicleBrandAvatar make={row.original.make} size='sm' />
+          <OverflowText text={row.original.make} />
+        </div>
+      )
     },
     {
       id: 'model',
       size: 200,
       accessorKey: 'model',
       header: 'Модель',
-      cell: ({ row }) => (
-        <p className='truncate font-medium' title={row.original.model}>
-          {row.original.model}
-        </p>
-      )
+      cell: ({ row }) => <OverflowText text={row.original.model} />
     },
     {
       id: 'year',
@@ -66,11 +70,7 @@ function columnsFor(
         const name =
           data.customers.find((customer) => customer.id === row.original.customerId)?.name ??
           'Без клієнта';
-        return (
-          <p className='truncate' title={name}>
-            {name}
-          </p>
-        );
+        return <OverflowText text={name} />;
       }
     },
     {

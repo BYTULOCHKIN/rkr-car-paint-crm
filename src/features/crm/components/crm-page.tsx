@@ -57,21 +57,26 @@ export async function CrmPage({ view }: CrmPageProps) {
     redirect('/dashboard/orders');
   const queryClient = getQueryClient();
   void queryClient.prefetchQuery(crmQueries.workspace(userId, orgId));
-  return (
+  const content = (
+    <OrganizationBoundary orgId={orgId ?? null}>
+      <HydrationBoundary state={dehydrate(queryClient)}>
+        <Suspense fallback={<Skeleton className='h-80 w-full' />}>
+          {view === 'vehicles' ? (
+            <VehiclesView userId={userId} orgId={orgId} />
+          ) : view === 'kanban' ? (
+            <CrmKanbanBoard userId={userId} orgId={orgId} />
+          ) : (
+            <CrmWorkspaceView view={view} userId={userId} orgId={orgId} />
+          )}
+        </Suspense>
+      </HydrationBoundary>
+    </OrganizationBoundary>
+  );
+  return ['customers', 'orders'].includes(view) ? (
+    content
+  ) : (
     <PageContainer pageTitle={copy[view][0]} pageDescription={copy[view][1]}>
-      <OrganizationBoundary orgId={orgId ?? null}>
-        <HydrationBoundary state={dehydrate(queryClient)}>
-          <Suspense fallback={<Skeleton className='h-80 w-full' />}>
-            {view === 'vehicles' ? (
-              <VehiclesView userId={userId} orgId={orgId} />
-            ) : view === 'kanban' ? (
-              <CrmKanbanBoard userId={userId} orgId={orgId} />
-            ) : (
-              <CrmWorkspaceView view={view} userId={userId} orgId={orgId} />
-            )}
-          </Suspense>
-        </HydrationBoundary>
-      </OrganizationBoundary>
+      {content}
     </PageContainer>
   );
 }

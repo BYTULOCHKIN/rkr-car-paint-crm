@@ -1,6 +1,17 @@
 import type { PaintSelection } from '../constants/paint-plan';
 
+export type { VehicleModelInput } from '../schemas/vehicle-model';
+
+export interface CustomerContactValue {
+  type: 'phone' | 'email';
+  value: string;
+}
+export interface CustomerContact extends CustomerContactValue {
+  id: string;
+}
 export interface Customer {
+  contacts?: CustomerContact[];
+  revision?: number;
   id: string;
   name: string;
   phone: string;
@@ -51,7 +62,7 @@ export interface RepairOrder {
   items: OrderItem[];
   paintPlan?: PaintSelection[];
   totalCents: number;
-  status: 'in_progress' | 'ready' | 'delivered';
+  status: 'created' | 'in_progress' | 'ready' | 'delivered';
   plannedIntakeDate: string | null;
   plannedDeliveryDate: string | null;
   actualIntakeDate: string | null;
@@ -59,7 +70,13 @@ export interface RepairOrder {
   actualDeliveryDate: string | null;
 }
 
-export type BoardStatus = 'backlog' | 'scheduled' | 'in_progress' | 'ready' | 'delivered';
+export type BoardStatus =
+  | 'backlog'
+  | 'scheduled'
+  | 'created'
+  | 'in_progress'
+  | 'ready'
+  | 'delivered';
 export type WorkflowRecord =
   | { kind: 'request'; record: RepairRequest }
   | { kind: 'order'; record: RepairOrder };
@@ -106,6 +123,7 @@ export interface WorkflowEvent {
 
 export type CrmRole = 'admin' | 'worker';
 export interface TeamMember {
+  imageUrl?: string;
   id: string;
   name: string;
   identifier: string;
@@ -116,7 +134,20 @@ export interface CrmAccess {
   orgId: string;
   role: CrmRole;
 }
+export interface PaymentEvent {
+  id: string;
+  operationId: string;
+  orderId: string;
+  kind: 'payment' | 'reversal';
+  amountCents: number;
+  reversalOf: string | null;
+  note: string;
+  actor: HistoryActor;
+  createdAt: string;
+}
+
 export interface CrmWorkspace {
+  payments?: PaymentEvent[];
   access?: CrmAccess;
   team?: TeamMember[];
   customers: Customer[];

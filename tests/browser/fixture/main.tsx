@@ -1,4 +1,11 @@
 import { TeamView } from '@/features/crm/components/team-view';
+import { lazy, Suspense } from 'react';
+const UsersTable = lazy(() =>
+  import('@/features/users/components/users-table').then((module) => ({
+    default: module.UsersTable
+  }))
+);
+import { InventoryView } from '@/features/inventory/components/inventory-view';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NuqsAdapter } from 'nuqs/adapters/react';
@@ -13,12 +20,15 @@ import { businessToday } from '@/features/crm/lib/workflow';
 import { Sidebar, SidebarContent, SidebarHeader, SidebarProvider } from '@/components/ui/sidebar';
 import { DashboardInset } from '@/components/layout/dashboard-inset';
 import Header from '@/components/layout/header';
+import AppSidebar from '@/components/layout/app-sidebar';
 import { ActiveThemeProvider } from '@/components/themes/active-theme';
 import ThemeProvider from '@/components/themes/theme-provider';
 import { KBarProvider } from 'kbar';
 
 const route = location.pathname.split('/').pop() ?? 'clients';
 const titles: Record<string, string> = {
+  users: 'Користувачі',
+  inventory: 'Склад',
   team: 'Команда',
   overview: 'Огляд автомалярки',
   kanban: 'Дошка робіт',
@@ -30,6 +40,15 @@ const titles: Record<string, string> = {
 if (new URLSearchParams(location.search).has('dark'))
   document.documentElement.classList.add('dark');
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function FixturePage({ children }: { children: React.ReactNode }) {
+  return ['clients', 'orders'].includes(route) ? (
+    <>{children}</>
+  ) : (
+    <PageContainer pageTitle={titles[route]} pageDescription='Керування роботою автомалярки'>
+      {children}
+    </PageContainer>
+  );
+}
 createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={queryClient}>
     <NuqsAdapter>
@@ -43,27 +62,34 @@ createRoot(document.getElementById('root')!).render(
               <SidebarProvider
                 defaultOpen={new URLSearchParams(location.search).get('sidebar') !== 'closed'}
               >
-                <Sidebar collapsible='icon'>
-                  <SidebarHeader>
-                    <p className='mb-6 font-semibold'>Автомалярка</p>
-                  </SidebarHeader>
-                  <SidebarContent>
-                    <nav className='flex flex-col gap-4'>
-                      {Object.entries(titles).map(([key, title]) => (
-                        <a key={key} href={`/dashboard/${key}`}>
-                          {title}
-                        </a>
-                      ))}
-                    </nav>
-                  </SidebarContent>
-                </Sidebar>
+                {new URLSearchParams(location.search).has('realSidebar') ? (
+                  <AppSidebar />
+                ) : (
+                  <Sidebar collapsible='icon'>
+                    <SidebarHeader>
+                      <p className='mb-6 font-semibold'>Автомалярка</p>
+                    </SidebarHeader>
+                    <SidebarContent>
+                      <nav className='flex flex-col gap-4'>
+                        {Object.entries(titles).map(([key, title]) => (
+                          <a key={key} href={`/dashboard/${key}`}>
+                            {title}
+                          </a>
+                        ))}
+                      </nav>
+                    </SidebarContent>
+                  </Sidebar>
+                )}
                 <DashboardInset id='main-content' tabIndex={-1} className='scroll-mt-16'>
                   <Header />
-                  <PageContainer
-                    pageTitle={titles[route]}
-                    pageDescription='Керування роботою автомалярки'
-                  >
-                    {route === 'team' ? (
+                  <FixturePage>
+                    {route === 'users' ? (
+                      <Suspense fallback={<p>Завантаження користувачів…</p>}>
+                        <UsersTable />
+                      </Suspense>
+                    ) : route === 'inventory' ? (
+                      <InventoryView userId='browser-test' orgId='org_test' />
+                    ) : route === 'team' ? (
                       <TeamView userId='browser-test' orgId='org_test' />
                     ) : route === 'kanban' ? (
                       <CrmKanbanBoard userId='browser-test' />
@@ -83,7 +109,7 @@ createRoot(document.getElementById('root')!).render(
                         }
                       />
                     )}
-                  </PageContainer>
+                  </FixturePage>
                 </DashboardInset>
               </SidebarProvider>
             </ActiveThemeProvider>

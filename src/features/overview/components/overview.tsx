@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import Link from 'next/link';
+import { SummaryCardLink } from '@/components/summary-card-link';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { Icons } from '@/components/icons';
 import {
-  Card,
   CardAction,
   CardDescription,
   CardFooter,
@@ -19,6 +19,8 @@ import { CrmEditorDialog, type Editor } from '@/features/crm/components/editor-d
 import { money } from '@/features/crm/components/format';
 import { crmQueries } from '@/features/crm/api/queries';
 import { businessToday, displayDate } from '@/features/crm/lib/workflow';
+import { overviewTrends, type TrendKey } from '../lib/trends';
+import { MetricTrend, trendLabel } from './metric-trend';
 import { overviewMetrics } from '../lib/metrics';
 import { ActivityChart } from './activity-chart';
 import { WorkQueue } from './work-queue';
@@ -49,23 +51,31 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
     };
   }, []);
   const metrics = useMemo(() => overviewMetrics(data, today), [data, today]);
+  const trends = useMemo(() => overviewTrends(data, today, metrics), [data, today, metrics]);
   const cards = [
     {
       title: 'Активні заявки',
+      trendKey: 'activeRequests' as TrendKey,
       value: String(metrics.activeRequests),
       description: 'Backlog: ' + metrics.backlog + ' · Заплановано: ' + metrics.scheduled,
       href: '/dashboard/requests',
-      icon: Icons.kanban
+      icon: Icons.requests
     },
     {
       title: 'Замовлення в роботі',
+      trendKey: 'inProgress' as TrendKey,
       value: String(metrics.inProgress),
-      description: 'Усі відкриті замовлення: ' + money(metrics.activeValueCents),
+      description:
+        'Створено: ' +
+        metrics.createdOrders +
+        ' · Вартість відкритих: ' +
+        money(metrics.activeValueCents),
       href: '/dashboard/orders',
-      icon: Icons.product
+      icon: Icons.orders
     },
     {
       title: 'Готові до видачі',
+      trendKey: 'ready' as TrendKey,
       value: String(metrics.ready),
       description: 'Прострочених прийомів і видач: ' + metrics.overdue,
       href: '/dashboard/kanban',
@@ -73,10 +83,34 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
     },
     {
       title: 'Видано цього місяця',
+      trendKey: 'deliveredThisMonth' as TrendKey,
       value: String(metrics.deliveredThisMonth),
       description: 'Вартість замовлень: ' + money(metrics.deliveredValueCents),
       href: '/dashboard/orders',
       icon: Icons.billing
+    }
+  ];
+  const financialCards = [
+    {
+      title: 'Надходження за місяць',
+      trendKey: 'monthlyReceiptsCents' as TrendKey,
+      value: metrics.monthlyReceiptsCents,
+      description: 'Фактично отримані платежі; скасовані не враховано.',
+      icon: Icons.billing
+    },
+    {
+      title: 'Заборгованість за виданими авто',
+      trendKey: 'debtCents' as TrendKey,
+      value: metrics.debtCents,
+      description: 'Неоплачених виданих замовлень: ' + metrics.debtOrderCount,
+      icon: Icons.warning
+    },
+    {
+      title: 'До сплати за невиданими авто',
+      trendKey: 'pendingPaymentCents' as TrendKey,
+      value: metrics.pendingPaymentCents,
+      description: 'Залишок за створеними замовленнями, авто в роботі та готовими.',
+      icon: Icons.orders
     }
   ];
   const empty =
@@ -111,28 +145,25 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
           </AlertDescription>
         </Alert>
       )}
-      <div className='grid min-w-0 gap-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card *:data-[slot=card]:shadow-xs sm:grid-cols-2 xl:grid-cols-4'>
-        {cards.map(({ title, value, description, href, icon: Icon }) => (
-          <Card key={title} className='relative min-w-0'>
-            <CardHeader>
+      <div className='grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-4'>
+        {cards.map(({ title, trendKey, value, description, href, icon: Icon }) => (
+          <SummaryCardLink
+            key={title}
+            href={href}
+            label={`${title}: ${value}. ${trendLabel(trends.metrics[trendKey])}`}
+          >
+            <CardHeader className='relative'>
               <CardDescription>{title}</CardDescription>
-              <CardTitle className='text-3xl font-semibold tabular-nums'>
-                <Link
-                  href={href}
-                  aria-label={title + ': ' + value}
-                  className='after:absolute after:inset-0 after:rounded-xl after:focus-visible:ring-2 after:focus-visible:ring-ring'
-                >
-                  {value}
-                </Link>
-              </CardTitle>
+              <CardTitle className='text-3xl font-semibold tabular-nums'>{value}</CardTitle>
+              <MetricTrend trend={trends.metrics[trendKey]} title={title} direction='up' />
               <CardAction>
-                <Icon aria-hidden className='size-5 text-muted-foreground' />
+                <Icon aria-hidden className='size-4 text-muted-foreground' />
               </CardAction>
             </CardHeader>
             <CardFooter className='min-h-14 items-start text-xs text-muted-foreground'>
               {description}
             </CardFooter>
-          </Card>
+          </SummaryCardLink>
         ))}
       </div>
       <div className='flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground'>
@@ -147,6 +178,32 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
           <span>Без дати видачі: {metrics.undatedDelivered}; у підсумок місяця не включені.</span>
         )}
       </div>
+      <section aria-label='Фінанси автомалярки' className='grid min-w-0 gap-4 md:grid-cols-3'>
+        {financialCards.map(({ title, trendKey, value, description, icon: Icon }) => (
+          <SummaryCardLink
+            key={title}
+            href='/dashboard/orders'
+            label={`${title}: ${money(value)}. ${trendLabel(trends.metrics[trendKey])}`}
+          >
+            <CardHeader className='relative'>
+              <CardDescription>{title}</CardDescription>
+              <CardTitle className='break-words text-2xl font-semibold tabular-nums'>
+                {money(value)}
+              </CardTitle>
+              <MetricTrend
+                trend={trends.metrics[trendKey]}
+                title={title}
+                currency
+                direction={trendKey === 'debtCents' ? 'down' : 'up'}
+              />
+              <CardAction>
+                <Icon aria-hidden className='size-4 text-muted-foreground' />
+              </CardAction>
+            </CardHeader>
+            <CardFooter className='text-xs text-muted-foreground'>{description}</CardFooter>
+          </SummaryCardLink>
+        ))}
+      </section>
       {empty && (
         <Empty className='rounded-xl border bg-card'>
           <EmptyHeader>

@@ -36,7 +36,7 @@ export function VehicleActions({ vehicle, data, edit }: VehicleActionsProps) {
       >
         <Icons.ellipsis />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align='end'>
+      <DropdownMenuContent align='end' className='w-max min-w-56 whitespace-nowrap'>
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={() => edit({ type: 'vehicleDetails', vehicle })}>
             <Icons.info />
@@ -60,6 +60,7 @@ export function VehicleActions({ vehicle, data, edit }: VehicleActionsProps) {
                   .catch(() => toast.error('Не вдалося скопіювати VIN'));
               }}
             >
+              <Icons.copy aria-hidden />
               Скопіювати VIN
             </DropdownMenuItem>
           )}

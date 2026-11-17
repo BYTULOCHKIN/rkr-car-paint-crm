@@ -32,6 +32,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Icons } from '../icons';
 import { OrgSwitcher } from '../org-switcher';
+import { cn } from '@/lib/utils';
 
 export default function AppSidebar() {
   const pathname = usePathname();
@@ -39,7 +40,7 @@ export default function AppSidebar() {
   const { organization } = useOrganization();
   const { signOut } = useClerk();
   const router = useRouter();
-  const filteredGroups = useFilteredNavGroups(navGroups);
+  const filteredGroups = useFilteredNavGroups(navGroups, { includeUnavailable: true });
 
   return (
     <Sidebar collapsible='icon'>
@@ -49,10 +50,28 @@ export default function AppSidebar() {
       <SidebarContent className='overflow-x-hidden'>
         {filteredGroups.map((group) => (
           <SidebarGroup key={group.label || 'ungrouped'} className='py-0'>
-            {group.label && <SidebarGroupLabel>{group.label}</SidebarGroupLabel>}
+            {group.label && (
+              // Collapsed labels overlap the previous group's final link because of their negative margin.
+              <SidebarGroupLabel className='group-data-[collapsible=icon]:invisible'>
+                {group.label}
+              </SidebarGroupLabel>
+            )}
             <SidebarMenu>
               {group.items.map((item) => {
                 const Icon = item.icon ? Icons[item.icon] : Icons.logo;
+                if (item.disabled)
+                  return (
+                    <SidebarMenuItem key={item.title} className='cursor-not-allowed'>
+                      <SidebarMenuButton
+                        disabled
+                        aria-label={item.title}
+                        title='Немає доступу до цього розділу'
+                      >
+                        <Icon aria-hidden />
+                        <span>{item.title}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
                 return item?.items && item?.items?.length > 0 ? (
                   <Collapsible
                     key={item.title}
@@ -62,23 +81,37 @@ export default function AppSidebar() {
                     <CollapsibleTrigger
                       render={
                         <SidebarMenuButton
+                          aria-label={item.title}
                           tooltip={item.title}
                           isActive={pathname === item.url}
                           className='group/collapsible'
                         />
                       }
                     >
-                      {item.icon && <Icon />}
+                      {item.icon && <Icon aria-hidden />}
                       <span>{item.title}</span>
-                      <Icons.chevronRight className='ml-auto transition-transform duration-200 group-data-panel-open/collapsible:rotate-90' />
+                      <Icons.chevronRight
+                        aria-hidden
+                        className='ml-auto transition-transform duration-200 group-data-panel-open/collapsible:rotate-90'
+                      />
                     </CollapsibleTrigger>
                     <CollapsibleContent>
                       <SidebarMenuSub>
                         {item.items?.map((subItem) => (
-                          <SidebarMenuSubItem key={subItem.title}>
+                          <SidebarMenuSubItem
+                            key={subItem.title}
+                            className={cn(subItem.disabled && 'cursor-not-allowed')}
+                          >
                             <SidebarMenuSubButton
-                              render={<Link href={subItem.url} aria-label={subItem.title} />}
-                              isActive={pathname === subItem.url}
+                              render={
+                                subItem.disabled ? (
+                                  <button type='button' disabled aria-label={subItem.title} />
+                                ) : (
+                                  <Link href={subItem.url} aria-label={subItem.title} />
+                                )
+                              }
+                              aria-disabled={subItem.disabled || undefined}
+                              isActive={!subItem.disabled && pathname === subItem.url}
                             >
                               <span>{subItem.title}</span>
                             </SidebarMenuSubButton>
@@ -94,7 +127,7 @@ export default function AppSidebar() {
                       tooltip={item.title}
                       isActive={pathname === item.url}
                     >
-                      <Icon />
+                      <Icon aria-hidden />
                       <span>{item.title}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

@@ -3,6 +3,7 @@
 import type { ReactElement } from 'react';
 import Link from 'next/link';
 import { Icons } from '@/components/icons';
+import { StatusBadge } from '@/features/crm/components/status-badge';
 import { Badge } from '@/components/ui/badge';
 import {
   Card,
@@ -16,7 +17,7 @@ import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/u
 import { Button } from '@/features/crm/components/action-button';
 import { vehicleLabel } from '@/features/crm/components/format';
 import type { CrmWorkspace, WorkflowRecord } from '@/features/crm/api/types';
-import { displayDate, overdueLabel, statusLabel } from '@/features/crm/lib/workflow';
+import { displayDate, overdueLabel } from '@/features/crm/lib/workflow';
 
 export interface QueueEntry {
   target: WorkflowRecord;
@@ -81,9 +82,11 @@ export function WorkQueue({
                       {vehicle ? vehicleLabel(vehicle) : 'Автомобіль не знайдено'}
                     </p>
                     <div className='flex flex-wrap items-center gap-2 text-xs'>
-                      <Badge variant={overdue ? 'destructive' : 'secondary'}>
-                        {overdue || statusLabel(target.record.status)}
-                      </Badge>
+                      {overdue ? (
+                        <Badge variant='destructive'>{overdue}</Badge>
+                      ) : (
+                        <StatusBadge status={target.record.status} />
+                      )}
                       <span className='text-muted-foreground'>
                         {label}
                         {date ? ` · ${displayDate(date)}` : ''}

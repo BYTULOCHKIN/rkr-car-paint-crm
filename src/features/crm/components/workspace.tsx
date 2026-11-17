@@ -1,13 +1,25 @@
 'use client';
+import PageContainer from '@/components/layout/page-container';
+import { Icons } from '@/components/icons';
+import { Button as HeaderButton } from '@/components/ui/button';
+import { ButtonGroup } from '@/components/ui/button-group';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem
+} from '@/components/ui/dropdown-menu';
 import { assigneeLabel } from '../lib/assignee';
+import { PersonAvatar } from '@/components/person-avatar';
+import { VehicleBrandAvatar } from '@/components/vehicle-brand-avatar';
 
 import { useMemo, useState } from 'react';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
-import { parseAsInteger, parseAsString, useQueryStates } from 'nuqs';
+import { parseAsInteger, parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs';
 import { DataTableColumnHeader } from '@/components/data-table/data-table-column-header';
 import type { DataTableFeatures } from '@/lib/data-table-features';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { SummaryCards } from './summary-cards';
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty';
@@ -16,10 +28,16 @@ import type { CrmWorkspace, CrmView, Customer, RepairRequest, RepairOrder } from
 import { CrmEditorDialog, type Editor } from './editor-dialog';
 import { Button } from './action-button';
 import { money, vehicleLabel } from './format';
+import { StatusBadge } from './status-badge';
+import { paymentBalance } from '../lib/payment-balance';
 import { statusLabel } from '../lib/workflow';
 import { WorkflowDatePreview } from './workflow-details';
 import { CrmTable } from './crm-table';
+import { primaryContact, contactSearchValues } from '../lib/customer-contacts';
+import { CustomerContactsPreview } from './customer-contacts';
 import { RowActions } from './row-actions';
+import { OverflowText } from '@/components/data-table/table-cell-preview';
+import { OrderWorkPreview, CustomerCarsPreview } from './table-previews';
 
 const date = new Intl.DateTimeFormat('uk-UA', { dateStyle: 'short' });
 
@@ -31,31 +49,58 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
     const vehicle = vehiclesById.get(id);
     return vehicle ? vehicleLabel(vehicle) : '—';
   };
+  function carCell(id: string, showVin = false) {
+    const vehicle = vehiclesById.get(id);
+    return (
+      <div className='flex min-w-0 items-center gap-2'>
+        <VehicleBrandAvatar make={vehicle?.make} size='sm' />
+        <div className='min-w-0'>
+          <OverflowText text={car(id)} />
+          {showVin && <p className='text-muted-foreground font-mono text-xs'>{vehicle?.vin}</p>}
+        </div>
+      </div>
+    );
+  }
   const customerColumns: ColumnDef<DataTableFeatures, Customer>[] = [
     {
       id: 'name',
       accessorKey: 'name',
       header: ({ column }) => <DataTableColumnHeader column={column} label='Клієнт' />,
       cell: ({ row }) => (
-        <div>
-          <p className='max-w-64 truncate font-medium' title={row.original.name}>
-            {row.original.name}
-          </p>
-          <p className='text-muted-foreground max-w-52 truncate text-xs' title={row.original.notes}>
-            {row.original.notes}
-          </p>
+        <div className='flex min-w-0 items-center gap-3'>
+          <PersonAvatar identity={`customer:${row.original.id}`} name={row.original.name} />
+          <div className='min-w-0'>
+            <HeaderButton
+              type='button'
+              variant='link'
+              className='h-auto min-h-6 w-full min-w-0 justify-start p-0 text-left font-medium'
+              aria-label={`Редагувати клієнта ${row.original.name}`}
+              onClick={() => setEditor({ type: 'customer', customer: row.original })}
+            >
+              <span className='min-w-0 truncate'>{row.original.name}</span>
+            </HeaderButton>
+            <OverflowText
+              className='text-muted-foreground max-w-52 text-xs'
+              text={row.original.notes}
+            />
+          </div>
         </div>
       )
     },
     {
-      id: 'phone',
-      accessorKey: 'phone',
-      header: 'Телефон',
+      id: 'createdAt',
+      accessorKey: 'createdAt',
+      header: 'Створено',
       cell: ({ row }) => (
-        <a href={`tel:${row.original.phone}`} className='underline underline-offset-4'>
-          {row.original.phone}
-        </a>
+        <span className='text-muted-foreground text-xs tabular-nums'>
+          {date.format(new Date(row.original.createdAt))}
+        </span>
       )
+    },
+    {
+      id: 'phone',
+      header: 'Контакти',
+      cell: ({ row }) => <CustomerContactsPreview customer={row.original} />
     },
     {
       id: 'vehicles',
@@ -63,40 +108,11 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
       cell: ({ row }) => {
         const vehicles = data.vehicles.filter((vehicle) => vehicle.customerId === row.original.id);
         return (
-          <div className='flex flex-col gap-3 py-2'>
-            {vehicles.length ? (
-              vehicles.slice(0, 2).map((vehicle) => (
-                <div key={vehicle.id}>
-                  <p className='max-w-80 truncate' title={vehicleLabel(vehicle)}>
-                    {vehicleLabel(vehicle)}
-                  </p>
-                  {vehicle.vin ? (
-                    <p className='text-muted-foreground font-mono text-xs'>{vehicle.vin}</p>
-                  ) : (
-                    <Button
-                      size='xs'
-                      variant='outline'
-                      onClick={() => setEditor({ type: 'vin', vehicle })}
-                    >
-                      Додати VIN
-                    </Button>
-                  )}
-                </div>
-              ))
-            ) : (
-              <span className='text-muted-foreground'>Ще немає автомобілів</span>
-            )}
-            {vehicles.length > 2 && (
-              <Button
-                size='xs'
-                variant='link'
-                className='w-fit px-0'
-                onClick={() => setEditor({ type: 'history', customer: row.original })}
-              >
-                Ще {vehicles.length - 2} · переглянути всі
-              </Button>
-            )}
-          </div>
+          <CustomerCarsPreview
+            vehicles={vehicles}
+            onVin={(vehicle) => setEditor({ type: 'vin', vehicle })}
+            onHistory={() => setEditor({ type: 'history', customer: row.original })}
+          />
         );
       }
     },
@@ -108,11 +124,18 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
           label={`Дії з клієнтом ${row.original.name}`}
           actions={[
             {
+              label: 'Редагувати',
+              icon: 'edit',
+              onClick: () => setEditor({ type: 'customer', customer: row.original })
+            },
+            {
               label: 'Додати авто',
+              icon: 'car',
               onClick: () => setEditor({ type: 'vehicle', customer: row.original })
             },
             {
               label: 'Автомобілі та історія',
+              icon: 'clock',
               onClick: () => setEditor({ type: 'history', customer: row.original })
             }
           ]}
@@ -133,14 +156,12 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
       header: 'Клієнт',
       cell: ({ row }) => (
         <div>
-          <p
-            className='max-w-52 truncate font-medium'
-            title={customerName(row.original.customerId)}
-          >
-            {customerName(row.original.customerId)}
-          </p>
+          <OverflowText
+            className='max-w-52  font-medium'
+            text={customerName(row.original.customerId)}
+          />
           <p className='text-muted-foreground text-xs'>
-            {customersById.get(row.original.customerId)?.phone}
+            {primaryContact(customersById.get(row.original.customerId))}
           </p>
         </div>
       )
@@ -149,33 +170,18 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
       id: 'vehicle',
       accessorFn: (request) => car(request.vehicleId),
       header: 'Автомобіль',
-      cell: ({ row }) => (
-        <p className='max-w-56 truncate' title={car(row.original.vehicleId)}>
-          {car(row.original.vehicleId)}
-        </p>
-      )
+      cell: ({ row }) => carCell(row.original.vehicleId)
     },
     {
       id: 'description',
       accessorKey: 'description',
       header: 'Потрібні роботи',
-      cell: ({ row }) => (
-        <p
-          className='line-clamp-2 max-w-64 break-words whitespace-normal'
-          title={row.original.description}
-        >
-          {row.original.description}
-        </p>
-      )
+      cell: ({ row }) => <OverflowText text={row.original.description} label='Опис заявки' />
     },
     {
       id: 'status',
       header: 'Статус',
-      cell: ({ row }) => (
-        <Badge variant={row.original.status === 'backlog' ? 'secondary' : 'outline'}>
-          {statusLabel(row.original.status)}
-        </Badge>
-      )
+      cell: ({ row }) => <StatusBadge status={row.original.status} />
     },
     {
       id: 'actions',
@@ -205,7 +211,7 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
                         })
                     },
                     {
-                      label: vehicle?.vin ? 'Взяти в роботу' : 'Спочатку додати VIN',
+                      label: vehicle?.vin ? 'Створити замовлення' : 'Спочатку додати VIN',
                       disabled: !vehicle,
                       onClick: () => {
                         if (vehicle?.vin) setEditor({ type: 'order', request });
@@ -246,41 +252,20 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
       accessorFn: (order) => customerName(order.customerId),
       header: 'Клієнт',
       cell: ({ row }) => (
-        <p className='max-w-48 truncate' title={customerName(row.original.customerId)}>
-          {customerName(row.original.customerId)}
-        </p>
+        <OverflowText className='max-w-48' text={customerName(row.original.customerId)} />
       )
     },
     {
       id: 'vehicle',
       accessorFn: (order) => car(order.vehicleId),
       header: 'Автомобіль',
-      cell: ({ row }) => (
-        <div>
-          <p className='max-w-56 truncate' title={car(row.original.vehicleId)}>
-            {car(row.original.vehicleId)}
-          </p>
-          <p className='text-muted-foreground font-mono text-xs'>
-            {vehiclesById.get(row.original.vehicleId)?.vin}
-          </p>
-        </div>
-      )
+      cell: ({ row }) => carCell(row.original.vehicleId, true)
     },
     {
       id: 'description',
       accessorKey: 'description',
       header: 'Роботи',
-      cell: ({ row }) => (
-        <div className='flex max-w-80 min-w-40 flex-col gap-1'>
-          <p
-            className='line-clamp-2 break-words whitespace-normal'
-            title={row.original.description}
-          >
-            {row.original.description}
-          </p>
-          <p className='text-muted-foreground text-xs'>Позицій: {row.original.items.length}</p>
-        </div>
-      )
+      cell: ({ row }) => <OrderWorkPreview order={row.original} />
     },
     {
       id: 'totalCents',
@@ -293,6 +278,9 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
       cell: ({ row }) => (
         <span className='block text-right font-medium tabular-nums'>
           {money(row.original.totalCents)}
+          <span className='block text-xs font-normal text-muted-foreground'>
+            {paymentBalance(row.original, data.payments).status}
+          </span>
         </span>
       )
     },
@@ -301,15 +289,13 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
       header: 'Виконавець',
       accessorFn: (order) => assigneeLabel(order, data.team),
       cell: ({ row }) => (
-        <p className='max-w-48 truncate' title={assigneeLabel(row.original, data.team)}>
-          {assigneeLabel(row.original, data.team)}
-        </p>
+        <OverflowText className='max-w-48' text={assigneeLabel(row.original, data.team)} />
       )
     },
     {
       id: 'status',
       header: 'Статус',
-      cell: ({ row }) => <Badge variant='secondary'>{statusLabel(row.original.status)}</Badge>
+      cell: ({ row }) => <StatusBadge status={row.original.status} />
     },
     {
       id: 'actions',
@@ -318,9 +304,14 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
         <RowActions
           label={`Дії із замовленням №${row.original.number}`}
           actions={[
-            { label: 'Відкрити', onClick: () => setEditor({ type: 'order', order: row.original }) },
+            {
+              label: 'Відкрити',
+              icon: 'page',
+              onClick: () => setEditor({ type: 'order', order: row.original })
+            },
             {
               label: data.access?.role === 'worker' ? 'Оновити статус' : 'Статус і дати',
+              icon: 'clock',
               onClick: () =>
                 setEditor({ type: 'workflow', target: { kind: 'order', record: row.original } })
             }
@@ -335,7 +326,15 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
     header: 'Дати',
     cell: ({ row }) => <WorkflowDatePreview target={{ kind: 'request', record: row.original }} />
   });
-  orderColumns.splice(orderColumns.length - 1, 0, {
+  orderColumns.splice(
+    3,
+    0,
+    orderColumns.splice(
+      orderColumns.findIndex((column) => column.id === 'status'),
+      1
+    )[0]
+  );
+  orderColumns.splice(4, 0, {
     id: 'dates',
     header: 'План і факт',
     cell: ({ row }) => <WorkflowDatePreview target={{ kind: 'order', record: row.original }} />
@@ -344,15 +343,15 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
   const sizes: Record<string, number> = {
     name: 280,
     phone: 170,
-    vehicles: 360,
+    vehicles: 280,
     createdAt: 112,
     number: 132,
-    customer: 220,
-    vehicle: 260,
-    description: 260,
-    totalCents: 155,
-    status: 150,
-    dates: 230,
+    customer: 180,
+    vehicle: 230,
+    description: 210,
+    totalCents: 140,
+    status: 120,
+    dates: 145,
     actions: 64
   };
   for (const columns of [customerColumns, requestColumns, orderColumns]) {
@@ -370,11 +369,21 @@ interface CrmWorkspaceViewProps {
 export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps) {
   const { data } = useSuspenseQuery(crmQueries.workspace(userId, orgId));
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [params, setParams] = useQueryStates(
     {
       q: parseAsString.withDefault(''),
       page: parseAsInteger.withDefault(1),
-      requestStatus: parseAsString.withDefault('backlog')
+      customerOrder: parseAsStringLiteral(['newest', 'oldest']).withDefault('newest'),
+      sort: parseAsString,
+      requestStatus: parseAsString.withDefault('backlog'),
+      orderStatus: parseAsStringLiteral([
+        'all',
+        'created',
+        'in_progress',
+        'ready',
+        'delivered'
+      ]).withDefault('all')
     },
     { shallow: true }
   );
@@ -396,41 +405,50 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
       const vehicle = vehiclesById.get(id);
       return vehicle ? vehicleLabel(vehicle) : '—';
     };
-    const customers = data.customers.filter((customer) =>
-      matches(
-        customer.name,
-        customer.phone,
-        customer.notes,
-        ...data.vehicles
-          .filter((vehicle) => vehicle.customerId === customer.id)
-          .flatMap((vehicle) => [vehicleLabel(vehicle), vehicle.vin])
+    const customers = data.customers
+      .filter((customer) =>
+        matches(
+          customer.name,
+          ...contactSearchValues(customer),
+          customer.notes,
+          ...data.vehicles
+            .filter((vehicle) => vehicle.customerId === customer.id)
+            .flatMap((vehicle) => [vehicleLabel(vehicle), vehicle.vin])
+        )
       )
-    );
+      .toSorted((a, b) => {
+        const difference = Date.parse(a.createdAt) - Date.parse(b.createdAt);
+        return (
+          (params.customerOrder === 'oldest' ? difference : -difference) || a.id.localeCompare(b.id)
+        );
+      });
     const requests = data.requests.filter(
       (request) =>
         (params.requestStatus === 'all' || request.status !== 'converted') &&
         matches(
           customerName(request.customerId),
-          customersById.get(request.customerId)?.phone,
+          ...contactSearchValues(customersById.get(request.customerId)),
           car(request.vehicleId),
           vehiclesById.get(request.vehicleId)?.vin,
           request.description
         )
     );
-    const orders = data.orders.filter((order) =>
-      matches(
-        String(order.number),
-        customerName(order.customerId),
-        customersById.get(order.customerId)?.phone,
-        car(order.vehicleId),
-        vehiclesById.get(order.vehicleId)?.vin,
-        order.description,
-        assigneeLabel(order, data.team),
-        ...order.items.map((item) => item.description)
-      )
+    const orders = data.orders.filter(
+      (order) =>
+        (params.orderStatus === 'all' || order.status === params.orderStatus) &&
+        matches(
+          String(order.number),
+          customerName(order.customerId),
+          ...contactSearchValues(customersById.get(order.customerId)),
+          car(order.vehicleId),
+          vehiclesById.get(order.vehicleId)?.vin,
+          order.description,
+          assigneeLabel(order, data.team),
+          ...order.items.map((item) => item.description)
+        )
     );
     return { customers, requests, orders };
-  }, [data, search, params.requestStatus]);
+  }, [data, search, params.requestStatus, params.customerOrder, params.orderStatus]);
   const empty =
     view === 'customers'
       ? !data.customers.length
@@ -454,34 +472,44 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
         Цей розділ доступний адміністратору. Для роботи перейдіть до замовлень.
       </p>
     );
-  return (
+  const searchControl = (
+    <Input
+      aria-label='Пошук за клієнтом, автомобілем, VIN або роботами'
+      placeholder='Клієнт, телефон, автомобіль, VIN…'
+      className='w-full min-w-0 sm:w-72'
+      value={params.q}
+      onChange={(event) => void setParams({ q: event.target.value, page: 1 })}
+    />
+  );
+  const content = (
     <div className='flex flex-1 flex-col gap-4'>
-      <SummaryCards data={data} />
-      <div className='flex flex-wrap items-center gap-3'>
-        <Input
-          aria-label='Пошук за клієнтом, автомобілем, VIN або роботами'
-          placeholder='Клієнт, телефон, автомобіль, VIN…'
-          className='w-full sm:max-w-sm'
-          value={params.q}
-          onChange={(event) => {
-            void setParams({ q: event.target.value, page: 1 });
-          }}
-        />
-        {view === 'requests' && (
-          <Button
-            variant='outline'
-            onClick={() => {
-              void setParams({
-                requestStatus: params.requestStatus === 'all' ? 'backlog' : 'all',
-                page: 1
-              });
-            }}
-          >
-            {params.requestStatus === 'all' ? 'Показати лише активні' : 'Показати всі заявки'}
-          </Button>
-        )}
-        {data.access?.role !== 'worker' && <Button onClick={create}>{createLabel}</Button>}
-      </div>
+      {view === 'requests' && <SummaryCards data={data} />}
+      {view !== 'orders' && (
+        <div className='flex flex-wrap items-center gap-3'>
+          {searchControl}
+          {view === 'requests' && (
+            <Button
+              variant='outline'
+              onClick={() => {
+                void setParams({
+                  requestStatus: params.requestStatus === 'all' ? 'backlog' : 'all',
+                  page: 1
+                });
+              }}
+            >
+              {params.requestStatus === 'all' ? 'Показати лише активні' : 'Показати всі заявки'}
+            </Button>
+          )}
+          {view !== 'customers' && data.access?.role !== 'worker' && (
+            <Button onClick={create}>
+              <span className='flex items-center gap-2'>
+                <Icons.add aria-hidden />
+                {createLabel}
+              </span>
+            </Button>
+          )}
+        </div>
+      )}
       {empty ? (
         <Empty className='min-h-64 rounded-xl border'>
           <EmptyHeader>
@@ -500,7 +528,14 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
                   : 'Візьміть заявку в роботу або створіть замовлення напряму.'}
             </EmptyDescription>
           </EmptyHeader>
-          {data.access?.role !== 'worker' && <Button onClick={create}>{createLabel}</Button>}
+          {data.access?.role !== 'worker' && (
+            <Button onClick={create}>
+              <span className='flex items-center gap-2'>
+                <Icons.add aria-hidden />
+                {createLabel}
+              </span>
+            </Button>
+          )}
         </Empty>
       ) : view === 'customers' ? (
         <CrmTable rows={customers} columns={customerColumns} label='Клієнти' />
@@ -523,9 +558,119 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
           editor={editor}
           data={data}
           onClose={close}
-          onSelectOrder={(order) => setEditor({ type: 'order', order })}
+          onSelectOrder={(order) =>
+            setEditor({
+              type: 'order',
+              order,
+              historyCustomer: editor.type === 'history' ? editor.customer : undefined
+            })
+          }
+          onBackToHistory={(customer, vehicleId) =>
+            setEditor({ type: 'history', customer, initialVehicleId: vehicleId })
+          }
         />
       )}
     </div>
+  );
+  if (view === 'orders')
+    return (
+      <PageContainer
+        pageTitle='Замовлення'
+        pageHeaderLayout='responsive'
+        pageDescription='Автомобілі в роботі, перелік робіт і вартість за позиціями.'
+        pageHeaderAction={
+          <div className='flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto'>
+            {searchControl}
+            <DropdownMenu open={statusMenuOpen} onOpenChange={setStatusMenuOpen}>
+              <DropdownMenuTrigger
+                render={<HeaderButton variant='outline' aria-label='Фільтр статусу замовлень' />}
+              >
+                <Icons.adjustments aria-hidden />
+                {params.orderStatus === 'all' ? 'Усі статуси' : statusLabel(params.orderStatus)}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end' className='w-max min-w-48 whitespace-nowrap'>
+                <DropdownMenuRadioGroup value={params.orderStatus}>
+                  {(['all', 'created', 'in_progress', 'ready', 'delivered'] as const).map(
+                    (status) => (
+                      <DropdownMenuRadioItem
+                        key={status}
+                        value={status}
+                        onClick={() => {
+                          void setParams({ orderStatus: status, page: 1 });
+                          setStatusMenuOpen(false);
+                        }}
+                      >
+                        {status === 'all' ? 'Усі статуси' : statusLabel(status)}
+                      </DropdownMenuRadioItem>
+                    )
+                  )}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {data.access?.role !== 'worker' && (
+              <HeaderButton onClick={create} className='shrink-0'>
+                <Icons.add aria-hidden />
+                Нове замовлення
+              </HeaderButton>
+            )}
+          </div>
+        }
+      >
+        {content}
+      </PageContainer>
+    );
+  return view === 'customers' ? (
+    <PageContainer
+      pageTitle='Клієнти'
+      pageDescription='Контакти клієнтів і закріплені за ними автомобілі.'
+      pageHeaderAction={
+        <ButtonGroup aria-label='Дії сторінки клієнтів' className='gap-2'>
+          <ButtonGroup>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <HeaderButton
+                    variant='outline'
+                    size='icon'
+                    aria-label='Сортувати за датою створення'
+                    title='Сортувати за датою створення'
+                  />
+                }
+              >
+                <Icons.calendar aria-hidden />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end' className='w-max min-w-48 whitespace-nowrap'>
+                <DropdownMenuRadioGroup value={params.customerOrder}>
+                  <DropdownMenuRadioItem
+                    value='newest'
+                    onClick={() => void setParams({ customerOrder: 'newest', page: 1, sort: null })}
+                  >
+                    <Icons.chevronsDown aria-hidden />
+                    Спочатку нові
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem
+                    value='oldest'
+                    onClick={() => void setParams({ customerOrder: 'oldest', page: 1, sort: null })}
+                  >
+                    <Icons.chevronUp aria-hidden />
+                    Спочатку старі
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </ButtonGroup>
+          <ButtonGroup>
+            <HeaderButton onClick={create} aria-label='Додати клієнта'>
+              <Icons.add aria-hidden />
+              <span className='hidden sm:inline'>Додати клієнта</span>
+            </HeaderButton>
+          </ButtonGroup>
+        </ButtonGroup>
+      }
+    >
+      {content}
+    </PageContainer>
+  ) : (
+    content
   );
 }

@@ -10,8 +10,9 @@ This document explains the fully client-side RBAC (Role-Based Access Control) sy
 
 ### Core Files
 
-1. **`src/hooks/use-nav.ts`** - Single hook that handles all filtering logic (fully client-side)
+1. **`src/hooks/use-nav.ts`** - Reads Clerk membership and resolves navigation (fully client-side)
 2. **`src/types/index.ts`** - Type definitions with `access` property
+3. **`src/lib/nav-access.ts`** - Shared recursive access rules, including disabled parent entries
 
 ### Why Client-Side?
 
@@ -64,6 +65,13 @@ This document explains the fully client-side RBAC (Role-Based Access Control) sy
 ```
 
 ### In Components
+
+The sidebar calls `useFilteredNavGroups(navGroups, { includeUnavailable: true })`.
+Unavailable entries stay visible as disabled buttons without links. Executors see
+«Огляд», «Клієнти та автомобілі», and «Заявки» disabled; orders, inventory,
+team, and the work board remain available. Restricted parent entries also disable
+their children. Keyboard command navigation uses the default filtering mode, which
+omits unavailable and explicitly disabled entries, so it cannot register their shortcuts.
 
 ```typescript
 import { useFilteredNavItems } from '@/hooks/use-nav';

@@ -1,3 +1,4 @@
+vi.mock('@/features/inventory/api/service', () => import('./inventory-stub'));
 import { expect, test, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';

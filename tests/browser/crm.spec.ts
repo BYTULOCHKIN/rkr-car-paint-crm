@@ -107,6 +107,8 @@ test('long order modal scrolls its body while header and footer stay visible', a
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
+  // Wait for material data before observing animations from the resolved dialog.
+  await expect(dialog.getByRole('region', { name: 'Матеріали замовлення' })).toBeVisible();
   await dialog.evaluate(async (element) => {
     await Promise.all(
       element.getAnimations({ subtree: true }).map((animation) => animation.finished)
@@ -137,7 +139,7 @@ test('footer submits the associated form and a vehicle select stays inside the v
   await page.getByRole('button', { name: 'Додати клієнта', exact: true }).first().click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('textbox', { name: 'Ім’я клієнта *' }).fill('Браузерна перевірка');
-  await dialog.getByRole('textbox', { name: 'Телефон *' }).fill('+380000000000');
+  await dialog.getByRole('textbox', { name: 'Телефон 1 *' }).fill('+380000000000');
   await dialog.getByRole('button', { name: 'Створити клієнта', exact: true }).click();
   await expect(dialog).toBeHidden();
   await page.goto('/dashboard/vehicles');
@@ -198,9 +200,11 @@ test('customer history and request workflow keep complete content accessible', a
   page
 }, info) => {
   await page.goto('/dashboard/clients');
-  await page.getByRole('button', { name: 'Ще 5 · переглянути всі', exact: true }).click();
+  await page.getByRole('button', { name: 'Автомобілі клієнта', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Повна історія автомобілів', exact: true }).click();
   await checkDialogBounds(page);
-  await expect(page.getByRole('dialog').locator('section')).toHaveCount(7);
+  await expect(page.getByRole('dialog').getByText('Автомобілі: 7', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Історія вибраного автомобіля' })).toBeVisible();
   await page.screenshot({ animations: 'disabled', path: info.outputPath('customer-history.png') });
   await page.getByRole('button', { name: 'Закрити вікно', exact: true }).click();
   await page.goto('/dashboard/requests');

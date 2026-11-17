@@ -1,5 +1,7 @@
 'use client';
 import { Badge } from '@/components/ui/badge';
+import { OverflowText } from '@/components/data-table/table-cell-preview';
+import { PersonAvatar } from '@/components/person-avatar';
 import { DataTableColumnHeader } from '@/components/data-table/data-table-column-header';
 import type { User } from '../../api/types';
 import type { ColumnDef } from '@tanstack/react-table';
@@ -14,11 +16,19 @@ export const columns: ColumnDef<DataTableFeatures, User>[] = [
     accessorFn: (row) => `${row.first_name} ${row.last_name}`,
     header: ({ column }) => <DataTableColumnHeader column={column} label='Name' />,
     cell: ({ row }) => (
-      <div className='flex flex-col'>
-        <span className='font-medium'>
-          {row.original.first_name} {row.original.last_name}
-        </span>
-        <span className='text-muted-foreground text-xs'>{row.original.email}</span>
+      <div className='flex min-w-0 items-center gap-3'>
+        <PersonAvatar
+          identity={`user:${row.original.id}`}
+          name={`${row.original.first_name} ${row.original.last_name}`}
+          imageUrl={row.original.imageUrl}
+        />
+        <div className='flex min-w-0 flex-col'>
+          <OverflowText
+            text={`${row.original.first_name} ${row.original.last_name}`}
+            className='font-medium'
+          />
+          <OverflowText text={row.original.email} className='text-muted-foreground text-xs' />
+        </div>
       </div>
     ),
     meta: {

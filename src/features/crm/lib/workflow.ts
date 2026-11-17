@@ -3,6 +3,7 @@ import type { BoardStatus, CrmWorkspace, WorkflowRecord } from '../api/types';
 export const WORKFLOW_COLUMNS: { value: BoardStatus; label: string }[] = [
   { value: 'backlog', label: 'Backlog' },
   { value: 'scheduled', label: 'Заплановано' },
+  { value: 'created', label: 'Створено' },
   { value: 'in_progress', label: 'У роботі' },
   { value: 'ready', label: 'Готово' },
   { value: 'delivered', label: 'Видано' }
@@ -64,8 +65,10 @@ export function transitionKind(
 ): 'none' | 'convert' | 'workflow' | 'invalid' {
   if (target.record.status === status) return 'none';
   if (target.kind === 'request' && target.record.status === 'converted') return 'invalid';
-  if (target.kind === 'request' && status === 'in_progress') return 'convert';
+  if (target.kind === 'request' && ['created', 'in_progress'].includes(status)) return 'convert';
   const allowed =
-    target.kind === 'request' ? ['backlog', 'scheduled'] : ['in_progress', 'ready', 'delivered'];
+    target.kind === 'request'
+      ? ['backlog', 'scheduled']
+      : ['created', 'in_progress', 'ready', 'delivered'];
   return allowed.includes(status) ? 'workflow' : 'invalid';
 }

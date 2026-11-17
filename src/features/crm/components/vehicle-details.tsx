@@ -6,9 +6,12 @@ import { DialogActions } from './dialog-form';
 import { crmMutations, crmQueries } from '../api/queries';
 import type { CrmWorkspace, Vehicle, RepairOrder } from '../api/types';
 import { statusLabel, displayDate } from '../lib/workflow';
-import { money, vehicleLabel } from './format';
+import { vehicleLabel } from './format';
+import { vehicleOrders } from '../lib/customer-history';
+import { VehicleOrderHistory } from './vehicle-order-history';
 import { FormStatus, type SaveProps } from './form-status';
 import { Button } from './action-button';
+import { VehicleBrandAvatar } from '@/components/vehicle-brand-avatar';
 
 interface VehicleDetailsProps {
   vehicle: Vehicle;
@@ -16,7 +19,7 @@ interface VehicleDetailsProps {
   onSelectOrder: (order: RepairOrder) => void;
 }
 export function VehicleDetails({ vehicle, data, onSelectOrder }: VehicleDetailsProps) {
-  const orders = data.orders.filter((order) => order.vehicleId === vehicle.id);
+  const orders = vehicleOrders(data.orders, vehicle.id);
   const requests = data.requests.filter((request) => request.vehicleId === vehicle.id);
   const fields = [
     ['Автомобіль', vehicleLabel(vehicle)],
@@ -33,22 +36,14 @@ export function VehicleDetails({ vehicle, data, onSelectOrder }: VehicleDetailsP
         {fields.map(([label, value]) => (
           <div key={label}>
             <dt className='text-muted-foreground text-sm'>{label}</dt>
-            <dd className='break-all font-medium'>{value}</dd>
+            <dd className='flex items-center gap-2 break-all font-medium'>
+              {label === 'Автомобіль' && <VehicleBrandAvatar make={vehicle.make} />}
+              <span className='min-w-0'>{value}</span>
+            </dd>
           </div>
         ))}
       </dl>
-      <section className='flex flex-col gap-2'>
-        <h3 className='font-medium'>Замовлення ({orders.length})</h3>
-        {orders.length ? (
-          orders.map((order) => (
-            <Button key={order.id} variant='outline' onClick={() => onSelectOrder(order)}>
-              №{order.number} · {statusLabel(order.status)} · {money(order.totalCents)}
-            </Button>
-          ))
-        ) : (
-          <p className='text-muted-foreground text-sm'>Замовлень ще немає.</p>
-        )}
-      </section>
+      <VehicleOrderHistory orders={orders} onSelectOrder={onSelectOrder} />
       <section className='flex flex-col gap-2'>
         <h3 className='font-medium'>Заявки ({requests.length})</h3>
         {requests.length ? (

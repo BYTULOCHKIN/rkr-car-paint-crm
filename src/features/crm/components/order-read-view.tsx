@@ -8,7 +8,9 @@ import {
   TableRow
 } from '@/components/ui/table';
 import { assigneeLabel } from '../lib/assignee';
+import { primaryContact } from '../lib/customer-contacts';
 import { money, vehicleLabel } from './format';
+import { VehicleBrandAvatar } from '@/components/vehicle-brand-avatar';
 import { BodyDiagram } from './body-diagram';
 import { PaintLegend } from './paint-legend';
 
@@ -19,9 +21,16 @@ export function OrderReadView({ order, data }: { order: RepairOrder; data: CrmWo
     <div className='flex min-w-0 flex-col gap-5'>
       <section className='rounded-lg border p-3 text-sm'>
         <p className='font-medium'>
-          {customer?.name} · {customer?.phone}
+          {customer?.name} · {primaryContact(customer)}
         </p>
-        <p>{vehicle && vehicleLabel(vehicle)}</p>
+        {vehicle && (
+          <div className='my-2 flex items-center gap-2'>
+            <VehicleBrandAvatar make={vehicle.make} />
+            <p className='min-w-0 flex-1 break-words [overflow-wrap:anywhere]'>
+              {vehicleLabel(vehicle)}
+            </p>
+          </div>
+        )}
         <p className='font-mono'>{vehicle?.vin}</p>
         <p className='mt-2'>
           Виконавець: <strong>{assigneeLabel(order, data.team)}</strong>

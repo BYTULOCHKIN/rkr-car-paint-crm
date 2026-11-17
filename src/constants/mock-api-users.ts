@@ -8,6 +8,7 @@ import { matchSorter } from 'match-sorter';
 export const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export type User = {
+  imageUrl?: string | null;
   id: number;
   first_name: string;
   last_name: string;

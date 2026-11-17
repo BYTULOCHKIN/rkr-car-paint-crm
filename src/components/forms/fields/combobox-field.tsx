@@ -1,6 +1,13 @@
 'use client';
 
-import { useId, useMemo, useState, type HTMLAttributes, type ReactElement } from 'react';
+import {
+  useId,
+  useMemo,
+  useState,
+  type HTMLAttributes,
+  type ReactElement,
+  type ReactNode
+} from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Combobox,
@@ -40,6 +47,7 @@ interface ComboboxFieldProps extends BaseFieldProps {
   errorMessage?: string;
   onRetry?: () => void;
   clearable?: boolean;
+  renderIcon?: (option: ChoiceOption) => ReactNode;
 }
 
 const NO_RECENT_VALUES: string[] = [];
@@ -65,7 +73,8 @@ export function ComboboxField({
   loadingMessage = 'Завантаження…',
   errorMessage,
   onRetry,
-  clearable = !required
+  clearable = !required,
+  renderIcon
 }: ComboboxFieldProps): ReactElement {
   const field = useFieldContext<string>();
   const isInvalid = useFieldInvalid();
@@ -124,6 +133,11 @@ export function ComboboxField({
           aria-busy={loading || undefined}
           onBlur={field.handleBlur}
         >
+          {selected && renderIcon && (
+            <span className='flex shrink-0 items-center' aria-hidden='true'>
+              {renderIcon(selected)}
+            </span>
+          )}
           <span className='min-w-0 flex-1 truncate text-left' title={selectedLabel || undefined}>
             {selectedLabel || (!hasOptions && !disabled ? help : placeholder)}
           </span>
@@ -159,6 +173,11 @@ export function ComboboxField({
                       disabled={option.disabled}
                       className='min-h-9 items-start py-2'
                     >
+                      {renderIcon && (
+                        <span className='flex shrink-0 items-center self-center' aria-hidden='true'>
+                          {renderIcon(option)}
+                        </span>
+                      )}
                       <span className='flex min-w-0 flex-1 flex-col gap-0.5 text-left whitespace-normal [overflow-wrap:anywhere]'>
                         <span>{option.label}</span>
                         {option.description && (

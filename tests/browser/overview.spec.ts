@@ -10,16 +10,13 @@ test('overview displays CRM totals, queues and actual charts without demo conten
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/dashboard/overview');
-  await expect(page.getByRole('link', { name: 'Активні заявки: 22', exact: true })).toBeVisible();
-  await expect(
-    page.getByRole('link', { name: 'Замовлення в роботі: 22', exact: true })
-  ).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Готові до видачі: 1', exact: true })).toBeVisible();
-  await expect(
-    page.getByRole('link', { name: 'Видано цього місяця: 1', exact: true })
-  ).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Активні заявки: 22\./ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Замовлення в роботі: 22\./ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Готові до видачі: 1\./ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Видано цього місяця: 1\./ })).toBeVisible();
   await expect(page.getByText('Вартість замовлень: 60 000,00 грн', { exact: true })).toBeVisible();
   await expect(page.locator('[data-slot=chart]')).toBeVisible();
+  await expect(page.locator('[data-slot=metric-trend]')).toHaveCount(7);
   await expect(
     page.getByRole('table', { name: 'Останні замовлення' }).locator('tbody tr')
   ).toHaveCount(5);
@@ -41,7 +38,7 @@ test('creating a customer from overview invalidates the shared CRM data', async 
   await page.getByRole('button', { name: 'Додати клієнта', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('textbox', { name: 'Ім’я клієнта *' }).fill('Новий клієнт з огляду');
-  await dialog.getByRole('textbox', { name: 'Телефон *' }).fill('+380000000000');
+  await dialog.getByRole('textbox', { name: 'Телефон 1 *' }).fill('+380000000000');
   await dialog.getByRole('button', { name: 'Створити клієнта', exact: true }).click();
   await expect(dialog).toBeHidden();
   await expect(page.getByRole('link', { name: 'Клієнтів у базі: 25', exact: true })).toBeVisible();
@@ -70,7 +67,7 @@ test('overview opens existing orders and workflow dialogs using CRM forms', asyn
 test('a new CRM has zero counters and helpful empty states', async ({ page }, info) => {
   await page.goto('/dashboard/overview?empty');
   await expect(page.getByText('Почнімо роботу з CRM', { exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Активні заявки: 0', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Активні заявки: 0\./ })).toBeVisible();
   await expect(page.getByRole('table')).toHaveCount(0);
   await expect(page.locator('[data-slot=chart]')).toHaveCount(0);
   await page.screenshot({
@@ -86,7 +83,7 @@ test('overview respects the dark theme and constrains the recent orders table', 
   page
 }, info) => {
   await page.goto('/dashboard/overview?dark');
-  await expect(page.getByRole('link', { name: 'Готові до видачі: 1', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Готові до видачі: 1\./ })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
     true
   );

@@ -1,5 +1,6 @@
 import {
   IconAdjustmentsHorizontal,
+  IconAddressBook,
   IconAlertCircle,
   IconAlertTriangle,
   IconArrowRight,
@@ -10,6 +11,9 @@ import {
   IconBrandTwitter,
   IconBrightness,
   IconCalendar,
+  IconCar,
+  IconCarGarage,
+  IconBuildingWarehouse,
   IconCheck,
   IconChecks,
   IconChevronDown,
@@ -24,8 +28,10 @@ import {
   IconCirclePlus,
   IconCircleX,
   IconClipboardText,
+  IconClipboardList,
   IconClock,
   IconCode,
+  IconCopy,
   IconCommand,
   IconCreditCard,
   IconDeviceLaptop,
@@ -44,6 +50,7 @@ import {
   IconGripVertical,
   IconHelpCircle,
   IconInfoCircle,
+  IconInbox,
   IconItalic,
   IconLayoutDashboard,
   IconLayoutKanban,
@@ -59,6 +66,7 @@ import {
   IconPalette,
   IconPaperclip,
   IconPhone,
+  IconMail,
   IconPhoto,
   IconPizza,
   IconPlus,
@@ -103,6 +111,7 @@ export const Icons = {
   close: IconX,
   clock: IconClock,
   code: IconCode,
+  copy: IconCopy,
   dots: IconDots,
   ellipsis: IconDotsVertical,
   externalLink: IconExternalLink,
@@ -146,6 +155,7 @@ export const Icons = {
   chat: IconMessage,
   notification: IconBell,
   phone: IconPhone,
+  mail: IconMail,
   video: IconVideo,
   send: IconSend,
   paperclip: IconPaperclip,
@@ -184,6 +194,12 @@ export const Icons = {
   palette: IconPalette,
 
   // Commerce / Plans
+  customers: IconAddressBook,
+  car: IconCar,
+  garage: IconCarGarage,
+  requests: IconInbox,
+  orders: IconClipboardList,
+  inventory: IconBuildingWarehouse,
   billing: IconCreditCard,
   creditCard: IconCreditCard,
   product: IconBox,
@@ -221,3 +237,47 @@ export const Icons = {
   galleryVerticalEnd: IconStack2,
   moreHorizontal: IconDots
 };
+
+// Local monochrome brand artwork. Keep all icon lookups in this registry.
+export const vehicleBrandLogos: Readonly<Record<string, string>> = {
+  AUDI: 'audi',
+  BMW: 'bmw',
+  CHEVROLET: 'chevrolet',
+  CITROEN: 'citroen',
+  DACIA: 'dacia',
+  FIAT: 'fiat',
+  FORD: 'ford',
+  HONDA: 'honda',
+  HYUNDAI: 'hyundai',
+  KIA: 'kia',
+  MAZDA: 'mazda',
+  MERCEDES: 'mercedes-benz',
+  MERCEDESBENZ: 'mercedes-benz',
+  MB: 'mercedes-benz',
+  MITSUBISHI: 'mitsubishi',
+  NISSAN: 'nissan',
+  OPEL: 'opel',
+  PEUGEOT: 'peugeot',
+  PORSCHE: 'porsche',
+  RENAULT: 'renault',
+  SEAT: 'seat',
+  SKODA: 'skoda',
+  SUBARU: 'subaru',
+  SUZUKI: 'suzuki',
+  TESLA: 'tesla',
+  TOYOTA: 'toyota',
+  VOLKSWAGEN: 'volkswagen',
+  VW: 'volkswagen',
+  VOLVO: 'volvo',
+  ZEEKR: 'zeekr'
+};
+
+export function getVehicleBrandLogo(make?: string | null): string | undefined {
+  const key = (make ?? '')
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+  const slug = Object.hasOwn(vehicleBrandLogos, key) ? vehicleBrandLogos[key] : undefined;
+  return slug ? `/vehicle-brands/${slug}.svg` : undefined;
+}

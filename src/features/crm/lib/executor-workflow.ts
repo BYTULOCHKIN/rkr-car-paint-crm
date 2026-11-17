@@ -14,7 +14,10 @@ export function executorTransition(
   )
     return { ok: false, error: 'Замовлення вже змінено. Відкрийте його повторно.' };
   if (order.status === 'delivered') return { ok: false, error: 'Замовлення вже видано.' };
-  if (!order.actualIntakeDate || (order.status === 'ready' && !order.actualReadyDate))
+  if (
+    (order.status !== 'created' && !order.actualIntakeDate) ||
+    (order.status === 'ready' && !order.actualReadyDate)
+  )
     return { ok: false, error: 'Спочатку адміністратор має уточнити попередні фактичні дати.' };
   if (order.status === 'in_progress' && order.actualDeliveryDate)
     return { ok: false, error: 'Адміністратор має виправити фактичні дати цього замовлення.' };
@@ -23,11 +26,16 @@ export function executorTransition(
     id: order.id,
     expectedStatus: order.status,
     expectedRevision: expected.expectedRevision,
-    status: order.status === 'in_progress' ? 'ready' : 'delivered',
+    status:
+      order.status === 'created'
+        ? 'in_progress'
+        : order.status === 'in_progress'
+          ? 'ready'
+          : 'delivered',
     plannedIntakeDate: order.plannedIntakeDate ?? '',
     plannedDeliveryDate: order.plannedDeliveryDate ?? '',
-    actualIntakeDate: order.actualIntakeDate,
-    actualReadyDate: order.actualReadyDate || today,
+    actualIntakeDate: order.actualIntakeDate || today,
+    actualReadyDate: order.status === 'created' ? '' : order.actualReadyDate || today,
     actualDeliveryDate: order.status === 'ready' ? order.actualDeliveryDate || today : '',
     note: ''
   });

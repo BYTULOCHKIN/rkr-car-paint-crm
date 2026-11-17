@@ -18,12 +18,11 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
+import { StatusBadge } from '@/features/crm/components/status-badge';
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty';
 import { Button } from '@/features/crm/components/action-button';
 import { money, vehicleLabel } from '@/features/crm/components/format';
 import type { CrmWorkspace, RepairOrder } from '@/features/crm/api/types';
-import { statusLabel } from '@/features/crm/lib/workflow';
 
 interface RecentOrdersProps {
   orders: RepairOrder[];
@@ -79,7 +78,7 @@ export function RecentOrders({ orders, data, onOpen }: RecentOrdersProps): React
                       </p>
                     </TableCell>
                     <TableCell>
-                      <Badge variant='secondary'>{statusLabel(order.status)}</Badge>
+                      <StatusBadge status={order.status} />
                     </TableCell>
                     <TableCell className='text-muted-foreground'>
                       {new Intl.DateTimeFormat('uk-UA', {

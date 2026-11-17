@@ -1,3 +1,4 @@
+import { TableCellPopover } from '@/components/data-table/table-cell-preview';
 import { Badge } from '@/components/ui/badge';
 import type { CrmWorkspace, WorkflowRecord } from '../api/types';
 import { displayDate, overdueLabel } from '../lib/workflow';
@@ -11,27 +12,28 @@ interface WorkflowDetailsProps {
 export function WorkflowDatePreview({ target }: WorkflowDetailsProps) {
   const order = target.kind === 'order' ? target.record : null;
   const overdue = overdueLabel(target);
+  const delivered = order?.actualDeliveryDate;
+  const deadline =
+    delivered || target.record.plannedDeliveryDate || target.record.plannedIntakeDate;
   return (
-    <div className='flex flex-col gap-1 text-xs'>
-      <p>
-        <span className='text-muted-foreground'>Прийом · план: </span>
-        {displayDate(target.record.plannedIntakeDate)}
-      </p>
-      <p>
-        <span className='text-muted-foreground'>Видача · план: </span>
-        {displayDate(target.record.plannedDeliveryDate)}
-      </p>
-      {order?.actualDeliveryDate ? (
-        <p>Видано: {displayDate(order.actualDeliveryDate)}</p>
-      ) : order?.actualIntakeDate ? (
-        <p>Прийнято: {displayDate(order.actualIntakeDate)}</p>
-      ) : null}
-      {overdue && (
-        <Badge variant='destructive' className='max-w-full whitespace-normal'>
-          {overdue}
-        </Badge>
-      )}
-    </div>
+    <TableCellPopover
+      label='План і факт'
+      summary={
+        <span className='flex min-w-0 flex-col text-xs'>
+          <span className='truncate'>
+            {delivered ? 'Видано' : target.record.plannedDeliveryDate ? 'Видача' : 'Прийом'}:{' '}
+            {displayDate(deadline)}
+          </span>
+          {overdue ? (
+            <span className='truncate font-medium text-destructive'>Прострочено</span>
+          ) : (
+            <span className='text-muted-foreground'>{delivered ? 'Завершено' : 'План і факт'}</span>
+          )}
+        </span>
+      }
+    >
+      <WorkflowDates target={target} />
+    </TableCellPopover>
   );
 }
 

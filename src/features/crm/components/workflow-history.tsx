@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, type ReactElement } from 'react';
+import { StatusBadge } from './status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
 import type { CrmWorkspace, WorkflowRecord, WorkflowEvent } from '../api/types';
-import { displayDate, statusLabel } from '../lib/workflow';
+import { displayDate } from '../lib/workflow';
 import {
   historyOrderChanges,
   historyDateChanges,
@@ -57,11 +58,11 @@ function HistoryEvent({ event }: { event: WorkflowEvent }): ReactElement {
           <div className='flex flex-wrap items-center gap-2 text-xs' aria-label='Статус'>
             {event.fromStatus && event.fromStatus !== event.toStatus && (
               <>
-                <Badge variant='outline'>{statusLabel(event.fromStatus)}</Badge>
+                <StatusBadge status={event.fromStatus} />
                 <span aria-label='змінено на'>→</span>
               </>
             )}
-            <Badge variant='secondary'>{statusLabel(event.toStatus)}</Badge>
+            <StatusBadge status={event.toStatus} />
           </div>
         </div>
         {changes.length > 0 && (

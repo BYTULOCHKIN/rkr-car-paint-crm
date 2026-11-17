@@ -3,9 +3,17 @@
 import { getOrganizationContext } from '../server/organization';
 import { z } from 'zod';
 import { executorTransition } from '../lib/executor-workflow';
+import { PaymentError } from '../server/payments';
+import {
+  paymentSchema,
+  reversePaymentSchema,
+  type PaymentInput,
+  type ReversePaymentInput
+} from '../schemas/payment';
 import { CrmError } from '../server/repository';
 import {
   customerSchema,
+  updateCustomerSchema,
   vehicleSchema,
   requestSchema,
   orderSchema,
@@ -16,6 +24,7 @@ import {
 } from '../schemas/crm';
 import type {
   CustomerInput,
+  UpdateCustomerInput,
   VehicleInput,
   RequestInput,
   OrderInput,
@@ -25,12 +34,38 @@ import type {
 } from '../schemas/crm';
 import type { ActionResult, CrmWorkspace, OrderDocument } from './types';
 import { readCatalog, readVin } from '../server/vehicle-catalog';
+import { vehicleModelSchema, type VehicleModelInput } from '../schemas/vehicle-model';
+
+function uniqueCatalogNames(values: string[]): string[] {
+  return [...new Map(values.map((value) => [value.toUpperCase(), value])).values()].toSorted();
+}
 
 export async function getVehicleCatalog(
-  make: string
+  make: string,
+  expectedOrgId?: string
 ): Promise<Awaited<ReturnType<typeof readCatalog>>> {
-  await authorizedRepository();
-  return readCatalog(z.string().max(80).parse(make));
+  const repository = await authorizedRepository(expectedOrgId);
+  const normalized = z.string().trim().max(80).parse(make).toUpperCase();
+  const catalog = await readCatalog(normalized);
+  const local = repository.vehicleModels();
+  return {
+    ...catalog,
+    makes: uniqueCatalogNames([...catalog.makes, ...local.map((entry) => entry.make)]),
+    models: uniqueCatalogNames([
+      ...catalog.models,
+      ...local.filter((entry) => entry.make === normalized).map((entry) => entry.model)
+    ])
+  };
+}
+
+export async function addVehicleModel(
+  input: VehicleModelInput & { orgId?: string }
+): Promise<ActionResult<string>> {
+  return write((repository, context) => {
+    if (input.orgId && input.orgId !== context.access.orgId)
+      throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
+    return repository.addVehicleModel(vehicleModelSchema.parse(input));
+  });
 }
 
 export async function decodeVehicleVin(
@@ -41,8 +76,10 @@ export async function decodeVehicleVin(
   return readVin(vin, year);
 }
 
-async function authorizedRepository() {
+async function authorizedRepository(expectedOrgId?: string) {
   const { repository, access } = await getOrganizationContext();
+  if (expectedOrgId && expectedOrgId !== access.orgId)
+    throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
   if (access.role !== 'admin')
     throw new CrmError('Ця дія доступна лише адміністратору автомалярки');
   return repository;
@@ -66,9 +103,16 @@ async function write<T>(
     return { ok: true, data: operation(context.repository, context) };
   } catch (error) {
     if (error instanceof z.ZodError)
-      return { ok: false, error: error.issues[0]?.message ?? 'Перевірте введені дані' };
-    if (error instanceof CrmError) return { ok: false, error: error.message };
-    return { ok: false, error: 'Не вдалося виконати дію. Перевірте підключення та повторіть.' };
+      return {
+        ok: false,
+        error: error.issues[0]?.message ?? 'Перевірте введені дані'
+      };
+    if (error instanceof CrmError || error instanceof PaymentError)
+      return { ok: false, error: error.message };
+    return {
+      ok: false,
+      error: 'Не вдалося виконати дію. Перевірте підключення та повторіть.'
+    };
   }
 }
 
@@ -113,8 +157,14 @@ export async function advanceOrder(input: AdvanceOrderInput): Promise<ActionResu
   }, 'read');
 }
 
-export async function createCustomer(input: CustomerInput): Promise<ActionResult<string>> {
-  return write((repository) => repository.createCustomer(customerSchema.parse(input)));
+export async function createCustomer(
+  input: CustomerInput & { orgId?: string }
+): Promise<ActionResult<string>> {
+  return write((repository, context) => {
+    if (input.orgId && input.orgId !== context.access.orgId)
+      throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
+    return repository.createCustomer(customerSchema.parse(input));
+  });
 }
 
 export async function createVehicle(input: VehicleInput): Promise<ActionResult<string>> {
@@ -195,4 +245,36 @@ export async function getTeam(expectedOrgId?: string | null) {
   if (expectedOrgId && expectedOrgId !== access.orgId)
     throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
   return { access, team };
+}
+
+export async function receivePayment(
+  orgId: string,
+  input: PaymentInput
+): Promise<ActionResult<string>> {
+  return write((repository, context) => {
+    if (context.access.orgId !== orgId)
+      throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
+    return repository.payments.receive(paymentSchema.parse(input), historyActor(context));
+  });
+}
+export async function reversePayment(
+  orgId: string,
+  input: ReversePaymentInput
+): Promise<ActionResult<string>> {
+  return write((repository, context) => {
+    if (context.access.orgId !== orgId)
+      throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
+    return repository.payments.reverse(reversePaymentSchema.parse(input), historyActor(context));
+  });
+}
+
+export async function updateCustomer(
+  input: UpdateCustomerInput & { orgId: string }
+): Promise<ActionResult<null>> {
+  return write((repository, context) => {
+    if (input.orgId !== context.access.orgId)
+      throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
+    repository.updateCustomer(updateCustomerSchema.parse(input));
+    return null;
+  });
 }

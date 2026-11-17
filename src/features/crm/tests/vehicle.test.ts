@@ -46,12 +46,37 @@ test('VIN adapter maps partial provider results and catalog falls back on outage
     const result = await readVin('5UXWX7C50BA123456');
     assert.equal(result.make, 'BMW');
     assert.equal(result.year, 2011);
+    assert.equal(result.message, '');
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ Results: [{ Make: 'ZEEKR', Model: '', ModelYear: '2024' }] }), {
+        status: 200
+      });
+    const partial = await readVin('L6T79ZCEXRP120619');
+    assert.equal(partial.make, 'ZEEKR');
+    assert.equal(partial.year, 2024);
+    assert.equal(partial.model, '');
+    assert.match(partial.message, /модель/);
     globalThis.fetch = async () => {
       throw new Error('offline');
     };
     const catalog = await readCatalog('VOLKSWAGEN');
     assert.ok(catalog.models.includes('Golf'));
     assert.ok(catalog.warning);
+  } finally {
+    globalThis.fetch = fetcher;
+  }
+});
+
+test('Zeekr 001 remains selectable when the external catalog is empty or offline', async () => {
+  const fetcher = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({ Results: [] }), { status: 200 });
+    assert.ok((await readCatalog('')).makes.includes('ZEEKR'));
+    assert.ok((await readCatalog(' zeekr ')).models.includes('001'));
+    globalThis.fetch = async () => {
+      throw new Error('offline');
+    };
+    assert.ok((await readCatalog('ZEEKR')).models.includes('001'));
   } finally {
     globalThis.fetch = fetcher;
   }

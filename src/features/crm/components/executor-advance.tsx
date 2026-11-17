@@ -21,7 +21,12 @@ export function ExecutorAdvance({
     expectedRevision: order.workflowRevision ?? 0
   };
   const possible = executorTransition(order, input);
-  const label = order.status === 'in_progress' ? 'Позначити готовим' : 'Позначити виданим';
+  const label =
+    order.status === 'created'
+      ? 'Почати роботу'
+      : order.status === 'in_progress'
+        ? 'Позначити готовим'
+        : 'Позначити виданим';
   const mutation = useMutation({
     ...crmMutations.advance(),
     onSuccess: () => {

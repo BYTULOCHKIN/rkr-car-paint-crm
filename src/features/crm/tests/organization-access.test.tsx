@@ -8,11 +8,23 @@ import type { CrmWorkspace, RepairOrder } from '../api/types';
 import {
   updateOrder,
   createCustomer,
+  updateCustomer,
   createOrder,
   getOrderDocument,
   getWorkspace
 } from '../api/service';
 import { crmQueries } from '../api/queries';
+import { receivePayment, reversePayment, addVehicleModel, getVehicleCatalog } from '../api/service';
+import {
+  getInventory,
+  createStockItem,
+  updateStockItem,
+  archiveStockItem,
+  receiveStock,
+  adjustStock,
+  consumeStock,
+  reverseConsumption
+} from '@/features/inventory/api/service';
 
 vi.mock('server-only', () => ({}));
 vi.mock('@clerk/nextjs/server', () => ({ auth: vi.fn(), clerkClient: vi.fn() }));
@@ -29,12 +41,86 @@ const workspace: CrmWorkspace = {
   events: []
 };
 const repository = {
+  payments: { receive: vi.fn(() => 'payment-created'), reverse: vi.fn(() => 'payment-reversed') },
+  inventory: {
+    items: vi.fn(() => []),
+    movements: vi.fn(() => []),
+    createItem: vi.fn(),
+    updateItem: vi.fn(),
+    archive: vi.fn(),
+    receive: vi.fn(),
+    adjust: vi.fn(),
+    consume: vi.fn(),
+    reverse: vi.fn()
+  },
   workspace: vi.fn(() => workspace),
+  addVehicleModel: vi.fn(() => '001'),
+  vehicleModels: vi.fn(() => [
+    { make: 'ZEEKR', model: '001' },
+    { make: 'ZEEKR', model: '002' }
+  ]),
   createCustomer: vi.fn(),
+  updateCustomer: vi.fn(),
   createOrder: vi.fn(() => 'order-created'),
   updateOrder: vi.fn(),
   updateWorkflow: vi.fn()
 };
+
+test('inventory writes reject workers and stale organizations; actors come from verified membership', async () => {
+  const org = 'org_A';
+  const value = {
+    itemId: '00000000-0000-4000-8000-000000000001',
+    quantity: '1',
+    operationId: '00000000-0000-4000-8000-000000000002',
+    note: ''
+  };
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [
+      {
+        role: 'org:member',
+        publicUserData: { userId: 'user_admin', identifier: 'worker@example.com' }
+      }
+    ]
+  });
+  expect((await getInventory(org)).items).toEqual([]);
+  for (const result of [
+    await createStockItem(org, { name: 'Фарба', unit: 'л', notes: '' }),
+    await updateStockItem(org, { id: value.itemId, name: 'Фарба', unit: 'л', notes: '' }),
+    await archiveStockItem(org, { id: value.itemId, archived: true }),
+    await receiveStock(org, value),
+    await adjustStock(org, value),
+    await consumeStock(org, { ...value, orderId: value.itemId }),
+    await reverseConsumption(org, {
+      operationId: value.operationId,
+      movementId: value.itemId,
+      note: 'Помилка'
+    })
+  ])
+    expect(result.ok).toBe(false);
+  expect(repository.inventory.consume).not.toHaveBeenCalled();
+  await expect(getInventory('org_B')).rejects.toThrow('Автомалярку змінено');
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [
+      {
+        role: 'org:admin',
+        publicUserData: {
+          userId: 'user_admin',
+          firstName: 'Олена',
+          identifier: 'owner@example.com'
+        }
+      }
+    ]
+  });
+  expect((await receiveStock('org_B', value)).ok).toBe(false);
+  expect(repository.inventory.receive).not.toHaveBeenCalled();
+  expect((await receiveStock(org, value)).ok).toBe(true);
+  expect(repository.inventory.receive).toHaveBeenCalledWith(value, {
+    id: 'user_admin',
+    name: 'Олена'
+  });
+});
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getOrganizationRepository).mockReturnValue(
@@ -250,4 +336,109 @@ test('worker advances any shop order through a dedicated strict endpoint but can
     ).ok
   ).toBe(false);
   expect(repository.updateWorkflow).not.toHaveBeenCalled();
+});
+
+test('custom model writes require admin and matching organization; catalog merges saved models offline', async () => {
+  expect((await addVehicleModel({ orgId: 'org_B', make: 'ZEEKR', model: '001' })).ok).toBe(false);
+  expect(repository.addVehicleModel).not.toHaveBeenCalled();
+  expect(await addVehicleModel({ orgId: 'org_A', make: ' zeekr ', model: ' 001 ' })).toEqual({
+    ok: true,
+    data: '001'
+  });
+  expect(repository.addVehicleModel).toHaveBeenCalledWith({ make: 'ZEEKR', model: '001' });
+  const fetcher = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
+  try {
+    const catalog = await getVehicleCatalog('ZEEKR', 'org_A');
+    expect(catalog.models.filter((model) => model === '001')).toHaveLength(1);
+    expect(catalog.models).toContain('002');
+    expect(catalog.warning).toBeTruthy();
+    await expect(getVehicleCatalog('ZEEKR', 'org_B')).rejects.toThrow('Автомалярку змінено');
+  } finally {
+    fetcher.mockRestore();
+  }
+  expect(crmQueries.catalog('ZEEKR', 'org_A').queryKey).not.toEqual(
+    crmQueries.catalog('ZEEKR', 'org_B').queryKey
+  );
+  repository.addVehicleModel.mockClear();
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [
+      {
+        role: 'org:member',
+        publicUserData: { userId: 'user_admin', identifier: 'worker@example.com' }
+      }
+    ]
+  });
+  expect((await addVehicleModel({ orgId: 'org_A', make: 'ZEEKR', model: '001' })).ok).toBe(false);
+  expect(repository.addVehicleModel).not.toHaveBeenCalled();
+});
+
+test('only admins record or reverse payments and requests cannot target a stale shop', async () => {
+  const input = {
+    orderId: '00000000-0000-4000-8000-000000000001',
+    operationId: '00000000-0000-4000-8000-000000000002',
+    amount: '10,25',
+    note: ''
+  };
+  const reversal = { operationId: input.operationId, paymentId: input.orderId, note: 'Помилка' };
+  expect((await receivePayment('org_B', input)).ok).toBe(false);
+  expect((await reversePayment('org_B', reversal)).ok).toBe(false);
+  expect(repository.payments.receive).not.toHaveBeenCalled();
+  expect(await receivePayment('org_A', input)).toEqual({ ok: true, data: 'payment-created' });
+  expect(repository.payments.receive).toHaveBeenCalledWith(input, {
+    id: 'user_admin',
+    name: 'Олена'
+  });
+  expect((await reversePayment('org_A', reversal)).ok).toBe(true);
+  repository.payments.receive.mockClear();
+  repository.payments.reverse.mockClear();
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [
+      {
+        role: 'org:member',
+        publicUserData: { userId: 'user_admin', identifier: 'worker@example.com' }
+      }
+    ]
+  });
+  expect((await receivePayment('org_A', input)).ok).toBe(false);
+  expect((await reversePayment('org_A', reversal)).ok).toBe(false);
+  expect(repository.payments.receive).not.toHaveBeenCalled();
+  expect(repository.payments.reverse).not.toHaveBeenCalled();
+});
+
+test('customer editing requires admin, the current shop and valid contact values', async () => {
+  const input = {
+    id: '00000000-0000-4000-8000-000000000001',
+    expectedRevision: 0,
+    name: 'Олена',
+    contacts: [{ type: 'email' as const, value: 'olena@example.com' }],
+    notes: ''
+  };
+  expect((await updateCustomer({ ...input, orgId: 'org_B' })).ok).toBe(false);
+  expect(repository.updateCustomer).not.toHaveBeenCalled();
+  expect((await updateCustomer({ ...input, orgId: 'org_A' })).ok).toBe(true);
+  expect(repository.updateCustomer).toHaveBeenCalledWith(input);
+  repository.updateCustomer.mockClear();
+  expect(
+    (
+      await updateCustomer({
+        ...input,
+        contacts: [{ type: 'email', value: 'invalid' }],
+        orgId: 'org_A'
+      })
+    ).ok
+  ).toBe(false);
+  expect(repository.updateCustomer).not.toHaveBeenCalled();
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [
+      {
+        role: 'org:member',
+        publicUserData: { userId: 'user_admin', identifier: 'worker@example.com' }
+      }
+    ]
+  });
+  expect((await updateCustomer({ ...input, orgId: 'org_A' })).ok).toBe(false);
+  expect(repository.updateCustomer).not.toHaveBeenCalled();
 });

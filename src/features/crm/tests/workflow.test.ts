@@ -102,7 +102,7 @@ test('ready and delivered facts are separate from promised dates, with stale upd
       items: [{ description: 'Бампер', quantity: 1, unitPrice: 100 }]
     });
     const ready = {
-      ...workflow(orderId, 'order', 'in_progress'),
+      ...workflow(orderId, 'order', 'created'),
       status: 'ready' as const,
       actualReadyDate: '2020-01-08'
     };
@@ -295,13 +295,13 @@ test('initial intake and later factual corrections are structured, with a separa
     assert.throws(
       () =>
         repository.updateWorkflow({
-          ...workflow(id, 'order', 'in_progress'),
+          ...workflow(id, 'order', 'created'),
           actualIntakeDate: '2020-01-04'
         }),
       /причину/
     );
     repository.updateWorkflow({
-      ...workflow(id, 'order', 'in_progress'),
+      ...workflow(id, 'order', 'created'),
       actualIntakeDate: '2020-01-04',
       note: 'Виправили дату прийому'
     });
@@ -354,7 +354,7 @@ test('v4 event migration preserves legacy notes without inventing factual change
   const note = 'Причина\nФактична видача: 2020-01-15 → —';
   legacy.prepare('UPDATE crm_workflow_events SET note = ?').run(note);
   legacy.exec(
-    'ALTER TABLE crm_workflow_events DROP COLUMN actor; ALTER TABLE crm_workflow_events DROP COLUMN orderChanges; ALTER TABLE crm_workflow_events DROP COLUMN actualDateChanges; ALTER TABLE crm_requests DROP COLUMN workflowRevision; ALTER TABLE crm_orders DROP COLUMN workflowRevision; ALTER TABLE crm_orders DROP COLUMN assigneeId; ALTER TABLE crm_orders DROP COLUMN assigneeName; PRAGMA user_version = 4;'
+    'ALTER TABLE crm_workflow_events DROP COLUMN actor; ALTER TABLE crm_workflow_events DROP COLUMN orderChanges; ALTER TABLE crm_workflow_events DROP COLUMN actualDateChanges; ALTER TABLE crm_requests DROP COLUMN workflowRevision; ALTER TABLE crm_orders DROP COLUMN workflowRevision; ALTER TABLE crm_orders DROP COLUMN assigneeId; ALTER TABLE crm_orders DROP COLUMN assigneeName; DROP TABLE crm_vehicle_models; PRAGMA user_version = 4;'
   );
   legacy.close();
   try {

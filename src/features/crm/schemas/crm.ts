@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { normalizeContact } from '../lib/customer-contacts';
 import { bodyParts } from '../constants/paint-plan';
 import { businessToday } from '../lib/workflow';
 
@@ -12,11 +13,64 @@ const text = (label: string, max = 200) =>
   z.string().trim().min(1, `${label}: обов’язкове поле`).max(max, `Максимум ${max} символів`);
 const id = z.string().uuid('Виберіть запис зі списку');
 
-export const customerSchema = z.object({
+export const contactSchema = z
+  .object({
+    type: z.enum(['phone', 'email']),
+    value: z.string().trim().min(1, 'Вкажіть контакт').max(254)
+  })
+  .superRefine((contact, ctx) => {
+    const valid =
+      contact.type === 'email'
+        ? z.email().safeParse(contact.value).success
+        : /^\+?[\d\s().-]+$/.test(contact.value) &&
+          contact.value.length <= 40 &&
+          /^\d{7,15}$/.test(normalizeContact('phone', contact.value));
+    if (!valid)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['value'],
+        message: contact.type === 'email' ? 'Вкажіть коректний email' : 'Вкажіть коректний телефон'
+      });
+  });
+export const customerFields = z.object({
   name: text('Ім’я'),
-  phone: text('Телефон', 40).regex(/^[+\d\s()-]{7,40}$/, 'Вкажіть коректний телефон'),
+  phone: z.string().trim().max(40).optional(),
+  contacts: z.array(contactSchema).max(20, 'Максимум 20 контактів').optional(),
   notes: z.string().trim().max(2000)
 });
+function validateContacts(value: z.infer<typeof customerFields>, ctx: z.RefinementCtx): void {
+  const contacts =
+    value.contacts ?? (value.phone ? [{ type: 'phone' as const, value: value.phone }] : []);
+  if (!contacts.length)
+    ctx.addIssue({
+      code: 'custom',
+      path: ['contacts'],
+      message: 'Додайте хоча б один телефон або email'
+    });
+  const seen = new Set<string>();
+  contacts.forEach((contact, index) => {
+    const parsed = contactSchema.safeParse(contact);
+    if (!parsed.success && value.contacts === undefined)
+      ctx.addIssue({ code: 'custom', path: ['phone'], message: 'Вкажіть коректний телефон' });
+    const key = `${contact.type}:${normalizeContact(contact.type, contact.value)}`;
+    if (seen.has(key))
+      ctx.addIssue({
+        code: 'custom',
+        path: ['contacts', index, 'value'],
+        message: 'Цей контакт уже додано'
+      });
+    seen.add(key);
+  });
+}
+export const customerSchema = customerFields.superRefine(validateContacts);
+export const customerEditorSchema = customerFields
+  .omit({ phone: true })
+  .extend({ contacts: z.array(contactSchema).min(1, 'Додайте хоча б один контакт').max(20) })
+  .superRefine(validateContacts);
+export const updateCustomerSchema = customerFields
+  .extend({ id, expectedRevision: z.number().int().nonnegative() })
+  .superRefine(validateContacts);
+export type UpdateCustomerInput = z.infer<typeof updateCustomerSchema>;
 
 export const vinSchema = z
   .string()
@@ -97,7 +151,7 @@ export const orderSchema = requestFields
     assigneeId: z.string().min(1, 'Виберіть виконавця').max(255).optional(),
     paintPlan: paintPlanSchema.optional(),
     items: z.array(itemSchema).min(1, 'Додайте хоча б одну роботу').max(100),
-    actualIntakeDate: z.iso.date('Вкажіть фактичну дату прийому').optional()
+    actualIntakeDate: optionalDate.optional()
   })
   .superRefine((value, ctx) => {
     validatePlanning(value, ctx);
@@ -126,7 +180,7 @@ export const workflowSchema = z
     id,
     expectedStatus: z.string(),
     expectedRevision: z.number().int().nonnegative().optional(),
-    status: z.enum(['backlog', 'scheduled', 'in_progress', 'ready', 'delivered']),
+    status: z.enum(['backlog', 'scheduled', 'created', 'in_progress', 'ready', 'delivered']),
     plannedIntakeDate: optionalDate,
     plannedDeliveryDate: optionalDate,
     actualIntakeDate: optionalDate,
@@ -151,9 +205,10 @@ export const workflowSchema = z
       if (value.status === 'backlog' && value.plannedIntakeDate)
         issue('plannedIntakeDate', 'Для дати прийому виберіть статус «Заплановано»');
     } else {
-      if (!['in_progress', 'ready', 'delivered'].includes(value.status))
+      if (!['created', 'in_progress', 'ready', 'delivered'].includes(value.status))
         issue('status', 'Замовлення не можна повернути в заявки');
-      if (!value.actualIntakeDate) issue('actualIntakeDate', 'Вкажіть фактичну дату прийому');
+      if (value.status !== 'created' && !value.actualIntakeDate)
+        issue('actualIntakeDate', 'Вкажіть фактичну дату прийому');
       if (['ready', 'delivered'].includes(value.status) && !value.actualReadyDate)
         issue('actualReadyDate', 'Вкажіть фактичну дату готовності');
       if (value.status === 'delivered' && !value.actualDeliveryDate)
@@ -174,7 +229,10 @@ export const workflowSchema = z
         value.actualDeliveryDate < value.actualReadyDate
       )
         issue('actualDeliveryDate', 'Дата видачі не може бути раніше готовності');
-      if (value.status === 'in_progress' && (value.actualReadyDate || value.actualDeliveryDate))
+      if (
+        ['created', 'in_progress'].includes(value.status) &&
+        (value.actualReadyDate || value.actualDeliveryDate)
+      )
         issue('status', 'Для статусу «У роботі» очистьте дати готовності та видачі');
       if (value.status === 'ready' && value.actualDeliveryDate)
         issue('actualDeliveryDate', 'Для статусу «Готово» очистьте дату видачі');
@@ -190,7 +248,7 @@ export type UpdateOrderInput = z.infer<typeof updateOrderSchema>;
 export const advanceOrderSchema = z
   .object({
     id,
-    expectedStatus: z.enum(['in_progress', 'ready', 'delivered']),
+    expectedStatus: z.enum(['created', 'in_progress', 'ready', 'delivered']),
     expectedRevision: z.number().int().nonnegative()
   })
   .strict();

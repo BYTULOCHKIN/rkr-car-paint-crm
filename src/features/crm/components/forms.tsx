@@ -1,7 +1,9 @@
 'use client';
+import { primaryContact } from '../lib/customer-contacts';
 import { CrmForm } from './dialog-form';
 import { assigneeLabel } from '../lib/assignee';
 import { customerChoices } from './choice-options';
+import { VehicleBrandAvatar } from '@/components/vehicle-brand-avatar';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -9,8 +11,8 @@ import { FieldGroup } from '@/components/ui/field';
 import { useAppForm } from '@/lib/form';
 import { crmMutations, crmQueries } from '../api/queries';
 import type { CrmWorkspace, Vehicle, RepairRequest, RepairOrder } from '../api/types';
-import { customerSchema, requestSchema, orderSchema, updateVinSchema } from '../schemas/crm';
-import type { CustomerInput, RequestInput, OrderInput } from '../schemas/crm';
+import { requestSchema, orderSchema, updateVinSchema } from '../schemas/crm';
+import type { RequestInput, OrderInput } from '../schemas/crm';
 import { Button } from './action-button';
 import { VehicleSelect } from './vehicle-select';
 import { FormStatus, FormActions, type SaveProps } from './form-status';
@@ -30,49 +32,7 @@ function useSaveFeedback(onSaved: () => void) {
   };
 }
 
-export function CustomerForm({ onSaved, onCancel, onStateChange }: SaveProps) {
-  const mutation = useMutation({ ...crmMutations.customer(), ...useSaveFeedback(onSaved) });
-  const form = useAppForm({
-    defaultValues: { name: '', phone: '', notes: '' } satisfies CustomerInput,
-    validators: { onSubmit: customerSchema },
-    onSubmit: async ({ value }) => {
-      await mutation.mutateAsync(value).catch(() => undefined);
-    }
-  });
-  return (
-    <CrmForm
-      onSubmit={(event) => {
-        event.preventDefault();
-        void form.handleSubmit();
-      }}
-    >
-      <form.Subscribe
-        selector={(state) => ({ dirty: !state.isDefaultValue, pending: state.isSubmitting })}
-      >
-        {(state) => <FormStatus {...state} onChange={onStateChange} />}
-      </form.Subscribe>
-      <fieldset disabled={mutation.isPending} className='min-w-0'>
-        <FieldGroup>
-          <form.AppField name='name'>
-            {(field) => <field.TextField label='Ім’я клієнта' required autoComplete='name' />}
-          </form.AppField>
-          <form.AppField name='phone'>
-            {(field) => <field.TextField label='Телефон' type='tel' required autoComplete='tel' />}
-          </form.AppField>
-          <form.AppField name='notes'>
-            {(field) => <field.TextareaField label='Нотатки' />}
-          </form.AppField>
-          <FormActions
-            pending={mutation.isPending}
-            error={mutation.error}
-            onCancel={onCancel}
-            label='Створити клієнта'
-          />
-        </FieldGroup>
-      </fieldset>
-    </CrmForm>
-  );
-}
+export { CustomerForm } from './customer-form';
 
 export { VehicleForm } from './vehicle-form';
 
@@ -223,6 +183,7 @@ export function RequestForm({ data, onSaved, onCancel, onStateChange }: RequestF
 }
 
 interface OrderFormProps extends SaveProps {
+  disabled?: boolean;
   data: CrmWorkspace;
   request?: RepairRequest;
   order?: RepairOrder;
@@ -230,6 +191,7 @@ interface OrderFormProps extends SaveProps {
 
 export function OrderForm({
   data,
+  disabled = false,
   request,
   order,
   onSaved,
@@ -249,7 +211,7 @@ export function OrderForm({
       assigneeId: order ? (order.assigneeId ?? undefined) : '',
       plannedIntakeDate: initial?.plannedIntakeDate ?? '',
       plannedDeliveryDate: initial?.plannedDeliveryDate ?? '',
-      actualIntakeDate: order?.actualIntakeDate ?? businessToday(),
+      actualIntakeDate: order?.actualIntakeDate ?? '',
       paintPlan: order?.paintPlan ?? [],
       items: order?.items.map((item) => ({
         description: item.description,
@@ -287,14 +249,21 @@ export function OrderForm({
       >
         {(state) => <FormStatus {...state} onChange={onStateChange} />}
       </form.Subscribe>
-      <fieldset disabled={create.isPending || update.isPending} className='min-w-0'>
+      <fieldset disabled={disabled || create.isPending || update.isPending} className='min-w-0'>
         <FieldGroup>
           {initial ? (
             <div className='bg-muted min-w-0 break-words rounded-lg p-3 text-sm'>
               <p className='font-medium'>
-                {fixedCustomer?.name} · {fixedCustomer?.phone}
+                {fixedCustomer?.name} · {primaryContact(fixedCustomer)}
               </p>
-              <p>{fixedVehicle && vehicleLabel(fixedVehicle)}</p>
+              {fixedVehicle && (
+                <div className='my-2 flex items-center gap-2'>
+                  <VehicleBrandAvatar make={fixedVehicle.make} />
+                  <p className='min-w-0 flex-1 break-words [overflow-wrap:anywhere]'>
+                    {vehicleLabel(fixedVehicle)}
+                  </p>
+                </div>
+              )}
               <p className='text-muted-foreground font-mono'>
                 {fixedVehicle?.vin || 'Спочатку додайте VIN у розділі «Клієнти»'}
               </p>
@@ -390,9 +359,8 @@ export function OrderForm({
               <form.AppField name='actualIntakeDate'>
                 {(field) => (
                   <field.CalendarDateField
-                    label='Фактичний прийом'
+                    label='Фактичний прийом (необов’язково)'
                     max={businessToday()}
-                    required
                   />
                 )}
               </form.AppField>
@@ -402,7 +370,7 @@ export function OrderForm({
             {(field) => (
               <PaintPlanEditor
                 value={field.state.value ?? []}
-                disabled={create.isPending || update.isPending}
+                disabled={disabled || create.isPending || update.isPending}
                 onChange={field.handleChange}
                 onBlur={field.handleBlur}
               />
@@ -510,9 +478,11 @@ export function OrderForm({
                 error={create.error || update.error}
                 onCancel={onCancel}
                 disabled={
-                  !vehicleId || !data.vehicles.find((vehicle) => vehicle.id === vehicleId)?.vin
+                  disabled ||
+                  !vehicleId ||
+                  !data.vehicles.find((vehicle) => vehicle.id === vehicleId)?.vin
                 }
-                label={order ? 'Зберегти замовлення' : 'Взяти в роботу'}
+                label={order ? 'Зберегти замовлення' : 'Створити замовлення'}
               />
             )}
           </form.Subscribe>
