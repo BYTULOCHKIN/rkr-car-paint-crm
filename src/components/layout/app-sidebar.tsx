@@ -1,4 +1,5 @@
 'use client';
+import { useEffect } from 'react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   DropdownMenu,
@@ -22,7 +23,8 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
-  SidebarRail
+  SidebarRail,
+  useSidebar
 } from '@/components/ui/sidebar';
 import { UserAvatarProfile } from '@/components/user-avatar-profile';
 import { navGroups } from '@/config/nav-config';
@@ -36,6 +38,12 @@ import { cn } from '@/lib/utils';
 
 export default function AppSidebar() {
   const pathname = usePathname();
+  const { setOpenMobile } = useSidebar();
+
+  // Dashboard layouts persist across client navigation; dismiss only the mobile sheet.
+  useEffect(() => {
+    if (pathname) setOpenMobile(false);
+  }, [pathname, setOpenMobile]);
   const { user } = useUser();
   const { organization } = useOrganization();
   const { signOut } = useClerk();
