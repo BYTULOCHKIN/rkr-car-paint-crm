@@ -122,7 +122,9 @@ def release_url(sha, asset):
 
 
 def published_release(sha):
-    request = urllib.request.Request(release_url(sha, 'release.json'), headers={
+    # GitHub's CDN may cache a 404 seen before publication, even with no-cache.
+    discovery_url = release_url(sha, 'release.json') + f'?check={int(time.time())}'
+    request = urllib.request.Request(discovery_url, headers={
         'User-Agent': 'paintauto-deploy', 'Cache-Control': 'no-cache'
     })
     try:

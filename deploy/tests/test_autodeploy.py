@@ -129,6 +129,19 @@ class DeployTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Invalid ARM64'):
                 deploy.published_release(SHA)
 
+    def test_discovery_bypasses_a_cached_not_yet_published_response(self):
+        manifest = {**MANIFEST, 'schema': 1, 'commit': SHA,
+                    'architecture': 'arm64', 'asset': deploy.ASSET}
+        missing = deploy.urllib.error.HTTPError('https://github.com/release.json', 404, 'Not Found', {}, None)
+        with patch.object(deploy.time, 'time', side_effect=[1000, 1020]), \
+                patch.object(deploy.urllib.request, 'urlopen', side_effect=[
+                    missing, io.BytesIO(json.dumps(manifest).encode())
+                ]) as request:
+            self.assertIsNone(deploy.published_release(SHA))
+            self.assertEqual(deploy.published_release(SHA), manifest)
+            urls = [call.args[0].full_url for call in request.call_args_list]
+            self.assertNotEqual(urls[0], urls[1])
+
     def test_wrong_image_revision_is_rejected_before_backup(self):
         with tempfile.TemporaryDirectory() as directory:
             live, source, state = self.fixture(Path(directory))
