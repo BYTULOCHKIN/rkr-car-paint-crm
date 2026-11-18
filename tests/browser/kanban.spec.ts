@@ -19,7 +19,8 @@ test('kanban contains long content and aligns columns without page overflow', as
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
     true
   );
-  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThan(1700);
+  await expect(page.locator('[data-slot=summary-card-link]')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeGreaterThan(1700);
   await expect(page.getByRole('heading', { name: 'Backlog', exact: true })).toBeInViewport();
   const bounds = await columns.evaluateAll((elements) =>
     elements.map((element) => {
@@ -42,10 +43,9 @@ test('kanban contains long content and aligns columns without page overflow', as
       .locator('[data-slot=crm-board-card]')
       .evaluateAll((cards) => cards.every((card) => card.scrollWidth <= card.clientWidth + 1))
   ).toBe(true);
-  await scroll.scrollIntoViewIfNeeded();
   await page.screenshot({
     path: info.outputPath('kanban.png'),
-    fullPage: true,
+    fullPage: false,
     animations: 'disabled'
   });
   await scroll.evaluate((element) => {
@@ -54,33 +54,45 @@ test('kanban contains long content and aligns columns without page overflow', as
   await expect(page.getByRole('heading', { name: 'Видано', exact: true })).toBeInViewport();
   await page.screenshot({
     path: info.outputPath('kanban-right.png'),
-    fullPage: true,
+    fullPage: false,
     animations: 'disabled'
   });
   expect(errors).toEqual([]);
 });
 
-test('each column scrolls independently while its header remains stationary', async ({ page }) => {
+test('scrolling over cards scrolls the page and keyboard focus reaches the last order', async ({
+  page
+}) => {
   await openBoard(page);
   const column = page.locator('[data-slot=kanban-column]').first();
   const body = column.locator('[data-slot=crm-column-body]');
   const header = column.locator('[data-slot=crm-column-header]');
-  const before = await header.boundingBox();
-  await body.evaluate((element) => {
-    element.scrollTop = element.scrollHeight;
-  });
-  await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBeGreaterThan(100);
-  expect((await header.boundingBox())!.y).toBeCloseTo(before!.y, 0);
+  const before = (await header.boundingBox())!;
+  const allBodies = page.locator('[data-slot=crm-column-body]');
   expect(
-    await page
-      .locator('[data-slot=crm-column-body]')
-      .nth(1)
-      .evaluate((element) => element.scrollTop)
+    await allBodies.evaluateAll((elements) =>
+      elements.every((element) => element.scrollHeight <= element.clientHeight + 1)
+    )
+  ).toBe(true);
+  await column.locator('[data-slot=crm-board-card]').first().hover();
+  await page.mouse.wheel(0, 650);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(100);
+  expect((await header.boundingBox())!.y).toBeLessThan(before.y - 100);
+  expect(
+    await allBodies.evaluateAll((elements) => elements.every((element) => element.scrollTop === 0))
+  ).toBe(true);
+  expect(
+    await page.locator('[data-slot=crm-board-scroll]').evaluate((element) => element.scrollTop)
   ).toBe(0);
+  await expect(
+    page.getByRole('button', { name: 'Прокрутити дошку праворуч', exact: true })
+  ).toBeInViewport();
   const action = column.getByRole('button', { name: 'Статус і дати', exact: true }).last();
   await action.focus();
   await expect(action).toBeInViewport();
   await expect(action).toBeFocused();
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(1000);
+  expect(await body.evaluate((element) => element.scrollTop)).toBe(0);
 });
 
 test('search has clear empty feedback and restores all records', async ({ page }) => {
@@ -101,6 +113,7 @@ test('card actions open readable order and workflow dialogs', async ({ page }) =
   await openBoard(page);
   const search = page.getByRole('searchbox', { name: 'Пошук на дошці' });
   await search.fill('Надзвичайно');
+  await expect(search).toHaveAttribute('aria-busy', 'false');
   await page.getByRole('button', { name: 'Замовлення', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
@@ -125,7 +138,7 @@ test('empty columns and dark theme remain contained at narrow widths', async ({ 
   );
   await page.screenshot({
     path: info.outputPath('kanban-empty-narrow.png'),
-    fullPage: true,
+    fullPage: false,
     animations: 'disabled'
   });
   await page.goto('/dashboard/kanban?dark');
@@ -141,7 +154,7 @@ test('empty columns and dark theme remain contained at narrow widths', async ({ 
   });
   await page.screenshot({
     path: info.outputPath('kanban-dark-narrow.png'),
-    fullPage: true,
+    fullPage: false,
     animations: 'disabled'
   });
 });

@@ -1,8 +1,6 @@
 'use client';
 
-/* oxlint-disable jsx-a11y/no-noninteractive-tabindex -- Named scroll regions need focus for native keyboard scrolling. */
-
-import { useId, useMemo, useState, type ReactElement } from 'react';
+import { useCallback, useId, useMemo, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { DragOverlay, type DragEndEvent, type UniqueIdentifier } from '@dnd-kit/core';
@@ -15,49 +13,33 @@ import {
   KanbanItem,
   KanbanItemHandle
 } from '@/components/ui/kanban';
-import {
-  contactSearchValues,
-  customerContacts,
-  contactHref,
-  primaryContact
-} from '../lib/customer-contacts';
+import { customerContacts, contactHref, primaryContact } from '../lib/customer-contacts';
 import { StatusBadge } from './status-badge';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { assigneeLabel } from '../lib/assignee';
 import { crmQueries } from '../api/queries';
 import type { BoardStatus, CrmWorkspace, WorkflowRecord } from '../api/types';
-import {
-  boardRecords,
-  displayDate,
-  overdueLabel,
-  WORKFLOW_COLUMNS,
-  transitionKind
-} from '../lib/workflow';
+import { displayDate, overdueLabel, WORKFLOW_COLUMNS, transitionKind } from '../lib/workflow';
 import { Button } from './action-button';
 import { CrmEditorDialog, type Editor } from './editor-dialog';
-import { SummaryCards } from './summary-cards';
 import { vehicleLabel } from './format';
 import { BoardViewport } from './board-viewport';
 
-interface BoardCard {
-  id: string;
-  target: WorkflowRecord;
-}
-type Columns = Record<UniqueIdentifier, BoardCard[]>;
+import {
+  batchBoard,
+  filterBoard,
+  indexBoard,
+  BOARD_BATCH_SIZE,
+  type BoardCard,
+  type BoardColumns as Columns
+} from '../lib/board';
+import { BoardSearch } from './board-search';
+
 interface CrmKanbanBoardProps {
   userId: string;
   orgId?: string | null;
-}
-
-function plannedCardDate(card: BoardCard): string {
-  return (
-    (card.target.kind === 'request'
-      ? card.target.record.plannedIntakeDate
-      : card.target.record.plannedDeliveryDate) || '9999'
-  );
 }
 
 interface CardContentProps {
@@ -77,9 +59,7 @@ function BoardCardContent({
   preview,
   worker
 }: CardContentProps): ReactElement {
-  const { target } = card;
-  const customer = data.customers.find((entry) => entry.id === target.record.customerId);
-  const vehicle = data.vehicles.find((entry) => entry.id === target.record.vehicleId);
+  const { target, customer, vehicle } = card;
   const overdue = overdueLabel(target);
   const label = target.kind === 'request' ? 'Заявка' : `Замовлення №${target.record.number}`;
   const customerName = customer?.name || 'Клієнта не знайдено';
@@ -209,48 +189,20 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
   const [draft, setDraft] = useState<Columns | null>(null);
   const [draggedId, setDraggedId] = useState<UniqueIdentifier | null>(null);
   const boardId = useId();
-  const cards = useMemo(
-    () =>
-      boardRecords(data)
-        .filter((target) => !worker || target.kind === 'order')
-        .map((target) => ({ id: `${target.kind}:${target.record.id}`, target })),
-    [data, worker]
-  );
-  const columns = useMemo(() => {
-    const result: Columns = Object.fromEntries(
-      WORKFLOW_COLUMNS.map((column) => [column.value, []])
-    );
-    const query = search.trim().toLocaleLowerCase('uk-UA');
-    for (const card of cards) {
-      const customer = data.customers.find((entry) => entry.id === card.target.record.customerId);
-      const vehicle = data.vehicles.find((entry) => entry.id === card.target.record.vehicleId);
-      const label = [
-        customer?.name,
-        ...contactSearchValues(customer),
-        vehicle?.vin,
-        vehicle?.plate,
-        vehicle?.make,
-        vehicle?.model,
-        card.target.record.description,
-        card.target.kind === 'order' ? card.target.record.number : ''
-      ]
-        .join(' ')
-        .toLocaleLowerCase('uk-UA');
-      if (query && !label.includes(query)) continue;
-      result[card.target.record.status]?.push(card);
-    }
-    for (const [key, list] of Object.entries(result))
-      result[key] = list.toSorted((a, b) => {
-        return (
-          plannedCardDate(a).localeCompare(plannedCardDate(b)) ||
-          a.target.record.createdAt.localeCompare(b.target.record.createdAt)
-        );
-      });
-    return result;
-  }, [cards, data.customers, data.vehicles, search]);
-  const visible = draft ?? columns;
+  const [limit, setLimit] = useState(BOARD_BATCH_SIZE);
+  const [searchReset, setSearchReset] = useState(0);
+  const cards = useMemo(() => indexBoard(data), [data]);
+  const columns = useMemo(() => filterBoard(cards, search), [cards, search]);
+  const batched = useMemo(() => batchBoard(columns, limit), [columns, limit]);
+  const visible = draft ?? batched;
   const draggedCard = cards.find((card) => card.id === draggedId);
-  const visibleCount = Object.values(visible).reduce((sum, list) => sum + list.length, 0);
+  const matchCount = Object.values(columns).reduce((sum, list) => sum + list.length, 0);
+  const shownCount = Object.values(batched).reduce((sum, list) => sum + list.length, 0);
+  const applySearch = useCallback((value: string) => {
+    setSearch(value);
+    setDraft(null);
+    setLimit(BOARD_BATCH_SIZE);
+  }, []);
 
   function openOrder(target: WorkflowRecord): void {
     if (target.kind === 'order') {
@@ -294,20 +246,8 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
 
   return (
     <div className='flex min-w-0 flex-1 flex-col gap-4'>
-      <SummaryCards data={data} compactOnMobile />
       <div className='flex flex-wrap items-center gap-3'>
-        <Input
-          className='w-full sm:max-w-sm'
-          aria-label='Пошук на дошці'
-          type='search'
-          autoComplete='off'
-          placeholder='Клієнт, автомобіль, VIN…'
-          value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
-            setDraft(null);
-          }}
-        />
+        <BoardSearch key={searchReset} search={search} onSearch={applySearch} />
         {!worker && <Button onClick={() => setEditor({ type: 'request' })}>Нова заявка</Button>}
         {!worker && (
           <Button variant='outline' onClick={() => setEditor({ type: 'order' })}>
@@ -315,22 +255,22 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
           </Button>
         )}
         <p role='status' aria-live='polite' className='text-muted-foreground text-xs'>
-          Показано {visibleCount} із {cards.length}
+          Знайдено {matchCount} із {cards.length}
         </p>
       </div>
       <p className='text-muted-foreground text-sm'>
         Перетягніть картку або відкрийте «Статус і дати». Зміни застосуються після збереження форми.
         <span className='hidden lg:inline'> Картки впорядковано за плановою датою.</span>
       </p>
-      {search.trim() && visibleCount === 0 && (
+      {search.trim() && matchCount === 0 && (
         <div className='flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm'>
           <p>За вашим пошуком записів не знайдено.</p>
           <Button
             size='sm'
             variant='ghost'
             onClick={() => {
-              setSearch('');
-              setDraft(null);
+              applySearch('');
+              setSearchReset((value) => value + 1);
             }}
           >
             Очистити пошук
@@ -357,8 +297,32 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
           }
         }}
       >
-        <BoardViewport>
-          <KanbanBoard className='h-full w-max min-w-full items-stretch gap-4'>
+        <BoardViewport
+          footer={
+            <div data-slot='crm-board-footer' className='flex flex-col items-center gap-2 pt-1'>
+              <p className='text-muted-foreground text-xs'>
+                Показано {shownCount} із {matchCount}
+              </p>
+              {!draggedId && shownCount < matchCount && (
+                <Button
+                  size='sm'
+                  variant='outline'
+                  aria-controls={`${boardId}-board`}
+                  onClick={() => setLimit((previous) => previous + BOARD_BATCH_SIZE)}
+                >
+                  <span className='inline-flex items-center gap-1 whitespace-nowrap'>
+                    <Icons.chevronDown aria-hidden data-icon='inline-start' />
+                    <span>Показати ще</span>
+                  </span>
+                </Button>
+              )}
+            </div>
+          }
+        >
+          <KanbanBoard
+            id={`${boardId}-board`}
+            className='h-auto w-max min-w-full items-stretch gap-4'
+          >
             {WORKFLOW_COLUMNS.filter(
               (column) =>
                 !worker || ['created', 'in_progress', 'ready', 'delivered'].includes(column.value)
@@ -366,7 +330,7 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
               <KanbanColumn
                 key={column.value}
                 value={column.value}
-                className='h-full w-[min(20rem,calc(100vw-3rem))] min-w-0 shrink-0 gap-0 overflow-hidden p-0'
+                className='h-auto w-[min(20rem,calc(100vw-3rem))] min-w-0 shrink-0 gap-0 overflow-hidden p-0'
                 style={{ backgroundColor: 'var(--muted)' }}
                 aria-labelledby={`${boardId}-${column.value}`}
               >
@@ -381,15 +345,14 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
                     variant='secondary'
                     className='min-w-6 shrink-0 justify-center tabular-nums'
                   >
-                    {visible[column.value]?.length ?? 0}
+                    {columns[column.value]?.length ?? 0}
                   </Badge>
                 </div>
                 <div
                   data-slot='crm-column-body'
                   role='region'
                   aria-label={`Картки: ${column.label}`}
-                  tabIndex={0}
-                  className='flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-y-contain p-3 outline-none [scrollbar-gutter:stable] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring'
+                  className='flex flex-1 flex-col gap-3 p-3'
                 >
                   {!visible[column.value]?.length && (
                     <p className='text-muted-foreground rounded-md border border-dashed p-4 text-center text-sm'>

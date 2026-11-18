@@ -22,6 +22,7 @@ import { businessToday, displayDate } from '@/features/crm/lib/workflow';
 import { overviewTrends, type TrendKey } from '../lib/trends';
 import { MetricTrend, trendLabel } from './metric-trend';
 import { overviewMetrics } from '../lib/metrics';
+import { compactMoney, compactNumber } from '../lib/format';
 import { ActivityChart } from './activity-chart';
 import { WorkQueue } from './work-queue';
 import { StatusSummary } from './status-summary';
@@ -57,7 +58,11 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
       title: 'Активні заявки',
       trendKey: 'activeRequests' as TrendKey,
       value: String(metrics.activeRequests),
-      description: 'Backlog: ' + metrics.backlog + ' · Заплановано: ' + metrics.scheduled,
+      description:
+        'Backlog: ' +
+        compactNumber(metrics.backlog) +
+        ' · Заплановано: ' +
+        compactNumber(metrics.scheduled),
       href: '/dashboard/requests',
       icon: Icons.requests
     },
@@ -67,9 +72,9 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
       value: String(metrics.inProgress),
       description:
         'Створено: ' +
-        metrics.createdOrders +
+        compactNumber(metrics.createdOrders) +
         ' · Вартість відкритих: ' +
-        money(metrics.activeValueCents),
+        compactMoney(metrics.activeValueCents),
       href: '/dashboard/orders',
       icon: Icons.orders
     },
@@ -77,7 +82,7 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
       title: 'Готові до видачі',
       trendKey: 'ready' as TrendKey,
       value: String(metrics.ready),
-      description: 'Прострочених прийомів і видач: ' + metrics.overdue,
+      description: 'Прострочених прийомів і видач: ' + compactNumber(metrics.overdue),
       href: '/dashboard/kanban',
       icon: Icons.check
     },
@@ -85,7 +90,7 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
       title: 'Видано цього місяця',
       trendKey: 'deliveredThisMonth' as TrendKey,
       value: String(metrics.deliveredThisMonth),
-      description: 'Вартість замовлень: ' + money(metrics.deliveredValueCents),
+      description: 'Вартість замовлень: ' + compactMoney(metrics.deliveredValueCents),
       href: '/dashboard/orders',
       icon: Icons.billing
     }
@@ -102,7 +107,7 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
       title: 'Заборгованість за виданими авто',
       trendKey: 'debtCents' as TrendKey,
       value: metrics.debtCents,
-      description: 'Неоплачених виданих замовлень: ' + metrics.debtOrderCount,
+      description: 'Неоплачених виданих замовлень: ' + compactNumber(metrics.debtOrderCount),
       icon: Icons.warning
     },
     {
@@ -154,7 +159,9 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
           >
             <CardHeader className='relative'>
               <CardDescription>{title}</CardDescription>
-              <CardTitle className='text-3xl font-semibold tabular-nums'>{value}</CardTitle>
+              <CardTitle className='text-3xl font-semibold tabular-nums'>
+                {compactNumber(Number(value))}
+              </CardTitle>
               <MetricTrend trend={trends.metrics[trendKey]} title={title} direction='up' />
               <CardAction>
                 <Icon aria-hidden className='size-4 text-muted-foreground' />
@@ -188,7 +195,7 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
             <CardHeader className='relative'>
               <CardDescription>{title}</CardDescription>
               <CardTitle className='break-words text-2xl font-semibold tabular-nums'>
-                {money(value)}
+                {compactMoney(value)}
               </CardTitle>
               <MetricTrend
                 trend={trends.metrics[trendKey]}

@@ -1,5 +1,5 @@
 import { TeamView } from '@/features/crm/components/team-view';
-import { lazy, Suspense } from 'react';
+import { lazy, Profiler, Suspense } from 'react';
 const UsersTable = lazy(() =>
   import('@/features/users/components/users-table').then((module) => ({
     default: module.UsersTable
@@ -24,6 +24,23 @@ import AppSidebar from '@/components/layout/app-sidebar';
 import { ActiveThemeProvider } from '@/components/themes/active-theme';
 import ThemeProvider from '@/components/themes/theme-provider';
 import { KBarProvider } from 'kbar';
+
+function ProfiledBoard() {
+  return (
+    <Profiler
+      id='board'
+      onRender={(_id, phase, duration) => {
+        if (!new URLSearchParams(location.search).has('largeBoard')) return;
+        const target = window as unknown as {
+          boardProfile?: { phase: string; duration: number }[];
+        };
+        (target.boardProfile ??= []).push({ phase, duration });
+      }}
+    >
+      <CrmKanbanBoard userId='browser-test' />
+    </Profiler>
+  );
+}
 
 const route = location.pathname.split('/').pop() ?? 'clients';
 const titles: Record<string, string> = {
@@ -92,7 +109,7 @@ createRoot(document.getElementById('root')!).render(
                     ) : route === 'team' ? (
                       <TeamView userId='browser-test' orgId='org_test' />
                     ) : route === 'kanban' ? (
-                      <CrmKanbanBoard userId='browser-test' />
+                      <ProfiledBoard />
                     ) : route === 'overview' ? (
                       <Overview userId='browser-test' initialToday={businessToday()} />
                     ) : route === 'vehicles' ? (

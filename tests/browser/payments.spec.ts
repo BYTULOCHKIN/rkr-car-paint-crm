@@ -42,11 +42,11 @@ test('overview separates actual receipts from the outstanding balance of deliver
   await page.goto('/dashboard/overview?paymentDemo');
   const finance = page.getByRole('region', { name: 'Фінанси автомалярки' });
   await expect(finance.getByRole('link', { name: /Надходження за місяць/ })).toContainText(
-    /10\s000,00/
+    '10K грн'
   );
   await expect(
     finance.getByRole('link', { name: /Заборгованість за виданими авто/ })
-  ).toContainText(/50\s000,00/);
+  ).toContainText('50K грн');
   await expect(
     finance.getByRole('link', { name: /Заборгованість за виданими авто/ })
   ).toContainText('Неоплачених виданих замовлень: 1');

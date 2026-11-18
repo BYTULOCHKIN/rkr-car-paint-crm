@@ -4,16 +4,13 @@ import { Line, LineChart, YAxis } from 'recharts';
 import { cn } from '@/lib/utils';
 import { money } from '@/features/crm/components/format';
 import type { MetricTrend as Trend } from '../lib/trends';
+import { compactMoney, compactNumber, formatPercentage } from '../lib/format';
 
 const count = new Intl.NumberFormat('uk-UA');
-const percentage = new Intl.NumberFormat('uk-UA', {
-  maximumFractionDigits: 1,
-  signDisplay: 'exceptZero'
-});
 export function trendLabel(trend: Trend): string {
   if (trend.comparison === 'unknown') return 'Немає даних за минулий період';
   if (trend.comparison === 'new') return 'Новий показник';
-  return `${percentage.format(trend.percentage!)}%`;
+  return formatPercentage(trend.percentage!);
 }
 
 export function MetricTrend({
@@ -33,7 +30,7 @@ export function MetricTrend({
   const formatted = (value: number) => (currency ? money(value) : count.format(value));
   const change =
     trend.comparison === 'new'
-      ? `+${formatted(delta)}`
+      ? `+${currency ? compactMoney(delta) : compactNumber(delta)}`
       : trend.comparison === 'unknown'
         ? '—'
         : trendLabel(trend);
@@ -74,7 +71,7 @@ export function MetricTrend({
         </LineChart>
       </div>
       <span
-        aria-label={`${change === '—' ? trendLabel(trend) : change} в порівнянні з попереднім періодом`}
+        aria-label={`${trend.comparison === 'new' ? '+' + formatted(delta) : trendLabel(trend)} в порівнянні з попереднім періодом`}
         className={cn(
           'shrink-0 text-xs leading-4 font-medium tabular-nums',
           favorable

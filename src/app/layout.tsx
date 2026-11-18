@@ -16,36 +16,35 @@ const META_THEME_COLORS = {
 };
 
 export const metadata: Metadata = {
-  ...(process.env.NEXT_PUBLIC_APP_URL
-    ? { metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL) }
-    : {}),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'https://paintauto.pp.ua'),
   title: {
-    default: 'Shadcn Dashboard - Next.js Admin Dashboard Template',
-    template: '%s | Shadcn Dashboard'
+    default: 'PaintAuto — CRM для автомалярки',
+    template: '%s | PaintAuto'
   },
   description:
-    'Free, open source admin dashboard starter built with Next.js 16, shadcn/ui, Tailwind CSS, and TypeScript.',
+    'Клієнти, автомобілі, замовлення, платежі та склад — керуйте роботою автомалярки в одній системі.',
   openGraph: {
-    title: 'Shadcn Dashboard - Next.js Admin Dashboard Template',
+    title: 'PaintAuto — CRM для автомалярки',
     description:
-      'Free, open source admin dashboard starter built with Next.js 16, shadcn/ui, Tailwind CSS, and TypeScript.',
-    siteName: 'Shadcn Dashboard',
+      'Клієнти, автомобілі, замовлення, платежі та склад — керуйте роботою автомалярки в одній системі.',
+    siteName: 'PaintAuto',
+    locale: 'uk_UA',
     type: 'website',
     images: [
       {
-        url: '/shadcn-dashboard.png',
-        width: 3200,
-        height: 1600,
-        alt: 'Shadcn Dashboard overview page'
+        url: '/paintauto-preview-v1.jpg',
+        width: 1200,
+        height: 630,
+        alt: 'PaintAuto — огляд роботи автомалярки: замовлення, платежі та аналітика'
       }
     ]
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Shadcn Dashboard - Next.js Admin Dashboard Template',
+    title: 'PaintAuto — CRM для автомалярки',
     description:
-      'Free, open source admin dashboard starter built with Next.js 16, shadcn/ui, Tailwind CSS, and TypeScript.',
-    images: ['/shadcn-dashboard.png']
+      'Клієнти, автомобілі, замовлення, платежі та склад — керуйте роботою автомалярки в одній системі.',
+    images: ['/paintauto-preview-v1.jpg']
   }
 };
 
@@ -60,7 +59,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const themeToApply = isValidTheme ? activeThemeValue! : DEFAULT_THEME;
 
   return (
-    <html lang='en' suppressHydrationWarning data-theme={themeToApply}>
+    <html lang='uk' suppressHydrationWarning data-theme={themeToApply}>
       <head>
         <script
           dangerouslySetInnerHTML={{

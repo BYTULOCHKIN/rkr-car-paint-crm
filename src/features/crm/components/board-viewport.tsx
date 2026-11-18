@@ -8,9 +8,15 @@ import { Button } from './action-button';
 
 interface BoardViewportProps {
   children: ReactNode;
+  label?: string;
+  footer?: ReactNode;
 }
 
-export function BoardViewport({ children }: BoardViewportProps): ReactElement {
+export function BoardViewport({
+  children,
+  label = 'Перегляд статусів',
+  footer
+}: BoardViewportProps): ReactElement {
   const viewportRef = useRef<HTMLDivElement>(null);
   const labelId = useId();
   const [edges, setEdges] = useState({ left: false, right: false });
@@ -48,11 +54,11 @@ export function BoardViewport({ children }: BoardViewportProps): ReactElement {
 
   return (
     <div className='flex min-w-0 flex-col gap-2'>
-      <div className='flex items-center justify-between gap-3'>
+      <div className='bg-background sticky top-16 z-10 flex flex-wrap items-center justify-between gap-3 py-2 md:top-14'>
         <p id={labelId} className='text-muted-foreground text-xs'>
-          Перегляд статусів
+          {label}
         </p>
-        <div className='flex shrink-0 gap-1'>
+        <div className='flex shrink-0 items-center gap-1'>
           <Button
             size='icon-sm'
             variant='outline'
@@ -82,10 +88,11 @@ export function BoardViewport({ children }: BoardViewportProps): ReactElement {
         aria-label='Статуси дошки робіт'
         aria-describedby={labelId}
         tabIndex={0}
-        className='h-[clamp(20rem,65dvh,40rem)] w-full min-w-0 overflow-x-auto overflow-y-hidden rounded-lg pb-3 outline-none focus-visible:ring-2 focus-visible:ring-ring lg:h-[clamp(20rem,calc(100dvh-27rem),44rem)]'
+        className='w-full min-w-0 overflow-x-auto rounded-lg pb-3 outline-none focus-visible:ring-2 focus-visible:ring-ring'
       >
         {children}
       </div>
+      {footer}
     </div>
   );
 }

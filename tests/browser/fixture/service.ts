@@ -195,6 +195,42 @@ export async function getWorkspace() {
     result.customers[0].createdAt = '2025-01-01T00:00:00Z';
     result.customers[1].createdAt = '2026-11-01T00:00:00Z';
   }
+  if (new URLSearchParams(location.search).has('largeBoard')) {
+    const customer = result.customers[0];
+    const vehicle = result.vehicles[0];
+    const order = result.orders[0];
+    const request = result.requests[0];
+    result.customers = Array.from({ length: 300 }, (_, index) => ({
+      ...customer,
+      id: uuid(10000 + index),
+      name: `Масштаб клієнт ${index + 1}`
+    }));
+    result.vehicles = Array.from({ length: 500 }, (_, index) => ({
+      ...vehicle,
+      id: uuid(20000 + index),
+      customerId: result.customers[index % 300].id,
+      model: 'Passat',
+      vin: `WVWZZZ1JZXW${String(index).padStart(6, '0')}`
+    }));
+    result.orders = Array.from({ length: 1000 }, (_, index) => ({
+      ...order,
+      id: uuid(30000 + index),
+      number: index + 1,
+      requestId: null,
+      vehicleId: result.vehicles[index % 500].id,
+      customerId: result.vehicles[index % 500].customerId!,
+      status: (['created', 'in_progress', 'ready', 'delivered'] as const)[index % 4],
+      description: index === 999 ? 'Ремонт RareNeedle' : `Ремонт кузова ${index + 1}`
+    }));
+    result.requests = Array.from({ length: 200 }, (_, index) => ({
+      ...request,
+      id: uuid(40000 + index),
+      vehicleId: result.vehicles[index].id,
+      customerId: result.vehicles[index].customerId!,
+      status: index % 2 ? ('scheduled' as const) : ('backlog' as const),
+      description: `Ремонт за заявкою ${index + 1}`
+    }));
+  }
   result.access = {
     userId: 'user_worker',
     orgId: 'org_test',

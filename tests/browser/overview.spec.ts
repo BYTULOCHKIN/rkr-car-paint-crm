@@ -14,7 +14,7 @@ test('overview displays CRM totals, queues and actual charts without demo conten
   await expect(page.getByRole('link', { name: /^Замовлення в роботі: 22\./ })).toBeVisible();
   await expect(page.getByRole('link', { name: /^Готові до видачі: 1\./ })).toBeVisible();
   await expect(page.getByRole('link', { name: /^Видано цього місяця: 1\./ })).toBeVisible();
-  await expect(page.getByText('Вартість замовлень: 60 000,00 грн', { exact: true })).toBeVisible();
+  await expect(page.getByText('Вартість замовлень: 60K грн', { exact: true })).toBeVisible();
   await expect(page.locator('[data-slot=chart]')).toBeVisible();
   await expect(page.locator('[data-slot=metric-trend]')).toHaveCount(7);
   await expect(

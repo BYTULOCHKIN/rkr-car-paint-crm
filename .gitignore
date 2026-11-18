@@ -54,7 +54,12 @@ next-env.d.ts
 
 # Local CRM database
 /data/
+/backups/
+/deploy-status/
 
 # Browser verification artifacts
 /.artifacts/
 /playwright-report/
+
+# Python deployment-controller checks
+__pycache__/

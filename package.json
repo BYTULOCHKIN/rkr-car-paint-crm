@@ -19,6 +19,7 @@
     "format:check": "oxfmt --check . '!**/*.md' '!**/*.mdc' '!**/*.mdx' '!**/*.yml' '!**/*.yaml'",
     "prepare": "husky",
     "test:crm": "tsx --test src/features/crm/tests/*.test.ts src/features/overview/tests/*.test.ts",
+    "crm:demo": "node --import tsx scripts/crm-demo.ts",
     "test:crm:ui": "vitest run",
     "test:crm:browser": "next build && playwright test --config playwright.crm.config.mts"
   },
@@ -50,7 +51,7 @@
     "kbar": "^1.0.0",
     "match-sorter": "^8.3.0",
     "motion": "^14.2.0",
-    "next": "16.4.2",
+    "next": "16.4.5",
     "next-themes": "^0.4.6",
     "nextjs-toploader": "^3.9.17",
     "nuqs": "^2.10.2",

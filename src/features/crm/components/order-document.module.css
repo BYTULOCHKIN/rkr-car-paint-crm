@@ -102,8 +102,8 @@
     size: A4;
     margin: 12mm;
   }
-  :global(html),
-  :global(body) {
+  :global(html):has(.document),
+  :global(body):has(.document) {
     background: white !important;
     color: #111 !important;
     overflow: visible !important;

@@ -1,0 +1,79 @@
+name: rkr-crm
+
+services:
+  crm:
+    image: ${CRM_IMAGE:-rkr-crm:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?Set the production Clerk publishable key}
+        NEXT_PUBLIC_APP_URL: https://${CRM_DOMAIN:?Set CRM_DOMAIN}
+        NEXT_PUBLIC_SENTRY_DISABLED: 'true'
+    restart: unless-stopped
+    init: true
+    environment:
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?Set the production Clerk secret key}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: /auth/sign-in
+      NEXT_PUBLIC_CLERK_SIGN_UP_URL: /auth/sign-up
+      NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL: /dashboard/overview
+      NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL: /dashboard/overview
+      NEXT_PUBLIC_SENTRY_DISABLED: 'true'
+      CRM_DATABASE_PATH: /app/data/crm.sqlite
+      CRM_ADMIN_USER_ID: ${CRM_ADMIN_USER_ID:-}
+    expose:
+      - '3000'
+    volumes:
+      - type: bind
+        source: ./data
+        target: /app/data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./backups
+        target: /backups
+        bind:
+          create_host_path: false
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/auth/sign-in', {redirect:'manual',signal:AbortSignal.timeout(5000)}).then(r=>process.exit(r.status<400?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      CRM_DOMAIN: ${CRM_DOMAIN:?Set CRM_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?Set an email for TLS certificate notifications}
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy-status:/srv/deploy-status:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      crm:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+volumes:
+  caddy_data:
+  caddy_config:

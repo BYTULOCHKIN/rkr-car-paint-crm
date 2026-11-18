@@ -29,6 +29,22 @@ __mocks__/
 .env.development
 .env.test
 .env.production.local
+.env*
+
+# Business data and backup archives must never enter build layers
+data/
+backups/
+deploy-status/
+*.sqlite*
+*.db
+*.tar.gz
+.artifacts/
+playwright-report/
+test-results/
+
+# Deployment configuration is mounted separately
+deploy/
+compose.production.yaml
 
 # Docker files
 Dockerfile*
