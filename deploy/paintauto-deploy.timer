@@ -1,10 +1,10 @@
 [Unit]
-Description=Check GitHub main for PaintAuto updates every minute
+Description=Check GitHub main for PaintAuto updates every 20 seconds
 
 [Timer]
 OnBootSec=60s
-OnUnitInactiveSec=60s
-AccuracySec=5s
+OnUnitInactiveSec=20s
+AccuracySec=1s
 Unit=paintauto-deploy.service
 
 [Install]

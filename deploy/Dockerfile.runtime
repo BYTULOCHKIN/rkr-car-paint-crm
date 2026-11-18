@@ -1,0 +1,18 @@
+FROM node:24-slim
+
+ARG VCS_REF
+LABEL org.opencontainers.image.source=https://github.com/BYTULOCHKIN/rkr-car-paint-crm
+LABEL org.opencontainers.image.revision=$VCS_REF
+
+WORKDIR /app
+ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 NEXT_TELEMETRY_DISABLED=1
+
+RUN mkdir -p .next data /backups && chown node:node .next data /backups
+COPY --chown=node:node .next/standalone ./
+COPY --chown=node:node .next/static ./.next/static
+COPY --chown=node:node public ./public
+COPY --chown=node:node scripts/crm-backup.mjs /opt/crm/backup.mjs
+
+USER node
+EXPOSE 3000
+CMD ["node", "server.js"]

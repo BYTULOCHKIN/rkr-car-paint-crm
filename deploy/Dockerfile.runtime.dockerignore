@@ -1,0 +1,11 @@
+# Only the prebuilt runtime enters this image; no source env, databases or caches.
+**
+!.next/
+!.next/standalone/
+!.next/standalone/**
+!.next/static/
+!.next/static/**
+!public/
+!public/**
+!scripts/
+!scripts/crm-backup.mjs

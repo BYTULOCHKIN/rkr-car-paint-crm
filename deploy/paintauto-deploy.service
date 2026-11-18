@@ -1,5 +1,5 @@
 [Unit]
-Description=Deploy checked GitHub main commits for PaintAuto
+Description=Deploy prebuilt GitHub main ARM64 releases for PaintAuto
 Wants=network-online.target docker.service
 After=network-online.target docker.service
 

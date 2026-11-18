@@ -13,7 +13,7 @@ $0.0836/ГБ-місяць EBS), плюс backup/storage/можливі інші 
 Фактичні IDs та локальні шляхи доступу збережені в gitignored
 `.artifacts/deploy/aws-resources.json`. AWS CLI: `sh scripts/aws.sh`.
 
-Production-образ зібраний на EC2, CRM і Caddy запущені. Перевірено HTTPS сторінки
+Перший production-запуск виконано на EC2, CRM і Caddy запущені. Подальші образи збирає GitHub Actions (розділ 6). Перевірено HTTPS сторінки
 входу (200), перенаправлення неавторизованого доступу до замовлень (307),
 захист API (401), збереження SQLite після заміни контейнера та відновлення
 архіву із S3 з перевіркою цілісності. Clerk підтвердив production DNS, SSL,
@@ -219,57 +219,87 @@ WAL/SHM від іншої версії бази. Відновіть власни
 перевірте організації, замовлення, платежі та залишки. Ключі Clerk мають належати
 тому самому instance, з яким працювала відновлена база.
 
-## 6. Оновлення
+## 6. Оновлення: готовий образ із GitHub Actions
 
-### Автодеплой після push / merge у `main`
+### Етапи в Actions
 
-Workflow [CRM checks](https://github.com/BYTULOCHKIN/rkr-car-paint-crm/actions/workflows/ci.yml)
-запускається після push у `main` та для pull requests. На GitHub ARM64 runner він
-перевіряє TypeScript, lint, бізнес-логіку, UI, backup і контролер розгортання.
-Production оновлюється **лише після успішного job `checks` для push-коміту `main`**.
-Pull request і ручний запуск перевірок самі по собі не розгортаються.
+[Workflow PaintAuto](https://github.com/BYTULOCHKIN/rkr-car-paint-crm/actions/workflows/ci.yml)
+автоматично запускається після push / merge у `main`. Pull requests і ручний
+workflow_dispatch запускають перевірки, без production-деплою.
 
-На EC2 `paintauto-deploy.timer` перевіряє публічну гілку `main` раз на хвилину.
-Контролер `/usr/local/lib/paintauto/autodeploy.py` завантажує конкретний commit
-через локальний bare Git-каталог, перевіряє його CI через GitHub API та будує
-`rkr-crm:<commit-sha>` на ARM64-сервері. Поки триває збірка, поточна CRM працює.
-Якщо за цей час `main` просунувся, застаріла збірка не підміняє production.
+1. **Перевірки коду:** TypeScript, lint, бізнес-логіка, UI, резервні копії,
+   доставка образу, відкат і протокол повідомлення про етапи.
+2. **Збірка готового ARM64-образу:** GitHub runner відновлює кеш Bun та
+   `.next/cache`, виконує звичайний `next build` зі standalone output,
+   пакує результат через `deploy/Dockerfile.runtime`. Збірка перевіряє роботу
+   SQLite та sharp усередині образу без мережі.
+3. **Доставка:** образ стискається швидким gzip, до маніфесту додаються SHA256,
+   розмір, архітектура та commit. Draft prerelease `paintauto-deploy-<sha>`
+   публікується лише після завантаження обох assets. Опублікований реліз
+   цього commit незмінний; повторний запуск не перезаписує його assets.
+4. **Розгортання на AWS:** Actions окремо показує завантаження, перевірку SHA256,
+   імпорт, S3 backup, запуск контейнера і публічний HTTPS healthcheck.
+   У Summary є таблиця з фактичною тривалістю кожного етапу на сервері.
 
-Перед заміною контейнера контролер запускає наявний S3 backup service та зберігає
-попередні образ і конфігурацію. `.env.production`, SQLite у `data/`, `backups/`
-і TLS volumes залишаються на сервері; образ вибирає лише змінна `CRM_IMAGE`.
-Перевіряються Docker healthcheck і публічний HTTPS sign-up. При помилці запуску
-повертаються попередні образ і конфігурація. **База автоматично не відновлюється**:
-міграції мають залишатися сумісними з попередньою версією. Несумісні міграції
+Зелений workflow підтверджує **фактичне розгортання саме його commit**.
+Помилка конкретного етапу або відкат відображаються в Actions одразу після
+отримання статусу від EC2, без очікування загального timeout.
+
+### Чому це швидше
+
+EC2 з 2 ГБ RAM більше не компілює Next.js і не перевіряє TypeScript.
+Це робить стандартний ARM64 GitHub runner із 4 CPU та 16 ГБ RAM.
+Кеш `.next/cache` зберігається між комітами; залежності встановлюються за
+`bun.lock` з кешу Bun. Docker-образ містить уже готові standalone-файли,
+static, public і backup-скрипт — runtime Dockerfile не запускає build.
+
+На сервері `paintauto-deploy.timer` перевіряє публічний `main` кожні 20 секунд.
+Готовність релізу визначається через публічний download маніфесту, тому немає
+додаткового трихвилинного очікування GitHub REST API. GitHub Actions показує
+час build окремо від доставки та запуску; 5–7 секунд локального build
+не включають перевірки, передачу образу, backup і перевірку production.
+
+### Налаштування й захист даних
+
+Єдина змінна репозиторію для збірки:
+`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_...` у Settings → Secrets and
+variables → Actions → Variables. Це публічний ключ; він вбудовується в браузерний
+код. Домен і redirect URLs задані у workflow. `CLERK_SECRET_KEY` залишається
+лише в `/opt/rkr-crm/.env.production`, а не в CI чи образі.
+
+Образ і маніфест — публічні assets у Releases публічного репозиторію.
+Спеціальний Docker ignore allowlist передає тільки готовий runtime:
+робочі бази, backup, локальні env-файли та кеші до нього не потрапляють.
+Якщо репозиторій стане приватним, перед цим потрібно змінити спосіб доставки.
+
+Контролер `/usr/local/lib/paintauto/autodeploy.py` завантажує образ конкретного
+commit, перевіряє його розмір і SHA256, після `docker load` перевіряє ARM64
+та OCI revision label. Невідповідний образ не заміняє production.
+Якщо `main` просунувся під час завантаження, застарілий commit пропускається.
+
+Перед заміною контейнера виконується наявний S3 backup service та зберігаються
+попередні образ і конфігурація. `.env.production`, SQLite у `data/`,
+`backups/` і TLS volumes залишаються на сервері; змінюється лише `CRM_IMAGE`
+та reviewed конфігурація. При помилці запуску/HTTPS перевірки повертаються
+попередні образ і конфігурація. **База автоматично не відновлюється**:
+міграції мають бути сумісними з попередньою версією. Несумісні міграції
 потребують окремого плану оновлення та відновлення.
 
-Після успіху сервер публікує лише SHA коміту за
-`https://paintauto.pp.ua/.well-known/paintauto-release.json`. Job `Wait for production
-deployment` чекає саме цей SHA: зелений workflow підтверджує фактичне розгортання.
-Типова затримка — до хвилини на виявлення коміту, перевірка результату CI раз
-на три хвилини та кілька хвилин збірки. Рідше опитування CI зберігає запас
-анонімного GitHub API rate limit (60 запитів/годину).
-Залишаються останні три release-образи та два rollback-теги, build cache обмежується
-після успіху; при менш ніж 5 GiB вільного місця новий деплой не починається.
+Залишаються три release-образи та два rollback-теги на EC2, включно з активними
+образами. При менш ніж 3 GiB вільного місця новий деплой не починається.
+На EC2 не встановлюється GitHub runner, SSH для GitHub не відкривається,
+постійні AWS/GitHub access keys не потрібні. AWS Free plan не змінюється.
+Стандартні Actions runners безкоштовні для public repositories; Releases
+не мають загальної квоти обсягу чи трафіку, окремий asset має бути < 2 GiB.
+Наш контролер додатково обмежує compressed image до 1 GiB.
 
-Ця схема не потребує GitHub secrets, AWS access keys, GitHub runner на production
-або відкритого для GitHub SSH. Вона використовує публічний репозиторій та публічний
-GitHub Actions API. Якщо репозиторій стане приватним, перед цим потрібно змінити
-спосіб доступу. AWS Free plan цього акаунта заборонив IAM OIDC через SCP;
-заради автодеплою план не змінюємо. Public GitHub ARM runners стандартного розміру
-не додають плати за Actions; EC2 продовжує споживати наявні AWS-кредити.
+### Діагностика та керування
 
-Початкове встановлення на наявний EC2: скопіювати reviewed checkout без секретів
-в окремий каталог, перейти в нього та виконати:
+Публічний endpoint повертає лише SHA, назви етапів, результати та тривалість:
+`https://paintauto.pp.ua/.well-known/paintauto-release.json`.
+Він не містить runtime-секретів чи клієнтських даних.
 
-```bash
-sudo bash deploy/install-autodeploy.sh ПОТОЧНИЙ_GITHUB_MAIN_SHA
-```
-
-Аргумент задає початкову межу: старий `main` не розгортається поверх поточної CRM.
-Наступний новий push із успішним CI активує звичайний цикл.
-
-Діагностика на сервері:
+На сервері:
 
 ```bash
 sudo systemctl list-timers paintauto-deploy.timer --no-pager
@@ -277,22 +307,27 @@ sudo journalctl -u paintauto-deploy.service -n 100 --no-pager
 sudo cat /var/lib/paintauto-deploy/current-sha
 ```
 
-Якщо конкретна збірка або запуск завершилися помилкою, поточна CRM залишається
-працювати, а SHA записується в `/var/lib/paintauto-deploy/failed-sha`, щоб не
-повторювати невдалу збірку щохвилини. Новий виправлений push запускається звичайно.
-Для повторної спроби того самого коміту після усунення причини:
+Для першого встановлення на вже налаштований EC2: скопіювати reviewed checkout
+без секретів в окремий каталог, перейти в нього та виконати
+`sudo bash deploy/install-autodeploy.sh ПОТОЧНИЙ_GITHUB_MAIN_SHA`.
+Аргумент пропускає старий main і не розгортає його поверх наявної CRM.
+
+Невдалий commit записується в `/var/lib/paintauto-deploy/failed-sha`,
+щоб не повторювати його автоматично кожні 20 секунд.
+Новий виправлений push запускається звичайно. Для повторної спроби того самого
+commit після усунення причини:
 
 ```bash
 sudo rm -f /var/lib/paintauto-deploy/failed-sha
 sudo systemctl start paintauto-deploy.service
 ```
 
-Для паузи: `sudo systemctl stop paintauto-deploy.timer`. Це не перериває вже
-запущений service і не зупиняє CRM. Після відновлення timer сервер перевірить
-останній `main`; проміжні коміти не зобов'язані розгортатися послідовно.
-Не запускайте паралельно ручне оновлення контейнерів. Для ручного build поза
-автодеплоєм використовуйте окремий тег через `CRM_IMAGE`, щоб не підмінити release.
+Для паузи: `sudo systemctl stop paintauto-deploy.timer`. Це не перериває
+запущений service і не зупиняє CRM. Відновлення: `sudo systemctl start
+paintauto-deploy.timer`. Не запускайте паралельно ручне оновлення контейнерів.
+Після зміни build-time налаштувань потрібен новий commit/release.
 
-Посилання: [GitHub ARM64 runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
-[Workflow runs API](https://docs.github.com/en/rest/actions/workflow-runs),
-[Workflow jobs API](https://docs.github.com/en/rest/actions/workflow-jobs).
+Джерела: [GitHub ARM64 runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
+[GitHub Releases quotas](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases),
+[Next.js CI cache](https://nextjs.org/docs/app/guides/ci-build-caching),
+[Docker-specific ignore files](https://docs.docker.com/build/concepts/context/#dockerignore-files).
