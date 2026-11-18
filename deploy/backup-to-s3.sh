@@ -23,18 +23,4 @@ trap 'rm -f "$CRM_ARCHIVE"' EXIT
 tar -C backups -czf "$CRM_ARCHIVE" "$CRM_SNAPSHOT_NAME"
 /usr/bin/python3 deploy/upload-backup.py "$CRM_ARCHIVE" "$CRM_SNAPSHOT_NAME.tar.gz"
 
-# Prune only completed snapshots after a successful off-server upload.
-/usr/bin/python3 - <<'PY'
-import re
-import shutil
-import time
-from pathlib import Path
-
-cutoff = time.time() - 7 * 24 * 60 * 60
-for snapshot in Path('/opt/rkr-crm/backups').iterdir():
-    if (re.fullmatch(r'crm-[A-Za-z0-9.:-]+', snapshot.name)
-            and not snapshot.is_symlink() and snapshot.is_dir()
-            and (snapshot / 'manifest.json').is_file()
-            and snapshot.stat().st_mtime < cutoff):
-        shutil.rmtree(snapshot)
-PY
+# upload-backup.py prunes local and S3 copies only after a verified upload.
