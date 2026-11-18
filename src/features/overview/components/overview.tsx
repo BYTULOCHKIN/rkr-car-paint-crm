@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { SummaryCardLink } from '@/components/summary-card-link';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { Icons } from '@/components/icons';
+import { ButtonGroup } from '@/components/ui/button-group';
 import {
   CardAction,
   CardDescription,
@@ -126,20 +127,31 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
         <p className='text-sm text-muted-foreground'>Стан на {displayDate(today)} · Київ</p>
         <div className='flex flex-wrap gap-2'>
           <Button size='sm' onClick={() => setEditor({ type: 'request' })}>
-            <span className='flex items-center gap-1.5'>
-              <Icons.add data-icon='inline-start' />
-              Нова заявка
+            <span className='inline-flex items-center gap-1.5 whitespace-nowrap'>
+              <Icons.add aria-hidden data-icon='inline-start' />
+              <span>Нова заявка</span>
             </span>
           </Button>
           <Button size='sm' variant='outline' onClick={() => setEditor({ type: 'order' })}>
-            Нове замовлення
+            <span className='inline-flex items-center gap-1.5 whitespace-nowrap'>
+              <Icons.orders aria-hidden data-icon='inline-start' />
+              <span>Нове замовлення</span>
+            </span>
           </Button>
-          <Button size='sm' variant='outline' onClick={() => setEditor({ type: 'customer' })}>
-            Додати клієнта
-          </Button>
-          <Button size='sm' variant='outline' onClick={() => setEditor({ type: 'vehicle' })}>
-            Додати авто
-          </Button>
+          <ButtonGroup aria-label='Додавання клієнта й авто' className='shrink-0'>
+            <Button size='sm' variant='outline' onClick={() => setEditor({ type: 'customer' })}>
+              <span className='inline-flex items-center gap-1.5 whitespace-nowrap'>
+                <Icons.user aria-hidden data-icon='inline-start' />
+                <span>Додати клієнта</span>
+              </span>
+            </Button>
+            <Button size='sm' variant='outline' onClick={() => setEditor({ type: 'vehicle' })}>
+              <span className='inline-flex items-center gap-1.5 whitespace-nowrap'>
+                <Icons.car aria-hidden data-icon='inline-start' />
+                <span>Додати авто</span>
+              </span>
+            </Button>
+          </ButtonGroup>
         </div>
       </div>
       {isRefetchError && (
