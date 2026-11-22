@@ -13,6 +13,7 @@ export interface StockItem {
 }
 
 export interface StockMovement {
+  financialLocked?: boolean;
   id: string;
   itemId: string;
   itemName: string;

@@ -46,7 +46,54 @@ function data(): InventoryData {
   );
   value.access.role =
     new URLSearchParams(location.search).get('role') === 'worker' ? 'worker' : 'admin';
+  if (
+    new URLSearchParams(location.search).has('financeDemo') &&
+    !sessionStorage.getItem('stock-fixture')
+  ) {
+    value.items.push({
+      ...initial.items[0],
+      id: '00000000-0000-4000-8000-000000000903',
+      name: 'Поліроль',
+      totalCostCents: 50000
+    });
+    const base = {
+      itemId: initial.items[0].id,
+      itemName: 'Фарба',
+      unit: 'л',
+      kind: 'consumption' as const,
+      deltaMilli: -3000,
+      costDeltaCents: -300000,
+      valuationTotalCents: null,
+      currency: null,
+      purchaseAmountMinor: null,
+      exchangeRateMicros: null,
+      category: 'painting' as const,
+      orderId: '00000000-0000-4000-8000-000000000701',
+      orderNumber: 1,
+      reversesId: null,
+      reversed: false,
+      financialLocked: true,
+      note: '',
+      actor: { id: 'user_owner', name: 'Олена' },
+      createdAt: '2026-11-22T10:00:00Z'
+    };
+    value.movements = [
+      { ...base, id: '00000000-0000-4000-8000-000000000910' },
+      {
+        ...base,
+        id: '00000000-0000-4000-8000-000000000911',
+        itemId: '00000000-0000-4000-8000-000000000903',
+        deltaMilli: -1000,
+        costDeltaCents: -50000,
+        category: 'polishing',
+        itemName: 'Поліроль'
+      }
+    ];
+  }
   return value;
+}
+export function saveInventoryFixture(value: InventoryData): void {
+  sessionStorage.setItem('stock-fixture', JSON.stringify(value));
 }
 function save(value: InventoryData) {
   sessionStorage.setItem('stock-fixture', JSON.stringify(value));

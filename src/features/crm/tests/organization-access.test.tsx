@@ -1,5 +1,13 @@
 import { advanceOrder, updateWorkflow } from '../api/service';
 import { saveOrderEconomics } from '@/features/order-economics/api/service';
+import {
+  recordSettlement,
+  reverseSettlement,
+  previewFinancialCorrection,
+  applyFinancialCorrection,
+  updateDefaultShare
+} from '@/features/order-economics/api/finance-service';
+import type { SettlementEvent } from '@/features/order-economics/api/types';
 import { businessToday } from '../lib/workflow';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { auth, clerkClient } from '@clerk/nextjs/server';
@@ -15,7 +23,13 @@ import {
   getWorkspace
 } from '../api/service';
 import { crmQueries } from '../api/queries';
-import { receivePayment, reversePayment, addVehicleModel, getVehicleCatalog } from '../api/service';
+import {
+  receivePayment,
+  reversePayment,
+  refundPayment,
+  addVehicleModel,
+  getVehicleCatalog
+} from '../api/service';
 import {
   getInventory,
   createStockItem,
@@ -43,7 +57,14 @@ const workspace: CrmWorkspace = {
   events: []
 };
 const repository = {
-  payments: { receive: vi.fn(() => 'payment-created'), reverse: vi.fn(() => 'payment-reversed') },
+  payments: {
+    receive: vi.fn(() => 'payment-created'),
+    reverse: vi.fn(() => 'payment-reversed'),
+    refund: vi.fn(() => 'refund-created')
+  },
+  settlements: { cash: vi.fn(), reverse: vi.fn() },
+  correctOrderEconomics: vi.fn(() => ({ after: {} })),
+  updateFinanceSettings: vi.fn(),
   inventory: {
     items: vi.fn(() => []),
     movements: vi.fn(() => []),
@@ -138,6 +159,7 @@ test('inventory writes reject workers and stale organizations; actors come from 
 });
 beforeEach(() => {
   vi.clearAllMocks();
+  repository.workspace.mockReturnValue(workspace);
   vi.mocked(getOrganizationRepository).mockReturnValue(
     repository as unknown as ReturnType<typeof getOrganizationRepository>
   );
@@ -525,6 +547,7 @@ test('client document service removes the internal economics payload', async () 
         id,
         customerId: 'c',
         vehicleId: 'v',
+        defaultEmployeeShareBps: 6000,
         economics: { painterName: 'Внутрішні дані', employeeShareBps: 6000 }
       } as RepairOrder
     ],
@@ -536,5 +559,175 @@ test('client document service removes the internal economics payload', async () 
   const document = await getOrderDocument(id);
   expect(document).not.toBeNull();
   expect(document!.order).not.toHaveProperty('economics');
+  expect(document!.order).not.toHaveProperty('defaultEmployeeShareBps');
   expect(JSON.stringify(document)).not.toContain('Внутрішні дані');
+});
+
+test('financial endpoints verify organization, administrator and recipient; actor cannot be forged', async () => {
+  const orderId = '00000000-0000-4000-8000-000000000001';
+  repository.workspace.mockReturnValue({ ...workspace, orders: [{ id: orderId } as RepairOrder] });
+  const cash = {
+    orgId: 'org_A',
+    orderId,
+    operationId: '00000000-0000-4000-8000-000000000002',
+    payeeKind: 'worker' as const,
+    payeeId: 'user_admin',
+    kind: 'payout' as const,
+    amount: '100',
+    note: ''
+  };
+  const reversal = {
+    orgId: 'org_A',
+    operationId: cash.operationId,
+    eventId: cash.operationId,
+    note: 'Помилка'
+  };
+  const settings = { orgId: 'org_A', employeeShareBps: 7000, expectedRevision: 0 };
+  expect((await recordSettlement({ ...cash, orgId: 'org_B' })).ok).toBe(false);
+  expect((await recordSettlement({ ...cash, payeeId: 'user_foreign' })).ok).toBe(false);
+  expect(
+    (await recordSettlement({ ...cash, payeeKind: 'contractor', payeeId: 'foreign-contractor' })).ok
+  ).toBe(false);
+  expect((await recordSettlement({ ...cash, actor: { id: 'forged' } } as typeof cash)).ok).toBe(
+    false
+  );
+  expect(repository.settlements.cash).not.toHaveBeenCalled();
+  expect((await recordSettlement(cash)).ok).toBe(true);
+  expect(repository.settlements.cash).toHaveBeenCalledWith(
+    cash,
+    { id: 'user_admin', name: 'Олена' },
+    { kind: 'worker', id: 'user_admin', name: 'Олена' }
+  );
+  expect((await reverseSettlement({ ...reversal, orgId: 'org_B' })).ok).toBe(false);
+  expect((await updateDefaultShare({ ...settings, orgId: 'org_B' })).ok).toBe(false);
+  expect(
+    (
+      await refundPayment('org_B', {
+        orderId,
+        operationId: cash.operationId,
+        amount: '1',
+        note: 'Повернення'
+      })
+    ).ok
+  ).toBe(false);
+  expect(repository.settlements.reverse).not.toHaveBeenCalled();
+  expect(repository.updateFinanceSettings).not.toHaveBeenCalled();
+  expect(repository.payments.refund).not.toHaveBeenCalled();
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [{ role: 'org:member', publicUserData: { userId: 'user_admin' } }]
+  });
+  repository.settlements.cash.mockClear();
+  expect((await recordSettlement(cash)).ok).toBe(false);
+  expect((await reverseSettlement(reversal)).ok).toBe(false);
+  expect((await updateDefaultShare(settings)).ok).toBe(false);
+  expect(
+    (
+      await refundPayment('org_A', {
+        orderId,
+        operationId: cash.operationId,
+        amount: '1',
+        note: 'Повернення'
+      })
+    ).ok
+  ).toBe(false);
+  expect(repository.settlements.cash).not.toHaveBeenCalled();
+  expect(repository.settlements.reverse).not.toHaveBeenCalled();
+  expect(repository.updateFinanceSettings).not.toHaveBeenCalled();
+  expect(repository.payments.refund).not.toHaveBeenCalled();
+});
+
+test('correction preview and posting reject outsiders and preserve verified historical worker identity', async () => {
+  const orderId = '00000000-0000-4000-8000-000000000001';
+  const details = {
+    employeeShareBps: 6000,
+    painterId: 'former_worker',
+    polisherId: '',
+    assemblerId: '',
+    painterName: 'Колишній маляр',
+    lines: [
+      {
+        id: '00000000-0000-4000-8000-000000000002',
+        kind: 'painting' as const,
+        description: 'Бампер',
+        quantity: 1,
+        unitPriceCents: 100000,
+        polishingCents: 0,
+        subcontractCostCents: 0,
+        contractorName: ''
+      }
+    ]
+  };
+  repository.workspace.mockReturnValue({
+    ...workspace,
+    orders: [{ id: orderId, economics: details } as RepairOrder]
+  });
+  const { painterName: _name, ...inputDetails } = details;
+  const input = {
+    orgId: 'org_A',
+    orderId,
+    operationId: details.lines[0].id,
+    expectedRevision: 1,
+    expectedPostingRevision: 1,
+    expectedInventoryRevision: '0'.repeat(64),
+    details: inputDetails,
+    materials: [],
+    note: 'Уточнення'
+  };
+  expect((await previewFinancialCorrection({ ...input, orgId: 'org_B' })).ok).toBe(false);
+  expect(
+    (
+      await applyFinancialCorrection({
+        ...input,
+        details: { ...inputDetails, painterId: 'foreign_user' }
+      })
+    ).ok
+  ).toBe(false);
+  expect(repository.correctOrderEconomics).not.toHaveBeenCalled();
+  expect((await previewFinancialCorrection(input)).ok).toBe(true);
+  expect(repository.correctOrderEconomics).toHaveBeenLastCalledWith(
+    input,
+    { former_worker: 'Колишній маляр' },
+    { id: 'user_admin', name: 'Олена' },
+    true
+  );
+  expect((await applyFinancialCorrection(input)).ok).toBe(true);
+  expect(repository.correctOrderEconomics).toHaveBeenLastCalledWith(
+    input,
+    { former_worker: 'Колишній маляр' },
+    { id: 'user_admin', name: 'Олена' }
+  );
+  repository.correctOrderEconomics.mockClear();
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [{ role: 'org:member', publicUserData: { userId: 'user_admin' } }]
+  });
+  expect((await previewFinancialCorrection(input)).ok).toBe(false);
+  expect((await applyFinancialCorrection(input)).ok).toBe(false);
+  expect(repository.correctOrderEconomics).not.toHaveBeenCalled();
+});
+
+test('workers receive only their cash journal while administrators receive all payees', async () => {
+  const events = [
+    { id: 'own', payee: { kind: 'worker', id: 'user_admin', name: 'Олена' } },
+    { id: 'other', payee: { kind: 'worker', id: 'other_worker', name: 'Інший' } },
+    { id: 'contractor', payee: { kind: 'contractor', id: 'user_admin', name: 'Підрядник' } }
+  ] as SettlementEvent[];
+  repository.workspace.mockReturnValue({
+    ...workspace,
+    finance: {
+      postings: [],
+      events,
+      inventoryRevision: '0'.repeat(64),
+      defaultShareBps: 6000,
+      settingsRevision: 0
+    }
+  });
+  expect((await getWorkspace()).finance!.events).toEqual(events);
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [{ role: 'org:member', publicUserData: { userId: 'user_admin' } }]
+  });
+  expect((await getWorkspace()).finance!.events.map((event) => event.id)).toEqual(['own']);
+  expect(repository.workspace().finance!.events).toHaveLength(3);
 });

@@ -8,6 +8,7 @@ import { FieldGroup } from '@/components/ui/field';
 import { Button } from '@/features/crm/components/action-button';
 import type { StockItem, StockMovement } from '../api/types';
 import { inventoryMutations, inventoryQueries } from '../api/queries';
+import { crmQueries } from '@/features/crm/api/queries';
 import {
   itemSchema,
   updateItemSchema,
@@ -28,7 +29,11 @@ function useFeedback(onSaved: () => void) {
       toast.success('Збережено');
       onSaved();
     },
-    onSettled: () => client.invalidateQueries({ queryKey: inventoryQueries.all() })
+    onSettled: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: inventoryQueries.all() }),
+        client.invalidateQueries({ queryKey: crmQueries.all() })
+      ])
   };
 }
 

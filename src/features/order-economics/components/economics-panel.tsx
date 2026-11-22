@@ -1,6 +1,6 @@
 'use client';
 
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useState, useCallback } from 'react';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import type { CrmWorkspace, RepairOrder } from '@/features/crm/api/types';
 import type { FormState } from '@/features/crm/components/form-status';
@@ -13,6 +13,7 @@ import { money } from '@/features/crm/lib/format';
 import { previewDetailedEconomics, workKindOptions } from '../lib/details';
 
 const DetailedCheckForm = lazy(() => import('./detailed-check-form'));
+const SettlementPanel = lazy(() => import('./settlement-panel'));
 
 interface EconomicsPanelProps {
   order: RepairOrder;
@@ -28,12 +29,25 @@ function EconomicsPanel({ order, data, disabled, onSaved, onStateChange }: Econo
     inventoryQueries.workspace(access.userId, access.orgId)
   );
   const [editing, setEditing] = useState(false);
+  const [financialActive, setFinancialActive] = useState(false);
+  const financialState = useCallback(
+    (state: FormState) => {
+      setFinancialActive(state.dirty || state.pending);
+      onStateChange?.(state);
+    },
+    [onStateChange]
+  );
   const details = order.economics;
-  const preview = details
-    ? previewDetailedEconomics(details, orderMaterialCosts(inventory.movements, order.id))
-    : null;
+  const posted = data.finance?.postings.filter((entry) => entry.orderId === order.id).at(-1);
+  const preview = posted
+    ? { result: posted.result, issues: [] }
+    : details
+      ? previewDetailedEconomics(details, orderMaterialCosts(inventory.movements, order.id))
+      : null;
   const editable =
-    access.role === 'admin' && (order.status === 'created' || order.status === 'in_progress');
+    access.role === 'admin' &&
+    !posted &&
+    (order.status === 'created' || order.status === 'in_progress');
   return (
     <section
       className='flex min-w-0 flex-col gap-3 rounded-lg border p-4'
@@ -61,8 +75,9 @@ function EconomicsPanel({ order, data, disabled, onSaved, onStateChange }: Econo
           ) : (
             <>
               <p className='text-muted-foreground text-sm'>
-                Попередній розрахунок · ставка {details.employeeShareBps / 100}%. Нарахування та
-                виплати ще не проведені.
+                {posted
+                  ? `Проведений розрахунок · версія ${posted.revision} · ставка ${posted.details.employeeShareBps / 100}%`
+                  : `Попередній розрахунок · ставка ${details.employeeShareBps / 100}%. Нарахування виникають при готовності авто.`}
               </p>
               {(['painter', 'polisher', 'assembler'] as const).map((role) => (
                 <p key={role} className='text-sm'>
@@ -101,9 +116,18 @@ function EconomicsPanel({ order, data, disabled, onSaved, onStateChange }: Econo
                     [
                       ['Чек клієнта', preview.result.checkCents],
                       ['Матеріали', preview.result.materialsCents],
-                      ['Маляру (попередньо)', preview.result.painterAccrualCents],
-                      ['Полірувальнику (попередньо)', preview.result.polisherAccrualCents],
-                      ['Розбірнику (попередньо)', preview.result.assemblerAccrualCents],
+                      [
+                        posted ? 'Маляру (нараховано)' : 'Маляру (попередньо)',
+                        preview.result.painterAccrualCents
+                      ],
+                      [
+                        posted ? 'Полірувальнику (нараховано)' : 'Полірувальнику (попередньо)',
+                        preview.result.polisherAccrualCents
+                      ],
+                      [
+                        posted ? 'Розбірнику (нараховано)' : 'Розбірнику (попередньо)',
+                        preview.result.assemblerAccrualCents
+                      ],
                       ['Субпідряд', preview.result.subcontractCostsCents],
                       ['Залишок автомалярки', preview.result.workshopRemainderCents]
                     ] as const
@@ -122,7 +146,7 @@ function EconomicsPanel({ order, data, disabled, onSaved, onStateChange }: Econo
               type='button'
               variant='outline'
               className='self-start'
-              disabled={disabled}
+              disabled={disabled || financialActive}
               onClick={() => setEditing(true)}
             >
               {details ? 'Редагувати деталізований чек' : 'Деталізувати чек'}
@@ -135,6 +159,17 @@ function EconomicsPanel({ order, data, disabled, onSaved, onStateChange }: Econo
             </p>
           )}
         </>
+      )}
+      {!editing && data.finance && (
+        <Suspense fallback={<Skeleton className='h-24 w-full' />}>
+          <SettlementPanel
+            order={order}
+            data={data}
+            disabled={disabled}
+            onSaved={onSaved}
+            onStateChange={financialState}
+          />
+        </Suspense>
       )}
     </section>
   );

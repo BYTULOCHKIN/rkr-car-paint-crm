@@ -66,16 +66,19 @@ export function MovementHistory({
             {movement.orderNumber !== null ? ` · Замовлення №${movement.orderNumber}` : ''}
           </p>
           {movement.note && <p className='break-words whitespace-pre-wrap'>{movement.note}</p>}
-          {onReverse && movement.kind === 'consumption' && !movement.reversed && (
-            <Button
-              variant='outline'
-              size='sm'
-              className='self-start'
-              onClick={() => onReverse(movement)}
-            >
-              Скасувати списання
-            </Button>
-          )}
+          {onReverse &&
+            movement.kind === 'consumption' &&
+            !movement.reversed &&
+            !movement.financialLocked && (
+              <Button
+                variant='outline'
+                size='sm'
+                className='self-start'
+                onClick={() => onReverse(movement)}
+              >
+                Скасувати списання
+              </Button>
+            )}
         </li>
       ))}
     </ol>

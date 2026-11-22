@@ -1,5 +1,6 @@
 import type { CrmWorkspace, RepairOrder, WorkflowEvent } from '@/features/crm/api/types';
 import { businessToday } from '@/features/crm/lib/workflow';
+import { paymentDelta } from '@/features/crm/lib/payment-balance';
 import { overviewMetrics, type OverviewMetrics } from './metrics';
 
 export type TrendKey =
@@ -102,15 +103,21 @@ export function overviewTrends(
   }
   const cancelled = new Set(
     (data.payments ?? [])
-      .filter((entry) => entry.kind === 'reversal' && dayOf(entry.createdAt) <= today)
+      .filter(
+        (entry) =>
+          (entry.kind === 'reversal' || entry.kind === 'refund_reversal') &&
+          dayOf(entry.createdAt) <= today
+      )
       .map((entry) => entry.reversalOf)
   );
   const payments = (data.payments ?? [])
     .filter(
       (entry) =>
-        entry.kind === 'payment' && !cancelled.has(entry.id) && dayOf(entry.createdAt) <= today
+        (entry.kind === 'payment' || entry.kind === 'refund') &&
+        !cancelled.has(entry.id) &&
+        dayOf(entry.createdAt) <= today
     )
-    .map((entry) => ({ ...entry, day: dayOf(entry.createdAt) }));
+    .map((entry) => ({ ...entry, amountCents: paymentDelta(entry), day: dayOf(entry.createdAt) }));
   const requestDates = new Map(
     data.requests.map((request) => [request.id, dayOf(request.createdAt)])
   );

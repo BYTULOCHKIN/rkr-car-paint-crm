@@ -216,7 +216,15 @@ test('v12 migration preserves old movements; explicit assessment never revalues 
     repository.close();
     downgradeToV12(filename);
     repository = new CrmRepository(filename);
-    assert.deepEqual(repository.workspace(), before);
+    const migrated = repository.workspace();
+    assert.notEqual(migrated.finance!.inventoryRevision, before.finance!.inventoryRevision);
+    assert.deepEqual(
+      {
+        ...migrated,
+        finance: { ...migrated.finance, inventoryRevision: before.finance!.inventoryRevision }
+      },
+      before
+    );
     let item = repository.inventory.items()[0];
     assert.equal(item.balanceMilli, 1500);
     assert.equal(item.totalCostCents, null);

@@ -364,6 +364,9 @@ export function CrmEditorDialog({
                         <OrderMaterials
                           order={editor.order}
                           access={data.access}
+                          locked={data.finance?.postings.some(
+                            (posting) => posting.orderId === editor.order!.id
+                          )}
                           onPendingChange={setMaterialsPending}
                         />
                       )}

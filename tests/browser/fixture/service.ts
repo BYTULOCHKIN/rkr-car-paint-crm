@@ -3,6 +3,9 @@ import { executorTransition } from '@/features/crm/lib/executor-workflow';
 import type { AdvanceOrderInput } from '@/features/crm/schemas/crm';
 import type { SaveEconomicsInput } from '@/features/order-economics/schemas/details';
 import { detailedCheckItems } from '@/features/order-economics/lib/details';
+import { previewDetailedEconomics } from '@/features/order-economics/lib/details';
+import { paymentDelta } from '@/features/crm/lib/payment-balance';
+export { refundPayment } from './finance-service';
 import type { CrmWorkspace, TeamMember, Vehicle } from '@/features/crm/api/types';
 import type {
   CustomerInput,
@@ -16,6 +19,9 @@ const longDescription =
     5
   );
 const data: CrmWorkspace = { customers: [], vehicles: [], requests: [], orders: [], events: [] };
+export function financeFixtureData(): CrmWorkspace {
+  return data;
+}
 for (let index = 1; index <= 24; index++) {
   data.customers.push({
     id: uuid(index),
@@ -102,6 +108,7 @@ if (location.pathname.endsWith('/overview')) {
 }
 let initializedCreatedDemo = false;
 let initializedEconomicsDemo = false;
+let initializedFinanceDemo = false;
 export async function saveOrderEconomics(input: SaveEconomicsInput) {
   const workspace = await getWorkspace();
   const order = data.orders.find((entry) => entry.id === input.orderId);
@@ -127,6 +134,97 @@ export async function saveOrderEconomics(input: SaveEconomicsInput) {
   return { ok: true as const, data: undefined };
 }
 export async function getWorkspace() {
+  if (new URLSearchParams(location.search).has('financeDemo') && !initializedFinanceDemo) {
+    initializedFinanceDemo = true;
+    const order = data.orders[0];
+    order.economics = {
+      employeeShareBps: 6000,
+      painterId: 'user_worker',
+      polisherId: 'user_owner',
+      assemblerId: '',
+      painterName: 'Маляр Андрій',
+      polisherName: 'Олена Адміністратор',
+      lines: [
+        {
+          id: uuid(920),
+          kind: 'painting',
+          description: 'Бампер',
+          quantity: 1,
+          unitPriceCents: 1800000,
+          polishingCents: 100000,
+          subcontractCostCents: 0,
+          contractorName: ''
+        }
+      ]
+    };
+    order.items = detailedCheckItems(order.economics);
+    order.totalCents = 1800000;
+    order.status = 'ready';
+    order.workflowRevision = 0;
+    const costs = {
+      paintingCents: 300000,
+      polishingCents: 50000,
+      unallocatedCents: 0,
+      totalCents: 350000
+    };
+    const result = previewDetailedEconomics(order.economics, costs).result!;
+    const allocations = [
+      {
+        payee: { kind: 'worker' as const, id: 'user_worker', name: 'Маляр Андрій' },
+        amountCents: result.painterAccrualCents
+      },
+      {
+        payee: { kind: 'worker' as const, id: 'user_owner', name: 'Олена Адміністратор' },
+        amountCents: result.polisherAccrualCents
+      }
+    ];
+    data.finance = {
+      defaultShareBps: 6000,
+      settingsRevision: 0,
+      inventoryRevision: '0'.repeat(64),
+      postings: [
+        {
+          id: uuid(921),
+          operationId: 'initial',
+          orderId: order.id,
+          revision: 1,
+          kind: 'initial',
+          details: order.economics,
+          costs,
+          result,
+          allocations,
+          note: 'Готовність авто',
+          actor: { id: 'user_owner', name: 'Олена' },
+          createdAt: new Date().toISOString()
+        }
+      ],
+      events: allocations.map((entry, index) => ({
+        id: uuid(922 + index),
+        orderId: order.id,
+        payee: entry.payee,
+        kind: 'accrual',
+        amountCents: entry.amountCents,
+        postingId: uuid(921),
+        reversalOf: null,
+        note: 'Готовність авто',
+        actor: { id: 'user_owner', name: 'Олена' },
+        createdAt: new Date().toISOString()
+      }))
+    };
+    data.payments = [
+      {
+        id: uuid(925),
+        operationId: uuid(926),
+        orderId: order.id,
+        kind: 'payment',
+        amountCents: 1800000,
+        reversalOf: null,
+        note: '',
+        actor: { id: 'user_owner', name: 'Олена' },
+        createdAt: new Date().toISOString()
+      }
+    ];
+  }
   if (new URLSearchParams(location.search).has('economicsDemo') && !initializedEconomicsDemo) {
     initializedEconomicsDemo = true;
     data.orders[0].items = [{ description: 'Бампер', quantity: 1, unitPriceCents: 1800000 }];
@@ -282,6 +380,10 @@ export async function getWorkspace() {
     assigneeId: order.assigneeId ?? 'user_owner',
     assigneeName: order.assigneeName ?? 'Олена Адміністратор'
   }));
+  if (result.finance && result.access.role === 'worker')
+    result.finance.events = result.finance.events.filter(
+      (entry) => entry.payee.kind === 'worker' && entry.payee.id === result.access!.userId
+    );
   return result;
 }
 const localModels: { make: string; model: string }[] = [];
@@ -384,10 +486,7 @@ export async function receivePayment(
   data.payments ??= [];
   const paid = data.payments
     .filter((entry) => entry.orderId === order.id)
-    .reduce(
-      (sum, entry) => sum + (entry.kind === 'payment' ? entry.amountCents : -entry.amountCents),
-      0
-    );
+    .reduce((sum, entry) => sum + paymentDelta(entry), 0);
   const amountCents = Math.round(Number(input.amount.replace(',', '.')) * 100);
   if (amountCents + paid > order.totalCents)
     return { ok: false as const, error: 'Оплата перевищує залишок до сплати' };
@@ -415,7 +514,7 @@ export async function reversePayment(
     ...original,
     id,
     operationId: input.operationId,
-    kind: 'reversal',
+    kind: original.kind === 'refund' ? 'refund_reversal' : 'reversal',
     reversalOf: original.id,
     note: input.note,
     createdAt: new Date().toISOString()

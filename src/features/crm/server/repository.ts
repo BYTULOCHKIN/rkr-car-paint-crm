@@ -23,10 +23,25 @@ import type {
   WorkflowInput
 } from '../schemas/crm';
 import { businessToday } from '../lib/workflow';
+import { paymentDelta } from '../lib/payment-balance';
 import { paintPlanSchema, workflowSchema } from '../schemas/crm';
 import { InventoryRepository, inventoryTables } from '@/features/inventory/server/repository';
 import { migrateStockValuation } from '@/features/inventory/server/valuation-migration';
 import { migrateOrderEconomics } from '@/features/order-economics/server/migration';
+import { migrateFinance } from '@/features/order-economics/server/finance-migration';
+import { SettlementRepository } from '@/features/order-economics/server/settlements';
+import { orderMaterialCosts } from '@/features/inventory/lib/order-costs';
+import {
+  correctionSchema,
+  financeSettingsSchema,
+  type CorrectionInput
+} from '@/features/order-economics/schemas/finance';
+import { EconomicsError } from '@/features/order-economics/lib/integers';
+import type {
+  CorrectionPreview,
+  EconomicsPosting,
+  FinanceWorkspace
+} from '@/features/order-economics/api/types';
 import type { OrderEconomicsDetails } from '@/features/order-economics/api/types';
 import {
   economicsDetailsSchema,
@@ -54,6 +69,7 @@ export class CrmRepository {
   private db: DatabaseSync;
   readonly inventory: InventoryRepository;
   readonly payments: PaymentRepository;
+  readonly settlements: SettlementRepository;
 
   constructor(filename: string) {
     if (filename !== ':memory:') mkdirSync(dirname(resolve(filename)), { recursive: true });
@@ -212,8 +228,14 @@ export class CrmRepository {
         migrateOrderEconomics(this.db);
         this.db.exec('PRAGMA user_version=14');
       });
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 15)
+      this.transaction(() => {
+        migrateFinance(this.db);
+        this.db.exec('PRAGMA user_version=15');
+      });
     this.payments = new PaymentRepository(this.db);
     this.inventory = new InventoryRepository(this.db);
+    this.settlements = new SettlementRepository(this.db);
   }
 
   vehicleModels(): { make: string; model: string }[] {
@@ -299,6 +321,7 @@ export class CrmRepository {
   }
 
   private transaction<T>(work: () => T): T {
+    if (this.db.isTransaction) return work();
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const result = work();
@@ -446,7 +469,70 @@ export class CrmRepository {
         actualDateChanges:
           typeof row.actualDateChanges === 'string' ? JSON.parse(row.actualDateChanges) : null
       })) as unknown as WorkflowEvent[];
-    return { customers, vehicles, requests, orders, events, payments: this.payments.list() };
+    return {
+      customers,
+      vehicles,
+      requests,
+      orders,
+      events,
+      payments: this.payments.list(),
+      finance: this.financeWorkspace()
+    };
+  }
+
+  financeWorkspace(): FinanceWorkspace {
+    const setting = this.db
+      .prepare("SELECT value FROM crm_settings WHERE key='economics_share'")
+      .get();
+    const configured = setting
+      ? JSON.parse(setting.value as string)
+      : { employeeShareBps: 6000, revision: 0 };
+    return {
+      postings: this.settlements.postings(),
+      events: this.settlements.events(),
+      inventoryRevision: this.inventoryRevision(),
+      defaultShareBps: configured.employeeShareBps,
+      settingsRevision: configured.revision
+    };
+  }
+  private inventoryRevision(): string {
+    return createHash('sha256')
+      .update(
+        JSON.stringify(
+          this.inventory
+            .items()
+            .map((item) => ({
+              id: item.id,
+              quantity: item.balanceMilli,
+              cost: item.totalCostCents,
+              revision: item.valuationRevision
+            }))
+            .toSorted((a, b) => a.id.localeCompare(b.id))
+        )
+      )
+      .digest('hex');
+  }
+  updateFinanceSettings(input: {
+    orgId: string;
+    employeeShareBps: number;
+    expectedRevision: number;
+  }): void {
+    const value = financeSettingsSchema.parse(input);
+    this.transaction(() => {
+      const current = this.financeWorkspace();
+      if (current.settingsRevision !== value.expectedRevision)
+        throw new EconomicsError('Ставку вже змінено. Оновіть сторінку.');
+      this.db
+        .prepare(
+          "INSERT INTO crm_settings(key,value) VALUES ('economics_share',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+        )
+        .run(
+          JSON.stringify({
+            employeeShareBps: value.employeeShareBps,
+            revision: current.settingsRevision + 1
+          })
+        );
+    });
   }
 
   createCustomer(input: CustomerInput): string {
@@ -683,6 +769,9 @@ export class CrmRepository {
         .prepare('UPDATE crm_orders SET assigneeId = ?, assigneeName = ? WHERE id = ?')
         .run(input.assigneeId || null, assigneeName || null, id);
       this.writeItems(id, input.items);
+      this.db
+        .prepare('UPDATE crm_orders SET defaultEmployeeShareBps=? WHERE id=?')
+        .run(this.financeWorkspace().defaultShareBps, id);
       this.writePaintPlan(id, input.paintPlan);
       if (input.requestId)
         this.db
@@ -727,6 +816,7 @@ export class CrmRepository {
     economicsUpdate?: {
       details: SaveEconomicsInput['details'];
       workerNames: Record<string, string>;
+      financialCorrection?: true;
     }
   ): void {
     this.transaction(() => {
@@ -742,12 +832,25 @@ export class CrmRepository {
       const priorEconomics = priorEconomicsRow
         ? (JSON.parse(priorEconomicsRow.details as string) as OrderEconomicsDetails)
         : undefined;
-      if (economicsUpdate && current.status !== 'created' && current.status !== 'in_progress')
+      if (
+        economicsUpdate &&
+        !economicsUpdate.financialCorrection &&
+        current.status !== 'created' &&
+        current.status !== 'in_progress'
+      )
         throw new CrmError(
           'Деталізація чека доступна до готовності авто. Для завершеного замовлення потрібне фінансове коригування.'
         );
       if (economicsUpdate && input.expectedRevision === undefined)
         throw new CrmError('Для збереження деталізації потрібна версія замовлення');
+      if (
+        economicsUpdate &&
+        !economicsUpdate.financialCorrection &&
+        this.settlements.latest(input.id)
+      )
+        throw new EconomicsError(
+          'Після нарахування змінюйте економіку через фінансове коригування'
+        );
       if (
         input.expectedRevision !== undefined &&
         input.expectedRevision !== current.workflowRevision
@@ -764,15 +867,16 @@ export class CrmRepository {
       const paid = this.payments
         .list()
         .filter((entry) => entry.orderId === input.id)
-        .reduce(
-          (sum, entry) => sum + (entry.kind === 'payment' ? entry.amountCents : -entry.amountCents),
-          0
-        );
+        .reduce((sum, entry) => sum + paymentDelta(entry), 0);
       const newTotal = input.items.reduce(
         (sum, item) => sum + item.quantity * Math.round(item.unitPrice * 100),
         0
       );
-      if (newTotal < paid)
+      const currentTotal = items.reduce(
+        (sum, item) => sum + item.quantity * item.unitPriceCents,
+        0
+      );
+      if (newTotal < paid && newTotal < currentTotal && !economicsUpdate?.financialCorrection)
         throw new CrmError(
           'Вартість не може бути меншою за отриману оплату. Спочатку скасуйте помилковий платіж.'
         );
@@ -877,6 +981,115 @@ export class CrmRepository {
     });
   }
 
+  correctOrderEconomics(
+    input: CorrectionInput,
+    workerNames: Record<string, string>,
+    actor: HistoryActor,
+    previewOnly = false
+  ): CorrectionPreview | EconomicsPosting {
+    const value = correctionSchema.parse(input);
+    const fingerprint = JSON.stringify({ value, actorId: actor.id });
+    return this.transaction(() => {
+      const duplicate = this.settlements.duplicatePosting(value.operationId, fingerprint);
+      if (duplicate) return duplicate;
+      const order = this.workspace().orders.find((entry) => entry.id === value.orderId);
+      if (!order) throw new EconomicsError('Замовлення не знайдено');
+      const prior = this.settlements.latest(order.id);
+      if (
+        (order.workflowRevision ?? 0) !== value.expectedRevision ||
+        (prior?.revision ?? 0) !== value.expectedPostingRevision ||
+        this.inventoryRevision() !== value.expectedInventoryRevision
+      )
+        throw new EconomicsError(
+          'Дані розрахунку або складу змінилися. Оновіть замовлення та повторіть перегляд.'
+        );
+      if (!prior && order.status !== 'ready' && order.status !== 'delivered')
+        throw new EconomicsError('Початкове нарахування виникає при готовності авто');
+      this.db.exec('SAVEPOINT financial_correction');
+      try {
+        for (const material of value.materials) {
+          if (material.kind === 'consume')
+            this.inventory.consume(
+              {
+                itemId: material.itemId,
+                orderId: order.id,
+                quantity: material.quantity,
+                category: material.category,
+                operationId: randomUUID(),
+                note: value.note
+              },
+              actor,
+              true
+            );
+          else {
+            const movement = this.inventory
+              .movements()
+              .find((entry) => entry.id === material.movementId);
+            if (!movement || movement.orderId !== order.id)
+              throw new EconomicsError('Списання належить іншому замовленню');
+            this.inventory.reverse(
+              { movementId: material.movementId, operationId: randomUUID(), note: value.note },
+              actor,
+              true
+            );
+          }
+        }
+        this.updateOrder(
+          {
+            id: order.id,
+            expectedRevision: value.expectedRevision,
+            description: order.description,
+            items: detailedCheckItems(value.details).map((item) => ({
+              description: item.description,
+              quantity: item.quantity,
+              unitPrice: item.unitPriceCents / 100
+            }))
+          },
+          undefined,
+          actor,
+          { details: value.details, workerNames, financialCorrection: true }
+        );
+        const updated = this.workspace().orders.find((entry) => entry.id === order.id)!;
+        const costs = orderMaterialCosts(this.inventory.movements(), order.id);
+        const preview = this.settlements.prepare(updated, costs);
+        if (previewOnly) {
+          this.db.exec('ROLLBACK TO financial_correction; RELEASE financial_correction');
+          return preview;
+        }
+        const posting = this.settlements.post(
+          updated,
+          costs,
+          value.operationId,
+          value.note,
+          actor,
+          fingerprint
+        );
+        if ((updated.workflowRevision ?? 0) === value.expectedRevision)
+          this.db
+            .prepare('UPDATE crm_orders SET workflowRevision=workflowRevision+1 WHERE id=?')
+            .run(order.id);
+        this.logEvent({
+          kind: 'order',
+          recordId: order.id,
+          actor,
+          fromStatus: order.status,
+          toStatus: order.status,
+          previousIntakeDate: order.plannedIntakeDate,
+          previousDeliveryDate: order.plannedDeliveryDate,
+          plannedIntakeDate: order.plannedIntakeDate,
+          plannedDeliveryDate: order.plannedDeliveryDate,
+          note: `Фінансове коригування: ${value.note}`,
+          actualDateChanges: []
+        });
+        this.db.exec('RELEASE financial_correction');
+        return posting;
+      } catch (error) {
+        this.db.exec('ROLLBACK TO financial_correction; RELEASE financial_correction');
+        throw error;
+      }
+    });
+  }
+
   updateWorkflow(input: WorkflowInput, actor?: HistoryActor): void {
     const value = workflowSchema.parse(input);
     this.transaction(() => {
@@ -928,6 +1141,18 @@ export class CrmRepository {
         (current.plannedDeliveryDate || '') !== value.plannedDeliveryDate;
       if (currentStatus === value.status && !planChanged && !actualChanges.length && !value.note)
         return;
+      if (
+        value.kind === 'order' &&
+        (value.status === 'ready' || value.status === 'delivered') &&
+        currentStatus !== value.status
+      ) {
+        const order = this.workspace().orders.find((order) => order.id === value.id)!;
+        this.settlements.onReady(
+          order,
+          orderMaterialCosts(this.inventory.movements(), order.id),
+          actor ?? { id: 'system', name: 'Система' }
+        );
+      }
       if (value.kind === 'request')
         this.db
           .prepare(
@@ -972,12 +1197,12 @@ const globalDb = globalThis as typeof globalThis & {
 export function getCrmRepository(): CrmRepository {
   if (
     globalDb.crmRepository &&
-    (globalDb.crmSchemaVersion !== 12 || !(globalDb.crmRepository instanceof CrmRepository))
+    (globalDb.crmSchemaVersion !== 15 || !(globalDb.crmRepository instanceof CrmRepository))
   ) {
     globalDb.crmRepository.close();
     globalDb.crmRepository = undefined;
   }
-  globalDb.crmSchemaVersion = 12;
+  globalDb.crmSchemaVersion = 15;
   return (globalDb.crmRepository ??= new CrmRepository(
     process.env.CRM_DATABASE_PATH || resolve('data/crm.sqlite')
   ));

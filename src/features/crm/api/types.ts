@@ -1,5 +1,6 @@
 import type { PaintSelection } from '../constants/paint-plan';
 import type { OrderEconomicsDetails } from '@/features/order-economics/api/types';
+import type { FinanceWorkspace } from '@/features/order-economics/api/types';
 
 export type { VehicleModelInput } from '../schemas/vehicle-model';
 
@@ -50,6 +51,7 @@ export interface OrderItem {
 }
 
 export interface RepairOrder {
+  defaultEmployeeShareBps?: number;
   economics?: OrderEconomicsDetails;
   assigneeId?: string | null;
   assigneeName?: string | null;
@@ -141,7 +143,7 @@ export interface PaymentEvent {
   id: string;
   operationId: string;
   orderId: string;
-  kind: 'payment' | 'reversal';
+  kind: 'payment' | 'reversal' | 'refund' | 'refund_reversal';
   amountCents: number;
   reversalOf: string | null;
   note: string;
@@ -150,6 +152,7 @@ export interface PaymentEvent {
 }
 
 export interface CrmWorkspace {
+  finance?: FinanceWorkspace;
   payments?: PaymentEvent[];
   access?: CrmAccess;
   team?: TeamMember[];

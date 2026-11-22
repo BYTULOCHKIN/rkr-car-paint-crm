@@ -55,6 +55,13 @@ export default defineConfig({
         )
           return `${root}/tests/browser/fixture/clerk-sidebar.ts`;
         if (
+          importer
+            ?.replaceAll('\\', '/')
+            .includes('/features/order-economics/api/finance-queries') &&
+          source === './finance-service'
+        )
+          return `${root}/tests/browser/fixture/finance-service.ts`;
+        if (
           importer?.replaceAll('\\', '/').includes('/features/order-economics/api/queries') &&
           source === './service'
         )

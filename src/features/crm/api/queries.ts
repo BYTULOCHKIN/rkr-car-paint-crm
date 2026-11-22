@@ -4,6 +4,7 @@ import {
   updateCustomer,
   receivePayment,
   reversePayment,
+  refundPayment,
   addVehicleModel,
   createVehicle,
   createRequest,
@@ -57,6 +58,16 @@ export const crmQueries = {
 };
 
 export const crmMutations = {
+  refundPayment: () =>
+    mutationOptions({
+      mutationFn: async ({
+        orgId,
+        input
+      }: {
+        orgId: string;
+        input: Parameters<typeof refundPayment>[1];
+      }) => unwrap(await refundPayment(orgId, input))
+    }),
   updateCustomer: () =>
     mutationOptions({
       mutationFn: async (input: Parameters<typeof updateCustomer>[0]) =>

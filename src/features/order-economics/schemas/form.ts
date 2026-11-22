@@ -129,7 +129,7 @@ export function initialDetailedCheck(order: RepairOrder): DetailedCheckFormValue
     painterId: details?.painterId ?? '',
     polisherId: details?.polisherId ?? '',
     assemblerId: details?.assemblerId ?? '',
-    share: String((details?.employeeShareBps ?? 6000) / 100),
+    share: String((details?.employeeShareBps ?? order.defaultEmployeeShareBps ?? 6000) / 100),
     lines: details
       ? details.lines.map((line) => ({
           id: line.id,

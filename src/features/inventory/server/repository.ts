@@ -49,6 +49,7 @@ export class InventoryRepository {
   constructor(private db: DatabaseSync) {}
 
   private transaction<T>(work: () => T): T {
+    if (this.db.isTransaction) return work();
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const result = work();
@@ -81,12 +82,13 @@ export class InventoryRepository {
       m.deltaMilli, m.orderId, o.number AS orderNumber, m.reversesId, m.note, m.actor, m.createdAt,
       m.costDeltaCents, m.currency, m.purchaseAmountMinor, m.exchangeRateMicros, m.category,
       NULL AS valuationTotalCents,
-      EXISTS(SELECT 1 FROM stock_movements WHERE reversesId=m.id) AS reversed, m.rowid AS sortOrder
+      EXISTS(SELECT 1 FROM stock_movements WHERE reversesId=m.id) AS reversed, m.rowid AS sortOrder,
+      EXISTS(SELECT 1 FROM crm_economics_postings WHERE orderId=m.orderId) AS financialLocked
       FROM stock_movements m JOIN stock_items i ON i.id=m.itemId
       LEFT JOIN crm_orders o ON o.id=m.orderId
       UNION ALL
       SELECT v.id,v.itemId,i.name,i.unit,'valuation',0,NULL,NULL,NULL,v.note,v.actor,v.createdAt,
-      NULL,NULL,NULL,NULL,NULL,v.totalCostCents,0,v.rowid
+      NULL,NULL,NULL,NULL,NULL,v.totalCostCents,0,v.rowid,0
       FROM stock_valuation_events v JOIN stock_items i ON i.id=v.itemId
       ORDER BY createdAt DESC, sortOrder DESC, id DESC`)
       .all()
@@ -95,6 +97,7 @@ export class InventoryRepository {
         return {
           ...movement,
           reversed: !!row.reversed,
+          financialLocked: !!row.financialLocked,
           actor: JSON.parse(row.actor as string) as HistoryActor
         };
       }) as unknown as StockMovement[];
@@ -291,13 +294,20 @@ export class InventoryRepository {
     });
   }
 
-  consume(input: ConsumptionInput, actor: HistoryActor): void {
+  consume(input: ConsumptionInput, actor: HistoryActor, financialCorrection = false): void {
     const value = consumptionSchema.parse(input);
     this.transaction(() => {
       if (this.duplicate(value.operationId, value, actor, 'consumption')) return;
       const order = this.db.prepare('SELECT status FROM crm_orders WHERE id=?').get(value.orderId);
       if (!order) throw new InventoryError('Замовлення не знайдено');
-      if (order.status !== 'in_progress')
+      if (
+        !financialCorrection &&
+        this.db.prepare('SELECT id FROM crm_economics_postings WHERE orderId=?').get(value.orderId)
+      )
+        throw new InventoryError(
+          'Матеріали проведеного замовлення змінюються через фінансове коригування'
+        );
+      if (!financialCorrection && order.status !== 'in_progress')
         throw new InventoryError('Списання дозволене лише для замовлення «В роботі»');
       if (this.item(value.itemId).archived)
         throw new InventoryError('Не можна списувати архівну позицію');
@@ -319,7 +329,7 @@ export class InventoryRepository {
     });
   }
 
-  reverse(input: ReversalInput, actor: HistoryActor): void {
+  reverse(input: ReversalInput, actor: HistoryActor, financialCorrection = false): void {
     const value = reversalSchema.parse(input);
     this.transaction(() => {
       if (this.duplicate(value.operationId, value, actor, 'reversal')) return;
@@ -327,6 +337,8 @@ export class InventoryRepository {
       if (!movement || movement.kind !== 'consumption')
         throw new InventoryError('Списання не знайдено');
       if (movement.reversed) throw new InventoryError('Це списання вже скасоване');
+      if (!financialCorrection && movement.financialLocked)
+        throw new InventoryError('Скасування списання потребує фінансового коригування');
       this.insert(
         value.operationId,
         movement.itemId,

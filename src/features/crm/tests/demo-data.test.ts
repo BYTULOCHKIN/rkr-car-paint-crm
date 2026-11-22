@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
+import { randomUUID } from 'node:crypto';
 import { CrmRepository } from '../server/repository';
 import { generateDemoData, importDemoData, removeDemoData } from '../server/demo-data';
 
@@ -79,6 +80,59 @@ test('demo import preserves business data, assigns real members, is atomic and c
     } finally {
       db.close();
     }
+    // Financial records subsequently entered for demo cars are owned dependencies as well.
+    const finished = generatedOrders.find((order) => order.status === 'ready')!;
+    repository.correctOrderEconomics(
+      {
+        orgId: 'org_demo',
+        orderId: finished.id,
+        operationId: randomUUID(),
+        expectedRevision: finished.workflowRevision ?? 0,
+        expectedPostingRevision: 0,
+        expectedInventoryRevision: repository.workspace().finance!.inventoryRevision,
+        details: {
+          employeeShareBps: 6000,
+          painterId: '',
+          polisherId: '',
+          assemblerId: 'user_admin',
+          lines: [
+            {
+              id: randomUUID(),
+              kind: 'assembly',
+              description: 'Збірка',
+              quantity: 1,
+              unitPriceCents: 100000,
+              polishingCents: 0,
+              subcontractCostCents: 0,
+              contractorName: ''
+            }
+          ]
+        },
+        materials: [],
+        note: 'Початковий розрахунок тестового авто'
+      },
+      { user_admin: 'Руслан' },
+      { id: 'user_admin', name: 'Руслан' }
+    );
+    const payoutId = randomUUID();
+    repository.settlements.cash(
+      {
+        orgId: 'org_demo',
+        orderId: finished.id,
+        operationId: payoutId,
+        payeeKind: 'worker',
+        payeeId: 'user_admin',
+        kind: 'payout',
+        amount: '100',
+        note: ''
+      },
+      { id: 'user_admin', name: 'Руслан' },
+      { kind: 'worker', id: 'user_admin', name: 'Руслан' }
+    );
+    repository.settlements.reverse(
+      { orgId: 'org_demo', operationId: randomUUID(), eventId: payoutId, note: 'Помилковий запис' },
+      { id: 'user_admin', name: 'Руслан' }
+    );
     removeDemoData(target, 'org_demo', 'demo');
     assert.deepEqual(repository.workspace(), before);
     assert.throws(() => removeDemoData(target, 'org_demo', 'demo'), /не знайдено/);

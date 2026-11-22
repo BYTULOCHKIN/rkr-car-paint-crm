@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import type { HistoryActor, PaymentEvent } from '../api/types';
+import { paymentDelta, paymentBalance } from '../lib/payment-balance';
 import {
   paymentSchema,
   reversePaymentSchema,
@@ -27,7 +28,9 @@ export class PaymentRepository {
   constructor(private readonly db: DatabaseSync) {}
   list(): PaymentEvent[] {
     return this.db
-      .prepare('SELECT * FROM crm_payments ORDER BY createdAt, rowid')
+      .prepare(`SELECT id,operationId,orderId,kind,amountCents,reversalOf,note,actor,createdAt FROM (
+        SELECT *,rowid AS sortOrder FROM crm_payments UNION ALL SELECT *,rowid AS sortOrder FROM crm_customer_refunds
+      ) ORDER BY createdAt,sortOrder,id`)
       .all()
       .map((row) => ({
         ...row,
@@ -35,6 +38,7 @@ export class PaymentRepository {
       })) as unknown as PaymentEvent[];
   }
   private transaction<T>(work: () => T): T {
+    if (this.db.isTransaction) return work();
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const result = work();
@@ -70,10 +74,7 @@ export class PaymentRepository {
         .get(value.orderId)!.total as number;
       const paid = this.list()
         .filter((entry) => entry.orderId === value.orderId)
-        .reduce(
-          (sum, entry) => sum + (entry.kind === 'payment' ? entry.amountCents : -entry.amountCents),
-          0
-        );
+        .reduce((sum, entry) => sum + paymentDelta(entry), 0);
       if (paid + amountCents > total) throw new PaymentError('Оплата перевищує залишок до сплати');
       return this.insert(
         value.operationId,
@@ -93,7 +94,7 @@ export class PaymentRepository {
       const prior = events.find((entry) => entry.operationId === value.operationId);
       if (prior) {
         if (
-          prior.kind !== 'reversal' ||
+          (prior.kind !== 'reversal' && prior.kind !== 'refund_reversal') ||
           prior.reversalOf !== value.paymentId ||
           prior.note !== value.note ||
           prior.actor.id !== actor.id
@@ -102,11 +103,27 @@ export class PaymentRepository {
         return prior.id;
       }
       const payment = events.find(
-        (entry) => entry.id === value.paymentId && entry.kind === 'payment'
+        (entry) =>
+          entry.id === value.paymentId && (entry.kind === 'payment' || entry.kind === 'refund')
       );
       if (!payment) throw new PaymentError('Платіж не знайдено');
       if (events.some((entry) => entry.reversalOf === payment.id))
         throw new PaymentError('Платіж уже скасовано');
+      const paid = this.list()
+        .filter((entry) => entry.orderId === payment.orderId)
+        .reduce((sum, entry) => sum + paymentDelta(entry), 0);
+      if (payment.kind === 'payment' && paid < payment.amountCents)
+        throw new PaymentError('Спочатку виправте пов’язане повернення коштів');
+      if (payment.kind === 'refund')
+        return this.insertRefund(
+          value.operationId,
+          payment.orderId,
+          'refund_reversal',
+          payment.amountCents,
+          payment.id,
+          value.note,
+          actor
+        );
       return this.insert(
         value.operationId,
         payment.orderId,
@@ -118,6 +135,71 @@ export class PaymentRepository {
       );
     });
   }
+  refund(input: PaymentInput, actor: HistoryActor): string {
+    const value = paymentSchema.parse(input);
+    if (!value.note.trim()) throw new PaymentError('Вкажіть підставу повернення');
+    const amount = Math.round(Number(value.amount.replace(',', '.')) * 100);
+    return this.transaction(() => {
+      const prior = this.list().find((entry) => entry.operationId === value.operationId);
+      if (prior) {
+        if (
+          prior.kind !== 'refund' ||
+          prior.orderId !== value.orderId ||
+          prior.amountCents !== amount ||
+          prior.note !== value.note ||
+          prior.actor.id !== actor.id
+        )
+          throw new PaymentError('Ідентифікатор операції вже використано');
+        return prior.id;
+      }
+      if (!this.db.prepare('SELECT id FROM crm_orders WHERE id=?').get(value.orderId))
+        throw new PaymentError('Замовлення не знайдено');
+      const total = this.db
+        .prepare(
+          'SELECT COALESCE(SUM(quantity*unitPriceCents),0) AS total FROM crm_order_items WHERE orderId=?'
+        )
+        .get(value.orderId)!.total as number;
+      const balance = paymentBalance({ id: value.orderId, totalCents: total }, this.list());
+      if (amount > balance.overpaidCents)
+        throw new PaymentError('Повернення перевищує переплату клієнта');
+      return this.insertRefund(
+        value.operationId,
+        value.orderId,
+        'refund',
+        amount,
+        null,
+        value.note,
+        actor
+      );
+    });
+  }
+  private insertRefund(
+    operationId: string,
+    orderId: string,
+    kind: 'refund' | 'refund_reversal',
+    amount: number,
+    reversalOf: string | null,
+    note: string,
+    actor: HistoryActor
+  ): string {
+    const id = randomUUID();
+    this.db
+      .prepare('INSERT INTO crm_customer_refunds VALUES (?,?,?,?,?,?,?,?,?)')
+      .run(
+        id,
+        operationId,
+        orderId,
+        kind,
+        amount,
+        reversalOf,
+        note,
+        JSON.stringify(actor),
+        new Date().toISOString()
+      );
+    paymentBalance({ id: orderId, totalCents: 0 }, this.list());
+    return id;
+  }
+
   private insert(
     operationId: string,
     orderId: string,

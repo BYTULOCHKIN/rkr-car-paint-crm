@@ -1,4 +1,4 @@
-import { paymentBalance } from '@/features/crm/lib/payment-balance';
+import { paymentBalance, paymentDelta } from '@/features/crm/lib/payment-balance';
 import type {
   BoardStatus,
   CrmWorkspace,
@@ -130,17 +130,19 @@ export function overviewMetrics(data: CrmWorkspace, today = businessToday()): Ov
 
   const payments = data.payments ?? [];
   const cancelled = new Set(
-    payments.filter((entry) => entry.kind === 'reversal').map((entry) => entry.reversalOf)
+    payments
+      .filter((entry) => entry.kind === 'reversal' || entry.kind === 'refund_reversal')
+      .map((entry) => entry.reversalOf)
   );
   const monthlyReceiptsCents = payments
     .filter(
       (entry) =>
-        entry.kind === 'payment' &&
+        (entry.kind === 'payment' || entry.kind === 'refund') &&
         !cancelled.has(entry.id) &&
         businessToday(new Date(entry.createdAt)).startsWith(today.slice(0, 7)) &&
         businessToday(new Date(entry.createdAt)) <= today
     )
-    .reduce((sum, entry) => sum + entry.amountCents, 0);
+    .reduce((sum, entry) => sum + paymentDelta(entry), 0);
   const balances = data.orders.map((order) => ({ order, ...paymentBalance(order, payments) }));
   const debts = balances.filter(
     (entry) => entry.order.status === 'delivered' && entry.remainingCents > 0

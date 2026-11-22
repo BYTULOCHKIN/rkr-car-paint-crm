@@ -20,10 +20,12 @@ function costLabel(amount: number | null): string {
 function Materials({
   order,
   access,
+  locked = false,
   onPendingChange
 }: {
   order: RepairOrder;
   access: CrmAccess;
+  locked?: boolean;
   onPendingChange?: (pending: boolean) => void;
 }) {
   const { data } = useSuspenseQuery(inventoryQueries.workspace(access.userId, access.orgId));
@@ -36,6 +38,7 @@ function Materials({
   const [reversing, setReversing] = useState<StockMovement | null>(null);
   const movements = data.movements.filter((movement) => movement.orderId === order.id);
   const admin = access.role === 'admin' && data.access.role === 'admin';
+  const financialLocked = locked || movements.some((movement) => movement.financialLocked);
   const costs = orderMaterialCosts(movements, order.id);
   const totals = new Map<string, { name: string; unit: string; quantity: number }>();
   for (const movement of movements) {
@@ -73,7 +76,7 @@ function Materials({
             {entry.name} — {stockQuantity(entry.quantity)} {entry.unit}
           </p>
         ))}
-      {admin && order.status === 'in_progress' && !adding && !reversing && (
+      {admin && order.status === 'in_progress' && !financialLocked && !adding && !reversing && (
         <Button
           type='button'
           variant='outline'
@@ -83,12 +86,17 @@ function Materials({
           Додати списання
         </Button>
       )}
-      {admin && order.status !== 'in_progress' && (
+      {admin && order.status !== 'in_progress' && !financialLocked && (
         <p className='text-muted-foreground text-sm'>
           Нове списання доступне лише в статусі «В роботі».
         </p>
       )}
-      {adding && order.status === 'in_progress' && (
+      {financialLocked && (
+        <p className='text-muted-foreground text-sm'>
+          Після нарахування змінюйте матеріали через фінансове коригування.
+        </p>
+      )}
+      {adding && order.status === 'in_progress' && !financialLocked && (
         <div className='flex flex-col gap-3'>
           <StockOperationForm
             orgId={access.orgId}
@@ -132,6 +140,7 @@ function Materials({
 export function OrderMaterials(props: {
   order: RepairOrder;
   access: CrmAccess;
+  locked?: boolean;
   onPendingChange?: (pending: boolean) => void;
 }) {
   return (

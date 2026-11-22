@@ -292,7 +292,13 @@ export function removeDemoData(target: string, orgId: string, runId: string): vo
       db.prepare(
         `DELETE FROM crm_workflow_events WHERE recordId IN (${demoIds('crm_orders')}) OR recordId IN (${demoIds('crm_requests')})`
       ).run(runId, runId);
-      db.prepare(`DELETE FROM crm_payments WHERE orderId IN (${demoIds('crm_orders')})`).run(runId);
+      for (const table of [
+        'crm_customer_refunds',
+        'crm_settlement_events',
+        'crm_economics_postings',
+        'crm_payments'
+      ])
+        db.prepare(`DELETE FROM ${table} WHERE orderId IN (${demoIds('crm_orders')})`).run(runId);
       db.prepare(`DELETE FROM crm_order_items WHERE orderId IN (${demoIds('crm_orders')})`).run(
         runId
       );

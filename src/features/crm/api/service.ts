@@ -4,6 +4,7 @@ import { getOrganizationContext } from '../server/organization';
 import { z } from 'zod';
 import { executorTransition } from '../lib/executor-workflow';
 import { PaymentError } from '../server/payments';
+import { EconomicsError } from '@/features/order-economics/lib/integers';
 import {
   paymentSchema,
   reversePaymentSchema,
@@ -107,7 +108,11 @@ async function write<T>(
         ok: false,
         error: error.issues[0]?.message ?? 'Перевірте введені дані'
       };
-    if (error instanceof CrmError || error instanceof PaymentError)
+    if (
+      error instanceof CrmError ||
+      error instanceof PaymentError ||
+      error instanceof EconomicsError
+    )
       return { ok: false, error: error.message };
     return {
       ok: false,
@@ -120,7 +125,21 @@ export async function getWorkspace(expectedOrgId?: string | null): Promise<CrmWo
   const { repository, access, team } = await getOrganizationContext();
   if (expectedOrgId && expectedOrgId !== access.orgId)
     throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
-  return { ...repository.workspace(), access, team };
+  const workspace = repository.workspace();
+  return {
+    ...workspace,
+    finance: workspace.finance && {
+      ...workspace.finance,
+      events:
+        access.role === 'worker'
+          ? workspace.finance.events.filter(
+              (event) => event.payee.kind === 'worker' && event.payee.id === access.userId
+            )
+          : workspace.finance.events
+    },
+    access,
+    team
+  };
 }
 
 export async function checkCrmAccess(): Promise<ActionResult<null>> {
@@ -237,7 +256,7 @@ export async function getOrderDocument(id: string): Promise<OrderDocument | null
   if (!order) return null;
   const customer = workspace.customers.find((customer) => customer.id === order.customerId);
   const vehicle = workspace.vehicles.find((vehicle) => vehicle.id === order.vehicleId);
-  const { economics: _economics, ...clientOrder } = order;
+  const { economics: _economics, defaultEmployeeShareBps: _share, ...clientOrder } = order;
   return customer && vehicle ? { order: clientOrder, customer, vehicle } : null;
 }
 
@@ -266,6 +285,16 @@ export async function reversePayment(
     if (context.access.orgId !== orgId)
       throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
     return repository.payments.reverse(reversePaymentSchema.parse(input), historyActor(context));
+  });
+}
+export async function refundPayment(
+  orgId: string,
+  input: PaymentInput
+): Promise<ActionResult<string>> {
+  return write((repository, context) => {
+    if (context.access.orgId !== orgId)
+      throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
+    return repository.payments.refund(paymentSchema.parse(input), historyActor(context));
   });
 }
 

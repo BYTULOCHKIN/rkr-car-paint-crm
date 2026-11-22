@@ -94,3 +94,61 @@ export interface OrderEconomicsDetails {
   assemblerName?: string;
   lines: DetailedWorkLine[];
 }
+
+export interface SettlementPayee {
+  kind: 'worker' | 'contractor';
+  id: string;
+  name: string;
+}
+export interface PayeeAccrual {
+  payee: SettlementPayee;
+  amountCents: number;
+}
+export interface EconomicsPosting {
+  id: string;
+  operationId: string;
+  orderId: string;
+  revision: number;
+  kind: 'initial' | 'correction';
+  details: OrderEconomicsDetails;
+  costs: {
+    paintingCents: number;
+    polishingCents: number;
+    unallocatedCents: number;
+    totalCents: number;
+  };
+  result: OrderEconomicsResult;
+  allocations: PayeeAccrual[];
+  note: string;
+  actor: { id: string; name: string };
+  createdAt: string;
+}
+export interface SettlementEvent {
+  id: string;
+  orderId: string;
+  payee: SettlementPayee;
+  kind: 'accrual' | 'adjustment' | 'payout' | 'return' | 'reversal';
+  amountCents: number;
+  postingId: string | null;
+  reversalOf: string | null;
+  note: string;
+  actor: { id: string; name: string };
+  createdAt: string;
+}
+export interface FinanceWorkspace {
+  postings: EconomicsPosting[];
+  events: SettlementEvent[];
+  inventoryRevision: string;
+  defaultShareBps: number;
+  settingsRevision: number;
+}
+export interface CorrectionPreview {
+  before: EconomicsPosting | null;
+  after: {
+    details: OrderEconomicsDetails;
+    costs: EconomicsPosting['costs'];
+    result: OrderEconomicsResult;
+    allocations: PayeeAccrual[];
+  };
+  deltas: PayeeAccrual[];
+}

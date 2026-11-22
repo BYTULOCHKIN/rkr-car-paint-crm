@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/features/crm/components/action-button';
 import { FormStatus, type FormState } from '@/features/crm/components/form-status';
 import type { RepairOrder, TeamMember } from '@/features/crm/api/types';
+import type { OrderEconomicsDetails } from '../api/types';
 import { crmQueries } from '@/features/crm/api/queries';
 import { economicsMutations } from '../api/queries';
 import {
@@ -27,6 +28,8 @@ interface DetailedCheckFormProps {
   onCancel: () => void;
   onSaved: () => void;
   onStateChange?: (state: FormState) => void;
+  prepareCorrection?: (details: OrderEconomicsDetails) => Promise<void>;
+  disabled?: boolean;
 }
 
 export default function DetailedCheckForm({
@@ -35,7 +38,9 @@ export default function DetailedCheckForm({
   orgId,
   onCancel,
   onSaved,
-  onStateChange
+  onStateChange,
+  prepareCorrection,
+  disabled = false
 }: DetailedCheckFormProps) {
   const [defaults] = useState(() => initialDetailedCheck(order));
   const client = useQueryClient();
@@ -52,6 +57,10 @@ export default function DetailedCheckForm({
     defaultValues: defaults,
     validators: { onSubmit: detailedCheckFormSchema },
     onSubmit: async ({ value }) => {
+      if (prepareCorrection) {
+        await prepareCorrection(formToEconomics(value));
+        return;
+      }
       await mutation
         .mutateAsync({
           orgId,
@@ -74,7 +83,7 @@ export default function DetailedCheckForm({
       <form.Subscribe selector={(state) => state.isSubmitting}>
         {(pending) => <FormStatus dirty pending={pending} onChange={onStateChange} />}
       </form.Subscribe>
-      <fieldset disabled={mutation.isPending} className='min-w-0'>
+      <fieldset disabled={mutation.isPending || disabled} className='min-w-0'>
         <FieldGroup>
           <p className='text-muted-foreground text-sm'>
             Ціни в гривнях. Полірування входить у фарбування. Матеріали списуються на все авто. Один
@@ -317,7 +326,7 @@ export default function DetailedCheckForm({
           )}
           <div className='flex flex-wrap gap-2'>
             <Button type='submit' isLoading={mutation.isPending}>
-              Зберегти деталізований чек
+              {prepareCorrection ? 'Переглянути коригування' : 'Зберегти деталізований чек'}
             </Button>
             <Button
               type='button'
