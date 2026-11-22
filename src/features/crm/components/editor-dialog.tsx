@@ -3,6 +3,7 @@
 import { ExecutorAdvance } from './executor-advance';
 import { OrderPayments } from './order-payments';
 import { OrderMaterials } from '@/features/inventory/components/order-materials';
+import { OrderEconomicsPanel } from '@/features/order-economics/components/economics-panel';
 import { OrderReadView } from './order-read-view';
 import { useEffect, useId, useMemo, useState } from 'react';
 import {
@@ -72,8 +73,9 @@ export function CrmEditorDialog({
   const [state, setState] = useState<FormState>({ dirty: false, pending: false });
   const [materialsPending, setMaterialsPending] = useState(false);
   const [paymentState, setPaymentState] = useState<FormState>({ dirty: false, pending: false });
-  const dirty = state.dirty || paymentState.dirty;
-  const busy = state.pending || materialsPending || paymentState.pending;
+  const [economicsState, setEconomicsState] = useState<FormState>({ dirty: false, pending: false });
+  const dirty = state.dirty || paymentState.dirty || economicsState.dirty;
+  const busy = state.pending || materialsPending || paymentState.pending || economicsState.pending;
   const [discard, setDiscard] = useState(false);
   const [discardDestination, setDiscardDestination] = useState<'close' | 'history'>('close');
   const backToHistory =
@@ -318,7 +320,12 @@ export function CrmEditorDialog({
                         </>
                       ) : (
                         <OrderForm
-                          disabled={paymentState.dirty || paymentState.pending}
+                          disabled={
+                            paymentState.dirty ||
+                            paymentState.pending ||
+                            economicsState.dirty ||
+                            economicsState.pending
+                          }
                           data={data}
                           request={editor.request}
                           order={editor.order}
@@ -327,10 +334,30 @@ export function CrmEditorDialog({
                       )}
                       {editor.order && data.access && (
                         <OrderPayments
-                          disabled={state.dirty || state.pending}
+                          disabled={
+                            state.dirty ||
+                            state.pending ||
+                            economicsState.dirty ||
+                            economicsState.pending
+                          }
                           orderId={editor.order.id}
                           data={data}
                           onStateChange={setPaymentState}
+                        />
+                      )}
+                      {editor.order && data.access && (
+                        <OrderEconomicsPanel
+                          order={editor.order}
+                          data={data}
+                          disabled={
+                            state.dirty ||
+                            state.pending ||
+                            paymentState.dirty ||
+                            paymentState.pending ||
+                            materialsPending
+                          }
+                          onSaved={props.onSaved}
+                          onStateChange={setEconomicsState}
                         />
                       )}
                       {editor.order && data.access && (

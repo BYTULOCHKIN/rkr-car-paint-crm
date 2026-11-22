@@ -126,7 +126,7 @@ function BoardCardContent({
       </p>
       {target.kind === 'order' && (
         <p className='text-xs break-words'>
-          <span className='text-muted-foreground'>Виконавець: </span>
+          <span className='text-muted-foreground'>Відповідальний: </span>
           {assigneeLabel(target.record, data.team)}
         </p>
       )}

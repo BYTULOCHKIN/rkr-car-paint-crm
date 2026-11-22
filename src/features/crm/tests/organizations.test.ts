@@ -144,7 +144,7 @@ test('reassignment is atomic, records names and actor, ignores unchanged saves a
     assert.equal(snapshot.orders[0].totalCents, 10000);
     assert.deepEqual(snapshot.events[0].actor, actor);
     assert.deepEqual(historyOrderChanges(snapshot.events[0]), [
-      { label: 'Виконавець', before: 'Андрій', after: 'Власник' }
+      { label: 'Відповідальний', before: 'Андрій', after: 'Власник' }
     ]);
     repository.updateOrder({ ...input, expectedRevision: 1 }, 'Власник', actor);
     assert.equal(repository.workspace().events.length, snapshot.events.length);

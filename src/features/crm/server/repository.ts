@@ -26,6 +26,13 @@ import { businessToday } from '../lib/workflow';
 import { paintPlanSchema, workflowSchema } from '../schemas/crm';
 import { InventoryRepository, inventoryTables } from '@/features/inventory/server/repository';
 import { migrateStockValuation } from '@/features/inventory/server/valuation-migration';
+import { migrateOrderEconomics } from '@/features/order-economics/server/migration';
+import type { OrderEconomicsDetails } from '@/features/order-economics/api/types';
+import {
+  economicsDetailsSchema,
+  type SaveEconomicsInput
+} from '@/features/order-economics/schemas/details';
+import { detailedCheckItems } from '@/features/order-economics/lib/details';
 import { migrateCustomerContacts, replaceCustomerContacts } from './customer-contacts';
 import { customerSchema, updateCustomerSchema, type UpdateCustomerInput } from '../schemas/crm';
 import type { CustomerContact } from '../api/types';
@@ -199,6 +206,11 @@ export class CrmRepository {
       this.transaction(() => {
         migrateStockValuation(this.db);
         this.db.exec('PRAGMA user_version=13');
+      });
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 14)
+      this.transaction(() => {
+        migrateOrderEconomics(this.db);
+        this.db.exec('PRAGMA user_version=14');
       });
     this.payments = new PaymentRepository(this.db);
     this.inventory = new InventoryRepository(this.db);
@@ -405,10 +417,20 @@ export class CrmRepository {
       });
       byOrder.set(item.orderId, list);
     }
+    const economics = new Map(
+      this.db
+        .prepare('SELECT orderId,details FROM crm_order_economics')
+        .all()
+        .map((row) => [
+          row.orderId as string,
+          JSON.parse(row.details as string) as OrderEconomicsDetails
+        ])
+    );
     const orders = rows.map((row) => {
       const orderItems = byOrder.get(row.id) ?? [];
       return {
         ...row,
+        ...(economics.has(row.id) ? { economics: economics.get(row.id) } : {}),
         items: orderItems,
         paintPlan: paintPlanSchema.parse(JSON.parse(row.paintPlan)),
         totalCents: orderItems.reduce((sum, item) => sum + item.quantity * item.unitPriceCents, 0)
@@ -698,7 +720,15 @@ export class CrmRepository {
     });
   }
 
-  updateOrder(input: UpdateOrderInput, assigneeName?: string, actor?: HistoryActor): void {
+  updateOrder(
+    input: UpdateOrderInput,
+    assigneeName?: string,
+    actor?: HistoryActor,
+    economicsUpdate?: {
+      details: SaveEconomicsInput['details'];
+      workerNames: Record<string, string>;
+    }
+  ): void {
     this.transaction(() => {
       const current = this.db
         .prepare('SELECT * FROM crm_orders WHERE id = ?')
@@ -706,6 +736,18 @@ export class CrmRepository {
         | (Omit<RepairOrder, 'paintPlan'> & { paintPlan: string })
         | undefined;
       if (!current) throw new CrmError('Замовлення не знайдено');
+      const priorEconomicsRow = this.db
+        .prepare('SELECT details FROM crm_order_economics WHERE orderId=?')
+        .get(input.id);
+      const priorEconomics = priorEconomicsRow
+        ? (JSON.parse(priorEconomicsRow.details as string) as OrderEconomicsDetails)
+        : undefined;
+      if (economicsUpdate && current.status !== 'created' && current.status !== 'in_progress')
+        throw new CrmError(
+          'Деталізація чека доступна до готовності авто. Для завершеного замовлення потрібне фінансове коригування.'
+        );
+      if (economicsUpdate && input.expectedRevision === undefined)
+        throw new CrmError('Для збереження деталізації потрібна версія замовлення');
       if (
         input.expectedRevision !== undefined &&
         input.expectedRevision !== current.workflowRevision
@@ -735,6 +777,7 @@ export class CrmRepository {
           'Вартість не може бути меншою за отриману оплату. Спочатку скасуйте помилковий платіж.'
         );
       const before: OrderSnapshot = {
+        ...(priorEconomics ? { economics: priorEconomics } : {}),
         assigneeId: current.assigneeId ?? null,
         assigneeName: current.assigneeName ?? null,
         description: current.description,
@@ -747,7 +790,47 @@ export class CrmRepository {
         quantity: item.quantity,
         unitPriceCents: Math.round(item.unitPrice * 100)
       }));
+      if (
+        priorEconomics &&
+        !economicsUpdate &&
+        JSON.stringify(items) !== JSON.stringify(afterItems)
+      )
+        throw new CrmError(
+          'Змінюйте роботи через «Деталізований чек», щоб зберегти внутрішній розрахунок.'
+        );
+      let nextEconomics = priorEconomics;
+      if (economicsUpdate) {
+        const details = economicsDetailsSchema.parse(economicsUpdate.details);
+        if (JSON.stringify(detailedCheckItems(details)) !== JSON.stringify(afterItems))
+          throw new CrmError('Позиції чека не відповідають деталізації');
+        const names = economicsUpdate.workerNames;
+        nextEconomics = {
+          ...details,
+          painterName: names[details.painterId] ?? '',
+          polisherName: names[details.polisherId] ?? '',
+          assemblerName: names[details.assemblerId] ?? '',
+          lines: details.lines.map((line) => {
+            if (line.kind === 'painting' || line.kind === 'assembly') return line;
+            const name = line.contractorName.replace(/\s+/g, ' ');
+            const key = name.toLocaleLowerCase('uk-UA');
+            let contractor = this.db
+              .prepare('SELECT id,name FROM crm_contractors WHERE nameKey=?')
+              .get(key);
+            if (!contractor) {
+              const id = randomUUID();
+              this.db.prepare('INSERT INTO crm_contractors VALUES (?,?,?)').run(id, name, key);
+              contractor = { id, name };
+            }
+            return {
+              ...line,
+              contractorId: contractor.id as string,
+              contractorName: contractor.name as string
+            };
+          })
+        };
+      }
       const after: OrderSnapshot = {
+        ...(nextEconomics ? { economics: nextEconomics } : {}),
         assigneeId: input.assigneeId ?? before.assigneeId,
         assigneeName:
           input.assigneeId === undefined
@@ -771,6 +854,12 @@ export class CrmRepository {
           .run(input.assigneeId, assigneeName ?? null, input.id);
       this.db.prepare('DELETE FROM crm_order_items WHERE orderId = ?').run(input.id);
       this.writeItems(input.id, input.items);
+      if (nextEconomics)
+        this.db
+          .prepare(
+            'INSERT INTO crm_order_economics(orderId,details) VALUES (?,?) ON CONFLICT(orderId) DO UPDATE SET details=excluded.details'
+          )
+          .run(input.id, JSON.stringify(nextEconomics));
       if (input.paintPlan !== undefined) this.writePaintPlan(input.id, input.paintPlan);
       this.logEvent({
         actor,

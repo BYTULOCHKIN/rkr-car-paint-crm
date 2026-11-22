@@ -286,7 +286,7 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
     },
     {
       id: 'assignee',
-      header: 'Виконавець',
+      header: 'Відповідальний',
       accessorFn: (order) => assigneeLabel(order, data.team),
       cell: ({ row }) => (
         <OverflowText className='max-w-48' text={assigneeLabel(row.original, data.team)} />

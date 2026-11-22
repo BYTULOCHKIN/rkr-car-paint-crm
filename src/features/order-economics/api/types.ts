@@ -68,3 +68,29 @@ export interface WorkerSettlementBalance {
   payableCents: number;
   advanceCents: number;
 }
+
+export type WorkKind = 'painting' | 'assembly' | 'color_matching' | 'soldering' | 'other';
+
+export interface DetailedWorkLine {
+  id: string;
+  kind: WorkKind;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  /** Total internal portion for the entire line, already included in its client price. */
+  polishingCents: number;
+  subcontractCostCents: number;
+  contractorName: string;
+  contractorId?: string;
+}
+
+export interface OrderEconomicsDetails {
+  employeeShareBps: number;
+  painterId: string;
+  polisherId: string;
+  assemblerId: string;
+  painterName?: string;
+  polisherName?: string;
+  assemblerName?: string;
+  lines: DetailedWorkLine[];
+}

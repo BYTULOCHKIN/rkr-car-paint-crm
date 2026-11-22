@@ -3,10 +3,10 @@ import { expect, test } from '@playwright/test';
 test('admin can select either active role as executor when creating an order', async ({ page }) => {
   await page.goto('/dashboard/orders');
   await page.getByRole('button', { name: 'Нове замовлення', exact: true }).first().click();
-  await page.getByRole('combobox', { name: 'Виконавець *', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Відповідальний *', exact: true }).click();
   await expect(page.getByRole('option', { name: /Олена Адміністратор/ })).toBeVisible();
   await page.getByRole('option', { name: /Маляр Андрій/ }).click();
-  await expect(page.getByRole('combobox', { name: 'Виконавець *', exact: true })).toContainText(
+  await expect(page.getByRole('combobox', { name: 'Відповідальний *', exact: true })).toContainText(
     'Маляр Андрій'
   );
 });

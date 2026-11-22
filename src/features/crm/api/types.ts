@@ -1,4 +1,5 @@
 import type { PaintSelection } from '../constants/paint-plan';
+import type { OrderEconomicsDetails } from '@/features/order-economics/api/types';
 
 export type { VehicleModelInput } from '../schemas/vehicle-model';
 
@@ -49,6 +50,7 @@ export interface OrderItem {
 }
 
 export interface RepairOrder {
+  economics?: OrderEconomicsDetails;
   assigneeId?: string | null;
   assigneeName?: string | null;
   workflowRevision?: number;
@@ -88,6 +90,7 @@ export interface ActualDateChange {
 }
 
 export interface OrderSnapshot {
+  economics?: OrderEconomicsDetails;
   assigneeId?: string | null;
   assigneeName?: string | null;
   description: string;

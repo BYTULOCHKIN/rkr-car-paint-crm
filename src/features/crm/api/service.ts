@@ -237,7 +237,8 @@ export async function getOrderDocument(id: string): Promise<OrderDocument | null
   if (!order) return null;
   const customer = workspace.customers.find((customer) => customer.id === order.customerId);
   const vehicle = workspace.vehicles.find((vehicle) => vehicle.id === order.vehicleId);
-  return customer && vehicle ? { order, customer, vehicle } : null;
+  const { economics: _economics, ...clientOrder } = order;
+  return customer && vehicle ? { order: clientOrder, customer, vehicle } : null;
 }
 
 export async function getTeam(expectedOrgId?: string | null) {

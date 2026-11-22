@@ -33,7 +33,7 @@ export function OrderReadView({ order, data }: { order: RepairOrder; data: CrmWo
         )}
         <p className='font-mono'>{vehicle?.vin}</p>
         <p className='mt-2'>
-          Виконавець: <strong>{assigneeLabel(order, data.team)}</strong>
+          Відповідальний: <strong>{assigneeLabel(order, data.team)}</strong>
         </p>
       </section>
       <section>

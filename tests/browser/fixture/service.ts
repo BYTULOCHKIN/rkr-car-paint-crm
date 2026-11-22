@@ -1,6 +1,8 @@
 import { businessToday } from '@/features/crm/lib/workflow';
 import { executorTransition } from '@/features/crm/lib/executor-workflow';
 import type { AdvanceOrderInput } from '@/features/crm/schemas/crm';
+import type { SaveEconomicsInput } from '@/features/order-economics/schemas/details';
+import { detailedCheckItems } from '@/features/order-economics/lib/details';
 import type { CrmWorkspace, TeamMember, Vehicle } from '@/features/crm/api/types';
 import type {
   CustomerInput,
@@ -99,7 +101,37 @@ if (location.pathname.endsWith('/overview')) {
   }
 }
 let initializedCreatedDemo = false;
+let initializedEconomicsDemo = false;
+export async function saveOrderEconomics(input: SaveEconomicsInput) {
+  const workspace = await getWorkspace();
+  const order = data.orders.find((entry) => entry.id === input.orderId);
+  if (!order || input.orgId !== workspace.access?.orgId || workspace.access.role !== 'admin')
+    return { ok: false as const, error: 'Доступ заборонено' };
+  if ((order.workflowRevision ?? 0) !== input.expectedRevision)
+    return { ok: false as const, error: 'Замовлення вже змінено' };
+  order.economics = {
+    ...input.details,
+    painterName:
+      workspace.team?.find((member) => member.id === input.details.painterId)?.name ?? '',
+    polisherName:
+      workspace.team?.find((member) => member.id === input.details.polisherId)?.name ?? '',
+    assemblerName:
+      workspace.team?.find((member) => member.id === input.details.assemblerId)?.name ?? ''
+  };
+  order.items = detailedCheckItems(input.details);
+  order.totalCents = order.items.reduce(
+    (sum, item) => sum + item.quantity * item.unitPriceCents,
+    0
+  );
+  order.workflowRevision = (order.workflowRevision ?? 0) + 1;
+  return { ok: true as const, data: undefined };
+}
 export async function getWorkspace() {
+  if (new URLSearchParams(location.search).has('economicsDemo') && !initializedEconomicsDemo) {
+    initializedEconomicsDemo = true;
+    data.orders[0].items = [{ description: 'Бампер', quantity: 1, unitPriceCents: 1800000 }];
+    data.orders[0].totalCents = 1800000;
+  }
   if (new URLSearchParams(location.search).has('createdDemo') && !initializedCreatedDemo) {
     initializedCreatedDemo = true;
     data.orders[0].status = 'created';

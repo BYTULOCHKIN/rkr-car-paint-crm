@@ -1,5 +1,6 @@
 import { money } from './format';
 import { partLabel, paintModeLabel } from '../constants/paint-plan';
+import { workKindOptions } from '@/features/order-economics/lib/details';
 import type { CrmWorkspace, WorkflowEvent, WorkflowRecord, OrderItem } from '../api/types';
 
 export interface HistoryDateChange {
@@ -97,9 +98,29 @@ export function historyOrderChanges(event: WorkflowEvent): HistoryContentChange[
   if (!event.orderChanges) return [];
   const { before, after } = event.orderChanges;
   const changes: HistoryContentChange[] = [];
+  if (JSON.stringify(before.economics) !== JSON.stringify(after.economics)) {
+    const summary = (details: typeof before.economics): string =>
+      details
+        ? [
+            `Ставка: ${details.employeeShareBps / 100}%`,
+            `Маляр: ${details.painterName || 'Не призначено'}`,
+            `Полірувальник: ${details.polisherName || 'Не призначено'}`,
+            `Розбірник: ${details.assemblerName || 'Не призначено'}`,
+            ...details.lines.map(
+              (line) =>
+                `${workKindOptions.find((option) => option.value === line.kind)?.label}: ${line.description}; полірування ${money(line.polishingCents)}, субпідряд ${money(line.subcontractCostCents)}${line.contractorName ? ` · ${line.contractorName}` : ''}`
+            )
+          ].join('\n')
+        : 'Не деталізовано';
+    changes.push({
+      label: 'Внутрішня економіка',
+      before: summary(before.economics),
+      after: summary(after.economics)
+    });
+  }
   if (before.assigneeId !== after.assigneeId)
     changes.push({
-      label: 'Виконавець',
+      label: 'Відповідальний',
       before: before.assigneeName || 'Не призначено',
       after: after.assigneeName || 'Не призначено'
     });

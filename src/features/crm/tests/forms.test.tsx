@@ -361,7 +361,7 @@ test('conversion requires selecting an active team member and submits the select
   await user.click(screen.getByRole('button', { name: 'Створити замовлення' }));
   expect(createOrder).not.toHaveBeenCalled();
   expect(await screen.findByText('Виберіть виконавця')).toBeDefined();
-  await select('Виконавець *', /Маляр Андрій/);
+  await select('Відповідальний *', /Маляр Андрій/);
   await user.click(screen.getByRole('button', { name: 'Створити замовлення' }));
   await waitFor(() => expect(createOrder).toHaveBeenCalledOnce());
   expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({ assigneeId: 'user_worker' }));

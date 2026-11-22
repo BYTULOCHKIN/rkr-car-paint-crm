@@ -299,16 +299,16 @@ export function OrderForm({
           <form.AppField name='assigneeId'>
             {(field) => (
               <field.ComboboxField
-                label='Виконавець'
+                label='Відповідальний'
                 required={!order}
                 clearable={false}
                 placeholder='Виберіть учасника команди'
-                searchPlaceholder='Ім’я виконавця…'
+                searchPlaceholder='Ім’я відповідального…'
                 emptyMessage='Немає активних учасників. Запросіть команду в розділі «Команда».'
                 description={
                   order?.assigneeId && !data.team?.some((member) => member.id === order.assigneeId)
                     ? `Поточний виконавець: ${assigneeLabel(order)}. Якщо учасник уже залишив команду, призначте іншого.`
-                    : 'Один активний учасник автомалярки, включно з адміністратором.'
+                    : 'Відповідальний за замовлення. Маляр, полірувальник і розбірник призначаються окремо в деталізованому чеку.'
                 }
                 options={[
                   ...(data.team ?? []).map((member) => ({
@@ -376,85 +376,91 @@ export function OrderForm({
               />
             )}
           </form.Field>
-          <form.Field name='items' mode='array'>
-            {(array) => (
-              <fieldset className='flex min-w-0 flex-col gap-4'>
-                <legend className='mb-3 text-base font-semibold'>Позиції робіт</legend>
-                <p className='text-muted-foreground text-sm'>
-                  Додайте роботи та вартість у гривнях. Позначки на схемі не змінюють суму
-                  замовлення.
-                </p>
-                {array.state.value.map((_, index) => (
-                  <div
-                    key={index}
-                    className='flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-4'
-                  >
-                    <div className='flex items-center justify-between gap-3 text-sm'>
-                      <span className='text-muted-foreground'>Позиція {index + 1}</span>
-                      <strong>
-                        {money(
-                          (Number(array.state.value[index].quantity) || 0) *
-                            Math.round((Number(array.state.value[index].unitPrice) || 0) * 100)
-                        )}
-                      </strong>
-                    </div>
-                    <form.AppField name={`items[${index}].description`}>
-                      {(field) => (
-                        <field.TextField
-                          label={`Робота ${index + 1}`}
-                          placeholder='Фарбування переднього бампера'
-                          required
-                        />
-                      )}
-                    </form.AppField>
-                    <div className='grid grid-cols-2 gap-3'>
-                      <form.AppField name={`items[${index}].quantity`}>
-                        {(field) => (
-                          <field.TextField
-                            label='Кількість'
-                            type='number'
-                            min={1}
-                            max={999}
-                            step={1}
-                            required
-                          />
-                        )}
-                      </form.AppField>
-                      <form.AppField name={`items[${index}].unitPrice`}>
-                        {(field) => (
-                          <field.TextField
-                            label='Ціна за одиницю, грн'
-                            type='number'
-                            min={0}
-                            max={1000000}
-                            step='0.01'
-                            required
-                          />
-                        )}
-                      </form.AppField>
-                    </div>
-                    <Button
-                      type='button'
-                      variant='ghost'
-                      disabled={array.state.value.length === 1}
-                      onClick={() => array.removeValue(index)}
-                      aria-label={`Видалити роботу ${index + 1}`}
+          {order?.economics ? (
+            <p className='text-muted-foreground text-sm'>
+              Позиції та ціни змінюються в блоці «Деталізований чек та економіка» нижче.
+            </p>
+          ) : (
+            <form.Field name='items' mode='array'>
+              {(array) => (
+                <fieldset className='flex min-w-0 flex-col gap-4'>
+                  <legend className='mb-3 text-base font-semibold'>Позиції робіт</legend>
+                  <p className='text-muted-foreground text-sm'>
+                    Додайте роботи та вартість у гривнях. Позначки на схемі не змінюють суму
+                    замовлення.
+                  </p>
+                  {array.state.value.map((_, index) => (
+                    <div
+                      key={index}
+                      className='flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-4'
                     >
-                      Видалити позицію
-                    </Button>
-                  </div>
-                ))}
-                <Button
-                  type='button'
-                  variant='outline'
-                  disabled={array.state.value.length >= 100}
-                  onClick={() => array.pushValue({ description: '', quantity: 1, unitPrice: 0 })}
-                >
-                  Додати позицію
-                </Button>
-              </fieldset>
-            )}
-          </form.Field>
+                      <div className='flex items-center justify-between gap-3 text-sm'>
+                        <span className='text-muted-foreground'>Позиція {index + 1}</span>
+                        <strong>
+                          {money(
+                            (Number(array.state.value[index].quantity) || 0) *
+                              Math.round((Number(array.state.value[index].unitPrice) || 0) * 100)
+                          )}
+                        </strong>
+                      </div>
+                      <form.AppField name={`items[${index}].description`}>
+                        {(field) => (
+                          <field.TextField
+                            label={`Робота ${index + 1}`}
+                            placeholder='Фарбування переднього бампера'
+                            required
+                          />
+                        )}
+                      </form.AppField>
+                      <div className='grid grid-cols-2 gap-3'>
+                        <form.AppField name={`items[${index}].quantity`}>
+                          {(field) => (
+                            <field.TextField
+                              label='Кількість'
+                              type='number'
+                              min={1}
+                              max={999}
+                              step={1}
+                              required
+                            />
+                          )}
+                        </form.AppField>
+                        <form.AppField name={`items[${index}].unitPrice`}>
+                          {(field) => (
+                            <field.TextField
+                              label='Ціна за одиницю, грн'
+                              type='number'
+                              min={0}
+                              max={1000000}
+                              step='0.01'
+                              required
+                            />
+                          )}
+                        </form.AppField>
+                      </div>
+                      <Button
+                        type='button'
+                        variant='ghost'
+                        disabled={array.state.value.length === 1}
+                        onClick={() => array.removeValue(index)}
+                        aria-label={`Видалити роботу ${index + 1}`}
+                      >
+                        Видалити позицію
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    type='button'
+                    variant='outline'
+                    disabled={array.state.value.length >= 100}
+                    onClick={() => array.pushValue({ description: '', quantity: 1, unitPrice: 0 })}
+                  >
+                    Додати позицію
+                  </Button>
+                </fieldset>
+              )}
+            </form.Field>
+          )}
           <form.Subscribe selector={(state) => state.values.items}>
             {(items) => (
               <p className='text-right text-lg font-semibold' aria-live='polite'>

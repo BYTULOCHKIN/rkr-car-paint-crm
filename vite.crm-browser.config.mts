@@ -55,6 +55,11 @@ export default defineConfig({
         )
           return `${root}/tests/browser/fixture/clerk-sidebar.ts`;
         if (
+          importer?.replaceAll('\\', '/').includes('/features/order-economics/api/queries') &&
+          source === './service'
+        )
+          return `${root}/tests/browser/fixture/service.ts`;
+        if (
           importer?.replaceAll('\\', '/').includes('/features/inventory/api/queries') &&
           source === './service'
         )

@@ -1,4 +1,5 @@
 import { advanceOrder, updateWorkflow } from '../api/service';
+import { saveOrderEconomics } from '@/features/order-economics/api/service';
 import { businessToday } from '../lib/workflow';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { auth, clerkClient } from '@clerk/nextjs/server';
@@ -455,4 +456,85 @@ test('customer editing requires admin, the current shop and valid contact values
   });
   expect((await updateCustomer({ ...input, orgId: 'org_A' })).ok).toBe(false);
   expect(repository.updateCustomer).not.toHaveBeenCalled();
+});
+
+test('detailed check validates shop, role and live membership; stored worker names cannot be forged', async () => {
+  const id = '00000000-0000-4000-8000-000000000001';
+  const current = { id, description: 'Робота', workflowRevision: 0 } as RepairOrder;
+  repository.workspace.mockReturnValue({ ...workspace, orders: [current] });
+  const input = {
+    orgId: 'org_A',
+    orderId: id,
+    expectedRevision: 0,
+    details: {
+      employeeShareBps: 6000,
+      painterId: 'user_admin',
+      polisherId: '',
+      assemblerId: '',
+      lines: [
+        {
+          id: '00000000-0000-4000-8000-000000000002',
+          kind: 'painting' as const,
+          description: 'Бампер',
+          quantity: 1,
+          unitPriceCents: 100000,
+          polishingCents: 0,
+          subcontractCostCents: 0,
+          contractorName: ''
+        }
+      ]
+    }
+  };
+  expect((await saveOrderEconomics({ ...input, orgId: 'org_B' })).ok).toBe(false);
+  expect(
+    (
+      await saveOrderEconomics({
+        ...input,
+        details: { ...input.details, painterId: 'user_outside' }
+      })
+    ).ok
+  ).toBe(false);
+  expect(repository.updateOrder).not.toHaveBeenCalled();
+  expect((await saveOrderEconomics(input)).ok).toBe(true);
+  expect(repository.updateOrder).toHaveBeenCalledWith(
+    expect.objectContaining({ id, expectedRevision: 0 }),
+    undefined,
+    { id: 'user_admin', name: 'Олена' },
+    { details: input.details, workerNames: { user_admin: 'Олена' } }
+  );
+  repository.updateOrder.mockClear();
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [
+      {
+        role: 'org:member',
+        publicUserData: { userId: 'user_admin', identifier: 'worker@example.com' }
+      }
+    ]
+  });
+  expect((await saveOrderEconomics(input)).ok).toBe(false);
+  expect(repository.updateOrder).not.toHaveBeenCalled();
+});
+
+test('client document service removes the internal economics payload', async () => {
+  const id = '00000000-0000-4000-8000-000000000001';
+  repository.workspace.mockReturnValue({
+    ...workspace,
+    orders: [
+      {
+        id,
+        customerId: 'c',
+        vehicleId: 'v',
+        economics: { painterName: 'Внутрішні дані', employeeShareBps: 6000 }
+      } as RepairOrder
+    ],
+    customers: [{ id: 'c', name: 'Клієнт', phone: '', notes: '', createdAt: '' }],
+    vehicles: [
+      { id: 'v', customerId: 'c', make: 'Ford', model: 'Focus', year: 2020, plate: '', vin: null }
+    ]
+  });
+  const document = await getOrderDocument(id);
+  expect(document).not.toBeNull();
+  expect(document!.order).not.toHaveProperty('economics');
+  expect(JSON.stringify(document)).not.toContain('Внутрішні дані');
 });
