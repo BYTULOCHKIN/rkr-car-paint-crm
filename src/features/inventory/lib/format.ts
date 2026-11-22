@@ -5,5 +5,10 @@ export const movementLabels = {
   receipt: 'Надходження',
   adjustment: 'Коригування',
   consumption: 'Списання',
-  reversal: 'Скасування списання'
+  reversal: 'Скасування списання',
+  valuation: 'Оцінювання залишку'
 };
+export const materialCategoryOptions = [
+  { value: 'painting', label: 'Малярні роботи' },
+  { value: 'polishing', label: 'Полірування' }
+];

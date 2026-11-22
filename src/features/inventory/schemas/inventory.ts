@@ -31,16 +31,72 @@ const delta = z
   .refine((value) => quantityMilli(value) !== 0, 'Коригування не може дорівнювати нулю');
 
 const baseMovement = { itemId: z.uuid(), operationId: z.uuid(), note: z.string().trim().max(1000) };
-export const receiptSchema = z.object({ ...baseMovement, quantity }).strict();
+const amount = z
+  .string()
+  .trim()
+  .regex(/^\d{1,10}([.,]\d{1,2})?$/, 'Вкажіть суму, до 2 знаків після коми');
+const exchangeRate = z
+  .string()
+  .trim()
+  .regex(/^\d{1,5}([.,]\d{1,6})?$/, 'Вкажіть курс, до 6 знаків після коми')
+  .refine((value) => decimalScaled(value, 6) > 0, 'Курс має бути додатним');
+/** Convert a validated decimal string to integer minor units without float multiplication. */
+export function decimalScaled(value: string, digits: number): number {
+  const [whole, fraction = ''] = value.replace(',', '.').split('.');
+  return Number(whole) * 10 ** digits + Number(fraction.padEnd(digits, '0'));
+}
+const pricing = {
+  totalAmount: amount,
+  currency: z.enum(['UAH', 'EUR']),
+  exchangeRate
+};
+export const receiptSchema = z
+  .object({ ...baseMovement, quantity, ...pricing })
+  .strict()
+  .refine((value) => value.currency !== 'UAH' || decimalScaled(value.exchangeRate, 6) === 1000000, {
+    path: ['exchangeRate'],
+    message: 'Для гривні курс має дорівнювати 1'
+  });
 export const adjustmentSchema = z
   .object({
     ...baseMovement,
     quantity: delta,
+    totalAmount: z.string().trim().default(''),
+    currency: z.enum(['UAH', 'EUR']).default('UAH'),
+    exchangeRate: z.string().trim().default('1'),
     note: z.string().trim().min(1, 'Вкажіть причину коригування').max(1000)
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (quantityMilli(value.quantity) > 0) {
+      const result = receiptSchema.safeParse(value);
+      if (!result.success)
+        for (const issue of result.error.issues)
+          context.addIssue({ code: 'custom', path: issue.path, message: issue.message });
+    } else if (value.totalAmount !== '' || value.currency !== 'UAH' || value.exchangeRate !== '1') {
+      context.addIssue({
+        code: 'custom',
+        path: ['totalAmount'],
+        message: 'Зменшення оцінюється за середньою собівартістю; ціну вводити не потрібно'
+      });
+    }
+  });
 export const consumptionSchema = z
-  .object({ ...baseMovement, quantity, orderId: z.uuid() })
+  .object({
+    ...baseMovement,
+    quantity,
+    orderId: z.uuid(),
+    category: z.enum(['painting', 'polishing']).default('painting')
+  })
+  .strict();
+export const valuationSchema = z
+  .object({
+    ...baseMovement,
+    totalAmount: amount,
+    expectedBalanceMilli: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    expectedRevision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    note: z.string().trim().min(1, 'Вкажіть підставу оцінювання').max(1000)
+  })
   .strict();
 export const reversalSchema = z
   .object({
@@ -59,6 +115,7 @@ export const archiveSchema = z.object({ id: z.uuid(), archived: z.boolean() }).s
 export type ItemInput = z.infer<typeof itemSchema>;
 export type UpdateItemInput = z.infer<typeof updateItemSchema>;
 export type ReceiptInput = z.infer<typeof receiptSchema>;
-export type AdjustmentInput = z.infer<typeof adjustmentSchema>;
-export type ConsumptionInput = z.infer<typeof consumptionSchema>;
+export type AdjustmentInput = z.input<typeof adjustmentSchema>;
+export type ConsumptionInput = z.input<typeof consumptionSchema>;
 export type ReversalInput = z.infer<typeof reversalSchema>;
+export type ValuationInput = z.infer<typeof valuationSchema>;

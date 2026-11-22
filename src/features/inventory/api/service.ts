@@ -5,6 +5,7 @@ import { getOrganizationContext } from '@/features/crm/server/organization';
 import { CrmError } from '@/features/crm/server/repository';
 import type { ActionResult } from '@/features/crm/api/types';
 import { InventoryError } from '../server/repository';
+import { EconomicsError } from '@/features/order-economics/lib/integers';
 import { archiveSchema } from '../schemas/inventory';
 import type {
   ItemInput,
@@ -12,7 +13,8 @@ import type {
   ReceiptInput,
   AdjustmentInput,
   ConsumptionInput,
-  ReversalInput
+  ReversalInput,
+  ValuationInput
 } from '../schemas/inventory';
 import type { InventoryData } from './types';
 
@@ -31,7 +33,11 @@ async function write<T>(
   } catch (error) {
     if (error instanceof z.ZodError)
       return { ok: false, error: error.issues[0]?.message ?? 'Перевірте введені дані' };
-    if (error instanceof InventoryError || error instanceof CrmError)
+    if (
+      error instanceof InventoryError ||
+      error instanceof CrmError ||
+      error instanceof EconomicsError
+    )
       return { ok: false, error: error.message };
     return { ok: false, error: 'Не вдалося зберегти складську операцію. Повторіть спробу.' };
   }
@@ -97,4 +103,12 @@ export async function reverseConsumption(
   input: ReversalInput
 ): Promise<ActionResult<void>> {
   return write(orgId, (context) => context.repository.inventory.reverse(input, actor(context)));
+}
+export async function valueStockBalance(
+  orgId: string,
+  input: ValuationInput
+): Promise<ActionResult<void>> {
+  return write(orgId, (context) =>
+    context.repository.inventory.valueOpeningBalance(input, actor(context))
+  );
 }

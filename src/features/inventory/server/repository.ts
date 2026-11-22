@@ -2,6 +2,8 @@ import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import type { HistoryActor } from '@/features/crm/api/types';
 import type { StockItem, StockMovement } from '../api/types';
+import { consumeValuedStock, valuePurchase } from '@/features/order-economics/lib/stock-valuation';
+import { sumIntegers } from '@/features/order-economics/lib/integers';
 import {
   itemSchema,
   stockUnitSchema,
@@ -10,7 +12,9 @@ import {
   adjustmentSchema,
   consumptionSchema,
   reversalSchema,
-  quantityMilli
+  quantityMilli,
+  decimalScaled,
+  valuationSchema
 } from '../schemas/inventory';
 import type {
   ItemInput,
@@ -18,7 +22,8 @@ import type {
   ReceiptInput,
   AdjustmentInput,
   ConsumptionInput,
-  ReversalInput
+  ReversalInput,
+  ValuationInput
 } from '../schemas/inventory';
 
 export class InventoryError extends Error {}
@@ -58,9 +63,10 @@ export class InventoryRepository {
   items(): StockItem[] {
     return this.db
       .prepare(`SELECT i.id, i.name, i.unit, i.notes, i.archived,
+      v.totalCostCents, v.revision AS valuationRevision,
       EXISTS(SELECT 1 FROM stock_movements WHERE itemId=i.id) AS locked,
       COALESCE((SELECT SUM(deltaMilli) FROM stock_movements WHERE itemId=i.id),0) AS balanceMilli
-      FROM stock_items i ORDER BY i.archived, i.name`)
+      FROM stock_items i JOIN stock_item_values v ON v.itemId=i.id ORDER BY i.archived, i.name`)
       .all()
       .map((row) => ({
         ...row,
@@ -71,17 +77,27 @@ export class InventoryRepository {
 
   movements(): StockMovement[] {
     return this.db
-      .prepare(`SELECT m.id, m.itemId, i.name AS itemName, i.unit, m.kind,
+      .prepare(`SELECT m.id AS id, m.itemId, i.name AS itemName, i.unit, m.kind,
       m.deltaMilli, m.orderId, o.number AS orderNumber, m.reversesId, m.note, m.actor, m.createdAt,
-      EXISTS(SELECT 1 FROM stock_movements WHERE reversesId=m.id) AS reversed
+      m.costDeltaCents, m.currency, m.purchaseAmountMinor, m.exchangeRateMicros, m.category,
+      NULL AS valuationTotalCents,
+      EXISTS(SELECT 1 FROM stock_movements WHERE reversesId=m.id) AS reversed, m.rowid AS sortOrder
       FROM stock_movements m JOIN stock_items i ON i.id=m.itemId
-      LEFT JOIN crm_orders o ON o.id=m.orderId ORDER BY m.createdAt DESC, m.rowid DESC`)
+      LEFT JOIN crm_orders o ON o.id=m.orderId
+      UNION ALL
+      SELECT v.id,v.itemId,i.name,i.unit,'valuation',0,NULL,NULL,NULL,v.note,v.actor,v.createdAt,
+      NULL,NULL,NULL,NULL,NULL,v.totalCostCents,0,v.rowid
+      FROM stock_valuation_events v JOIN stock_items i ON i.id=v.itemId
+      ORDER BY createdAt DESC, sortOrder DESC, id DESC`)
       .all()
-      .map((row) => ({
-        ...row,
-        reversed: !!row.reversed,
-        actor: JSON.parse(row.actor as string) as HistoryActor
-      })) as unknown as StockMovement[];
+      .map((row) => {
+        const { sortOrder: _sortOrder, ...movement } = row;
+        return {
+          ...movement,
+          reversed: !!row.reversed,
+          actor: JSON.parse(row.actor as string) as HistoryActor
+        };
+      }) as unknown as StockMovement[];
   }
 
   private item(id: string): StockItem {
@@ -106,6 +122,7 @@ export class InventoryRepository {
       this.db
         .prepare('INSERT INTO stock_items (id,name,nameKey,unit,notes) VALUES (?,?,?,?,?)')
         .run(id, value.name, key, value.unit, value.notes);
+      this.db.prepare('INSERT INTO stock_item_values(itemId,totalCostCents) VALUES (?,0)').run(id);
       return id;
     });
   }
@@ -132,11 +149,19 @@ export class InventoryRepository {
   }
 
   /** Idempotency key prevents double consumption on network retries. */
-  private duplicate(id: string, value: unknown, actor: HistoryActor): boolean {
-    const row = this.db.prepare('SELECT fingerprint FROM stock_movements WHERE id=?').get(id);
+  private duplicate(
+    id: string,
+    value: unknown,
+    actor: HistoryActor,
+    kind: StockMovement['kind']
+  ): boolean {
+    const row = this.db
+      .prepare(`SELECT fingerprint,kind FROM stock_movements WHERE id=?
+      UNION ALL SELECT fingerprint,'valuation' FROM stock_valuation_events WHERE id=?`)
+      .get(id, id);
     const fingerprint = JSON.stringify({ value, actorId: actor.id });
     if (!row) return false;
-    if (row.fingerprint !== fingerprint)
+    if (row.fingerprint !== fingerprint || row.kind !== kind)
       throw new InventoryError('Операцію вже проведено з іншими даними. Оновіть сторінку.');
     return true;
   }
@@ -150,9 +175,13 @@ export class InventoryRepository {
     reversesId: string | null,
     note: string,
     actor: HistoryActor,
-    value: unknown
+    value: unknown,
+    costDeltaCents: number | null,
+    pricing?: { currency: 'UAH' | 'EUR'; totalAmount: string; exchangeRate: string },
+    category: StockMovement['category'] = null
   ): void {
-    const balance = this.item(itemId).balanceMilli + deltaMilli;
+    const item = this.item(itemId);
+    const balance = sumIntegers([item.balanceMilli, deltaMilli]);
     if (balance < 0)
       throw new InventoryError(
         'Недостатньо матеріалу на складі. Оновіть залишки або внесіть надходження.'
@@ -160,7 +189,10 @@ export class InventoryRepository {
     if (!Number.isSafeInteger(balance))
       throw new InventoryError('Залишок перевищує допустиме значення');
     this.db
-      .prepare('INSERT INTO stock_movements VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .prepare(`INSERT INTO stock_movements
+        (id,itemId,kind,deltaMilli,orderId,reversesId,note,actor,createdAt,fingerprint,
+         costDeltaCents,currency,purchaseAmountMinor,exchangeRateMicros,category)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
       .run(
         id,
         itemId,
@@ -171,14 +203,51 @@ export class InventoryRepository {
         note,
         JSON.stringify(actor),
         new Date().toISOString(),
-        JSON.stringify({ value, actorId: actor.id })
+        JSON.stringify({ value, actorId: actor.id }),
+        costDeltaCents,
+        pricing?.currency ?? null,
+        pricing ? decimalScaled(pricing.totalAmount, 2) : null,
+        pricing ? decimalScaled(pricing.exchangeRate, 6) : null,
+        category
       );
+    const totalCostCents =
+      balance === 0
+        ? 0
+        : item.totalCostCents === null || costDeltaCents === null
+          ? null
+          : sumIntegers([item.totalCostCents, costDeltaCents]);
+    this.db
+      .prepare('UPDATE stock_item_values SET totalCostCents=?, revision=revision+1 WHERE itemId=?')
+      .run(totalCostCents, itemId);
+  }
+
+  private purchaseCost(value: {
+    currency: 'UAH' | 'EUR';
+    totalAmount: string;
+    exchangeRate: string;
+  }): number {
+    return valuePurchase({
+      currency: value.currency,
+      amountMinor: decimalScaled(value.totalAmount, 2),
+      exchangeRateMicros: decimalScaled(value.exchangeRate, 6)
+    });
+  }
+
+  private consumptionCost(itemId: string, quantity: number): number | null {
+    const item = this.item(itemId);
+    if (quantity > item.balanceMilli) throw new InventoryError('Недостатньо матеріалу на складі');
+    return item.totalCostCents === null
+      ? null
+      : consumeValuedStock(
+          { quantityMilli: item.balanceMilli, totalCostCents: item.totalCostCents },
+          quantity
+        ).costCents;
   }
 
   receive(input: ReceiptInput, actor: HistoryActor): void {
     const value = receiptSchema.parse(input);
     this.transaction(() => {
-      if (this.duplicate(value.operationId, value, actor)) return;
+      if (this.duplicate(value.operationId, value, actor, 'receipt')) return;
       if (this.item(value.itemId).archived)
         throw new InventoryError('Спочатку відновіть позицію з архіву');
       this.insert(
@@ -190,6 +259,8 @@ export class InventoryRepository {
         null,
         value.note,
         actor,
+        value,
+        this.purchaseCost(value),
         value
       );
     });
@@ -198,19 +269,24 @@ export class InventoryRepository {
   adjust(input: AdjustmentInput, actor: HistoryActor): void {
     const value = adjustmentSchema.parse(input);
     this.transaction(() => {
-      if (this.duplicate(value.operationId, value, actor)) return;
+      if (this.duplicate(value.operationId, value, actor, 'adjustment')) return;
       if (this.item(value.itemId).archived)
         throw new InventoryError('Спочатку відновіть позицію з архіву');
+      const delta = quantityMilli(value.quantity);
+      const cost =
+        delta > 0 ? this.purchaseCost(value) : this.consumptionCost(value.itemId, -delta);
       this.insert(
         value.operationId,
         value.itemId,
         'adjustment',
-        quantityMilli(value.quantity),
+        delta,
         null,
         null,
         value.note,
         actor,
-        value
+        value,
+        cost === null ? null : delta > 0 ? cost : -cost,
+        delta > 0 ? value : undefined
       );
     });
   }
@@ -218,13 +294,14 @@ export class InventoryRepository {
   consume(input: ConsumptionInput, actor: HistoryActor): void {
     const value = consumptionSchema.parse(input);
     this.transaction(() => {
-      if (this.duplicate(value.operationId, value, actor)) return;
+      if (this.duplicate(value.operationId, value, actor, 'consumption')) return;
       const order = this.db.prepare('SELECT status FROM crm_orders WHERE id=?').get(value.orderId);
       if (!order) throw new InventoryError('Замовлення не знайдено');
       if (order.status !== 'in_progress')
         throw new InventoryError('Списання дозволене лише для замовлення «В роботі»');
       if (this.item(value.itemId).archived)
         throw new InventoryError('Не можна списувати архівну позицію');
+      const cost = this.consumptionCost(value.itemId, quantityMilli(value.quantity));
       this.insert(
         value.operationId,
         value.itemId,
@@ -234,7 +311,10 @@ export class InventoryRepository {
         null,
         value.note,
         actor,
-        value
+        value,
+        cost === null ? null : -cost,
+        undefined,
+        value.category
       );
     });
   }
@@ -242,7 +322,7 @@ export class InventoryRepository {
   reverse(input: ReversalInput, actor: HistoryActor): void {
     const value = reversalSchema.parse(input);
     this.transaction(() => {
-      if (this.duplicate(value.operationId, value, actor)) return;
+      if (this.duplicate(value.operationId, value, actor, 'reversal')) return;
       const movement = this.movements().find((entry) => entry.id === value.movementId);
       if (!movement || movement.kind !== 'consumption')
         throw new InventoryError('Списання не знайдено');
@@ -256,8 +336,45 @@ export class InventoryRepository {
         movement.id,
         value.note,
         actor,
-        value
+        value,
+        movement.costDeltaCents === null ? null : -movement.costDeltaCents,
+        undefined,
+        movement.category
       );
+    });
+  }
+
+  valueOpeningBalance(input: ValuationInput, actor: HistoryActor): void {
+    const value = valuationSchema.parse(input);
+    this.transaction(() => {
+      if (this.duplicate(value.operationId, value, actor, 'valuation')) return;
+      const item = this.item(value.itemId);
+      if (item.archived) throw new InventoryError('Спочатку відновіть позицію з архіву');
+      if (
+        item.valuationRevision !== value.expectedRevision ||
+        item.balanceMilli !== value.expectedBalanceMilli
+      )
+        throw new InventoryError('Залишок змінено. Оновіть сторінку та повторіть оцінювання.');
+      if (item.totalCostCents !== null)
+        throw new InventoryError('Собівартість залишку вже визначена');
+      const totalCostCents = decimalScaled(value.totalAmount, 2);
+      this.db
+        .prepare('INSERT INTO stock_valuation_events VALUES (?,?,?,?,?,?,?,?)')
+        .run(
+          value.operationId,
+          item.id,
+          totalCostCents,
+          item.balanceMilli,
+          value.note,
+          JSON.stringify(actor),
+          new Date().toISOString(),
+          JSON.stringify({ value, actorId: actor.id })
+        );
+      this.db
+        .prepare(
+          'UPDATE stock_item_values SET totalCostCents=?, revision=revision+1 WHERE itemId=?'
+        )
+        .run(totalCostCents, item.id);
     });
   }
 }

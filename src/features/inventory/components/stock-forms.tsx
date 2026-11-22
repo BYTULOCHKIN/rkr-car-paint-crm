@@ -15,9 +15,10 @@ import {
   receiptSchema,
   adjustmentSchema,
   consumptionSchema,
-  reversalSchema
+  reversalSchema,
+  valuationSchema
 } from '../schemas/inventory';
-import { stockQuantity } from '../lib/format';
+import { stockQuantity, materialCategoryOptions } from '../lib/format';
 import { stockUnitOptions } from '../constants/units';
 
 function useFeedback(onSaved: () => void) {
@@ -157,14 +158,63 @@ export function StockOperationForm({
       : kind === 'adjustment'
         ? adjustmentSchema
         : consumptionSchema.omit({ orderId: true });
+  const payload = (value: {
+    itemId: string;
+    operationId: string;
+    quantity: string;
+    note: string;
+    totalAmount: string;
+    currency: 'UAH' | 'EUR';
+    exchangeRate: string;
+    category: 'painting' | 'polishing';
+  }) => {
+    const base = {
+      itemId: value.itemId,
+      operationId: value.operationId,
+      quantity: value.quantity,
+      note: value.note
+    };
+    if (kind === 'consumption') return { ...base, category: value.category };
+    if (kind === 'adjustment' && value.quantity.startsWith('-')) return base;
+    return {
+      ...base,
+      totalAmount: value.totalAmount,
+      currency: value.currency,
+      exchangeRate: value.currency === 'UAH' ? '1' : value.exchangeRate
+    };
+  };
   const form = useAppForm({
-    defaultValues: { itemId: item?.id ?? '', operationId, quantity: '', note: '' },
-    validators: { onSubmit: schema },
+    defaultValues: {
+      itemId: item?.id ?? '',
+      operationId,
+      quantity: '',
+      note: '',
+      totalAmount: '',
+      currency: 'UAH' as 'UAH' | 'EUR',
+      exchangeRate: '',
+      category: 'painting' as 'painting' | 'polishing'
+    },
+    validators: {
+      onSubmit: ({ value }) => {
+        const result = schema.safeParse(payload(value));
+        return result.success
+          ? undefined
+          : {
+              fields: Object.fromEntries(
+                result.error.issues.map((issue) => [issue.path[0], issue.message])
+              )
+            };
+      }
+    },
     onSubmit: async ({ value }) => {
       if (kind === 'consumption' && orderId)
-        await consume.mutateAsync({ ...value, orderId }).catch(() => undefined);
-      else if (kind === 'receipt') await receive.mutateAsync(value).catch(() => undefined);
-      else if (kind === 'adjustment') await adjust.mutateAsync(value).catch(() => undefined);
+        await consume
+          .mutateAsync(consumptionSchema.parse({ ...payload(value), orderId }))
+          .catch(() => undefined);
+      else if (kind === 'receipt')
+        await receive.mutateAsync(receiptSchema.parse(payload(value))).catch(() => undefined);
+      else if (kind === 'adjustment')
+        await adjust.mutateAsync(adjustmentSchema.parse(payload(value))).catch(() => undefined);
     }
   });
   return (
@@ -212,6 +262,64 @@ export function StockOperationForm({
               />
             )}
           </form.AppField>
+          {kind === 'consumption' ? (
+            <form.AppField name='category'>
+              {(field) => (
+                <field.SelectField label='Вид робіт' required options={materialCategoryOptions} />
+              )}
+            </form.AppField>
+          ) : (
+            <form.Subscribe selector={(state) => state.values.quantity}>
+              {(quantity) =>
+                kind === 'adjustment' && quantity.startsWith('-') ? (
+                  <p className='text-muted-foreground text-sm'>
+                    Вартість зменшення визначається за середньою собівартістю залишку.
+                  </p>
+                ) : (
+                  <FieldGroup>
+                    <form.AppField name='totalAmount'>
+                      {(field) => (
+                        <field.TextField
+                          label='Загальна вартість надходження'
+                          required
+                          inputMode='decimal'
+                          description='Сума за всю введену кількість у вибраній валюті, не ціна одиниці.'
+                        />
+                      )}
+                    </form.AppField>
+                    <form.AppField name='currency'>
+                      {(field) => (
+                        <field.SelectField
+                          label='Валюта'
+                          required
+                          options={[
+                            { value: 'UAH', label: 'Гривня (UAH)' },
+                            { value: 'EUR', label: 'Євро (EUR)' }
+                          ]}
+                        />
+                      )}
+                    </form.AppField>
+                    <form.Subscribe selector={(state) => state.values.currency}>
+                      {(currency) =>
+                        currency === 'EUR' && (
+                          <form.AppField name='exchangeRate'>
+                            {(field) => (
+                              <field.TextField
+                                label='Курс закупівлі, грн за 1 €'
+                                required
+                                inputMode='decimal'
+                                description='Курс цієї закупівлі, до 6 знаків після коми.'
+                              />
+                            )}
+                          </form.AppField>
+                        )
+                      }
+                    </form.Subscribe>
+                  </FieldGroup>
+                )
+              }
+            </form.Subscribe>
+          )}
           <form.AppField name='note'>
             {(field) => (
               <field.TextareaField
@@ -227,6 +335,65 @@ export function StockOperationForm({
               : kind === 'adjustment'
                 ? 'Провести коригування'
                 : 'Списати матеріал'}
+          </Button>
+        </FieldGroup>
+      </fieldset>
+    </form>
+  );
+}
+
+export function StockValuationForm({
+  orgId,
+  item,
+  onSaved,
+  onPendingChange
+}: {
+  orgId: string;
+  item: StockItem;
+  onSaved: () => void;
+  onPendingChange?: (pending: boolean) => void;
+}) {
+  const [operationId] = useState(() => crypto.randomUUID());
+  const mutation = useMutation({ ...inventoryMutations.value(orgId), ...useFeedback(onSaved) });
+  usePending(mutation.isPending, onPendingChange);
+  const form = useAppForm({
+    defaultValues: {
+      itemId: item.id,
+      operationId,
+      expectedBalanceMilli: item.balanceMilli,
+      expectedRevision: item.valuationRevision,
+      totalAmount: '',
+      note: ''
+    },
+    validators: { onSubmit: valuationSchema },
+    onSubmit: async ({ value }) => {
+      await mutation.mutateAsync(value).catch(() => undefined);
+    }
+  });
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        void form.handleSubmit();
+      }}
+    >
+      <fieldset disabled={mutation.isPending} className='min-w-0'>
+        <FieldGroup>
+          <p className='text-sm'>
+            {item.name} · Залишок: {stockQuantity(item.balanceMilli)} {item.unit}. Оцінювання
+            визначить вартість поточного залишку. Старі списання залишаться без визначеної вартості.
+          </p>
+          <form.AppField name='totalAmount'>
+            {(field) => (
+              <field.TextField label='Вартість усього залишку, грн' inputMode='decimal' required />
+            )}
+          </form.AppField>
+          <form.AppField name='note'>
+            {(field) => <field.TextareaField label='Підстава оцінювання' required />}
+          </form.AppField>
+          <FormError error={mutation.error} />
+          <Button type='submit' isLoading={mutation.isPending}>
+            Зберегти оцінку
           </Button>
         </FieldGroup>
       </fieldset>

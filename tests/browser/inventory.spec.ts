@@ -14,9 +14,14 @@ test('admin creates a position and receives fractional stock', async ({ page }) 
   await row.getByRole('button', { name: 'Дії з позицією Ґрунт' }).click();
   await page.getByRole('menuitem', { name: 'Надходження', exact: true }).click();
   await dialog.getByRole('textbox', { name: 'Кількість' }).fill('0,250');
+  await dialog.getByRole('textbox', { name: 'Загальна вартість надходження' }).fill('10');
+  await dialog.getByRole('combobox', { name: 'Валюта' }).click();
+  await page.getByRole('option', { name: 'Євро (EUR)', exact: true }).click();
+  await dialog.getByRole('textbox', { name: 'Курс закупівлі, грн за 1 €' }).fill('48,4');
   await dialog.getByRole('button', { name: 'Додати надходження' }).click();
   await expect(dialog).toBeHidden();
   await expect(row).toContainText('0,25 кг');
+  await expect(row).toContainText('484,00');
   await row.getByRole('button', { name: 'Дії з позицією Ґрунт' }).click();
   await page.getByRole('menuitem', { name: 'Коригувати', exact: true }).click();
   await dialog.getByRole('textbox', { name: 'Зміна залишку' }).fill('-0,050');
@@ -24,6 +29,7 @@ test('admin creates a position and receives fractional stock', async ({ page }) 
   await dialog.getByRole('button', { name: 'Провести коригування' }).click();
   await expect(dialog).toBeHidden();
   await expect(row).toContainText('0,2 кг');
+  await expect(row).toContainText('387,20');
   await row.getByRole('button', { name: 'Дії з позицією Ґрунт' }).click();
   await page.getByRole('menuitem', { name: 'В архів', exact: true }).click();
   await expect(row).toBeHidden();
@@ -49,6 +55,7 @@ test('order consumption validates remaining stock and cancellation preserves his
   await materials.getByRole('textbox', { name: 'Кількість' }).fill('0,250');
   await materials.getByRole('button', { name: 'Списати матеріал' }).click();
   await expect(materials.getByText('Фарба — 0,25 л', { exact: true })).toBeVisible();
+  await expect(materials).toContainText('Собівартість матеріалів: 250,00');
   await materials.getByRole('button', { name: 'Скасувати списання' }).click();
   await materials.getByRole('textbox', { name: 'Причина скасування' }).fill('Помилковий матеріал');
   await materials.getByRole('button', { name: 'Підтвердити скасування' }).click();
@@ -60,6 +67,23 @@ test('order consumption validates remaining stock and cancellation preserves his
       .getByRole('dialog')
       .evaluate((element) => element.scrollWidth <= element.clientWidth + 1)
   ).toBe(true);
+});
+
+test('legacy balance is valued explicitly with an audit entry', async ({ page }) => {
+  await page.goto('/dashboard/inventory');
+  const row = page.getByRole('row').filter({ hasText: 'Лак (старий залишок)' });
+  await expect(row).toContainText('Не визначена');
+  await row.getByRole('button', { name: 'Дії з позицією Лак (старий залишок)' }).click();
+  await page.getByRole('menuitem', { name: 'Оцінити залишок', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox', { name: 'Вартість усього залишку, грн' }).fill('2000');
+  await dialog.getByRole('textbox', { name: 'Підстава оцінювання' }).fill('Звірено за накладною');
+  await dialog.getByRole('button', { name: 'Зберегти оцінку' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(row).toContainText('2\u00a0000,00');
+  await expect(page.getByRole('list', { name: 'Історія складських операцій' })).toContainText(
+    'Звірено за накладною'
+  );
 });
 
 test('worker can inspect stock with no write controls', async ({ page }) => {

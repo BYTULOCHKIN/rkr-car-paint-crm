@@ -44,7 +44,15 @@ function order(repository: CrmRepository): string {
   return id;
 }
 function receive(repository: CrmRepository, itemId: string, quantity = '1') {
-  const input = { itemId, quantity, operationId: randomUUID(), note: '' };
+  const input = {
+    itemId,
+    quantity,
+    operationId: randomUUID(),
+    note: '',
+    totalAmount: '100',
+    currency: 'UAH' as const,
+    exchangeRate: '1'
+  };
   repository.inventory.receive(input, actor);
   return input;
 }

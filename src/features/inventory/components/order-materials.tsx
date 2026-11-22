@@ -10,6 +10,12 @@ import { StockOperationForm, StockReversalForm } from './stock-forms';
 import { MovementHistory } from './movement-history';
 import type { StockMovement } from '../api/types';
 import { stockQuantity } from '../lib/format';
+import { orderMaterialCosts } from '../lib/order-costs';
+import { money } from '@/features/crm/lib/format';
+
+function costLabel(amount: number | null): string {
+  return amount === null ? 'Не визначена' : money(amount);
+}
 
 function Materials({
   order,
@@ -30,6 +36,7 @@ function Materials({
   const [reversing, setReversing] = useState<StockMovement | null>(null);
   const movements = data.movements.filter((movement) => movement.orderId === order.id);
   const admin = access.role === 'admin' && data.access.role === 'admin';
+  const costs = orderMaterialCosts(movements, order.id);
   const totals = new Map<string, { name: string; unit: string; quantity: number }>();
   for (const movement of movements) {
     const entry = totals.get(movement.itemId) ?? {
@@ -49,6 +56,16 @@ function Materials({
       <p className='text-muted-foreground text-sm'>
         Внутрішні витрати. Не змінюють суму замовлення та не потрапляють у PDF.
       </p>
+      <p className='text-sm'>Собівартість матеріалів: {costLabel(costs.totalCents)}</p>
+      <p className='text-muted-foreground text-sm'>
+        Малярні роботи: {costLabel(costs.paintingCents)} · Полірування:{' '}
+        {costLabel(costs.polishingCents)}
+      </p>
+      {(costs.unallocatedCents === null || costs.unallocatedCents > 0) && (
+        <p className='text-muted-foreground text-sm'>
+          Без визначеного виду робіт: {costLabel(costs.unallocatedCents)}
+        </p>
+      )}
       {[...totals]
         .filter(([, entry]) => entry.quantity > 0)
         .map(([id, entry]) => (

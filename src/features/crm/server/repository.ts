@@ -25,6 +25,7 @@ import type {
 import { businessToday } from '../lib/workflow';
 import { paintPlanSchema, workflowSchema } from '../schemas/crm';
 import { InventoryRepository, inventoryTables } from '@/features/inventory/server/repository';
+import { migrateStockValuation } from '@/features/inventory/server/valuation-migration';
 import { migrateCustomerContacts, replaceCustomerContacts } from './customer-contacts';
 import { customerSchema, updateCustomerSchema, type UpdateCustomerInput } from '../schemas/crm';
 import type { CustomerContact } from '../api/types';
@@ -193,6 +194,11 @@ export class CrmRepository {
       this.transaction(() => {
         migrateCustomerContacts(this.db);
         this.db.exec('PRAGMA user_version=12');
+      });
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 13)
+      this.transaction(() => {
+        migrateStockValuation(this.db);
+        this.db.exec('PRAGMA user_version=13');
       });
     this.payments = new PaymentRepository(this.db);
     this.inventory = new InventoryRepository(this.db);

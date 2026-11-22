@@ -8,7 +8,8 @@ import {
   receiveStock,
   adjustStock,
   consumeStock,
-  reverseConsumption
+  reverseConsumption,
+  valueStockBalance
 } from './service';
 
 function unwrap<T>(result: ActionResult<T>): T {
@@ -27,6 +28,11 @@ export const inventoryQueries = {
     })
 };
 export const inventoryMutations = {
+  value: (orgId: string) =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof valueStockBalance>[1]) =>
+        unwrap(await valueStockBalance(orgId, input))
+    }),
   create: (orgId: string) =>
     mutationOptions({
       mutationFn: async (input: Parameters<typeof createStockItem>[1]) =>

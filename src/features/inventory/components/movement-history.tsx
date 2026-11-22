@@ -2,6 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import type { StockMovement } from '../api/types';
 import { movementLabels, stockQuantity } from '../lib/format';
+import { money } from '@/features/crm/lib/format';
 
 export function MovementHistory({
   movements,
@@ -22,10 +23,38 @@ export function MovementHistory({
               <strong className='break-words'>{movement.itemName}</strong>
             </div>
             <span className='font-medium tabular-nums'>
-              {movement.deltaMilli > 0 ? '+' : ''}
-              {stockQuantity(movement.deltaMilli)} {movement.unit}
+              {movement.kind === 'valuation' ? (
+                'Кількість не змінена'
+              ) : (
+                <>
+                  {movement.deltaMilli > 0 ? '+' : ''}
+                  {stockQuantity(movement.deltaMilli)} {movement.unit}
+                </>
+              )}
             </span>
           </div>
+          {movement.kind === 'valuation' ? (
+            <p>
+              Вартість залишку: {money(movement.valuationTotalCents!)}. Історичні списання не
+              переоцінені.
+            </p>
+          ) : (
+            <p>
+              Вартість операції:{' '}
+              {movement.costDeltaCents === null ? 'Не визначена' : money(movement.costDeltaCents)}
+              {movement.category &&
+                ` · ${movement.category === 'painting' ? 'Малярні роботи' : 'Полірування'}`}
+            </p>
+          )}
+          {movement.currency &&
+            movement.purchaseAmountMinor !== null &&
+            movement.exchangeRateMicros !== null && (
+              <p className='text-muted-foreground'>
+                Закупівля: {(movement.purchaseAmountMinor / 100).toFixed(2)} {movement.currency}
+                {movement.currency === 'EUR' &&
+                  ` · Курс: ${movement.exchangeRateMicros / 1000000} грн/€`}
+              </p>
+            )}
           <p className='text-muted-foreground'>
             {new Intl.DateTimeFormat('uk-UA', {
               dateStyle: 'short',

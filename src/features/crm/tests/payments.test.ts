@@ -184,7 +184,15 @@ test('v10 migration preserves linked stock, order history and numbering gaps', (
     const before = repository.workspace();
     const itemId = repository.inventory.createItem({ name: 'Фарба', unit: 'л', notes: '' });
     repository.inventory.receive(
-      { itemId, quantity: '1', operationId: randomUUID(), note: '' },
+      {
+        itemId,
+        quantity: '1',
+        operationId: randomUUID(),
+        note: '',
+        totalAmount: '100',
+        currency: 'UAH',
+        exchangeRate: '1'
+      },
       actor
     );
     repository.inventory.consume(

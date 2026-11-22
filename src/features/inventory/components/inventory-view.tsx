@@ -27,12 +27,19 @@ import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/u
 import { inventoryQueries, inventoryMutations } from '../api/queries';
 import type { StockItem, StockMovement } from '../api/types';
 import { stockQuantity } from '../lib/format';
-import { StockItemForm, StockOperationForm, StockReversalForm } from './stock-forms';
+import { money } from '@/features/crm/lib/format';
+import { roundedRatio } from '@/features/order-economics/lib/integers';
+import {
+  StockItemForm,
+  StockOperationForm,
+  StockReversalForm,
+  StockValuationForm
+} from './stock-forms';
 import { MovementHistory } from './movement-history';
 
 type Editor =
   | { kind: 'create' }
-  | { kind: 'edit' | 'receipt' | 'adjustment' | 'history'; item: StockItem }
+  | { kind: 'edit' | 'receipt' | 'adjustment' | 'history' | 'valuation'; item: StockItem }
   | { kind: 'reversal'; movement: StockMovement };
 
 export function InventoryView({ userId, orgId }: { userId: string; orgId: string }) {
@@ -86,6 +93,8 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
             <TableRow>
               <TableHead>Позиція</TableHead>
               <TableHead>Залишок</TableHead>
+              <TableHead>Вартість залишку</TableHead>
+              <TableHead>Середня за одиницю</TableHead>
               <TableHead>Дії</TableHead>
             </TableRow>
           </TableHeader>
@@ -104,6 +113,16 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
                 <TableCell className='tabular-nums'>
                   {stockQuantity(item.balanceMilli)} {item.unit}
                 </TableCell>
+                <TableCell className='tabular-nums'>
+                  {item.totalCostCents === null ? 'Не визначена' : money(item.totalCostCents)}
+                </TableCell>
+                <TableCell className='tabular-nums'>
+                  {item.totalCostCents === null
+                    ? 'Не визначена'
+                    : item.balanceMilli === 0
+                      ? '—'
+                      : `${money(roundedRatio(BigInt(item.totalCostCents) * BigInt(1000), BigInt(item.balanceMilli)))} / ${item.unit}`}
+                </TableCell>
                 <TableCell>
                   <RowActions
                     label={`Дії з позицією ${item.name}`}
@@ -117,6 +136,15 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
                         ? [
                             ...(!item.archived
                               ? [
+                                  ...(item.totalCostCents === null && item.balanceMilli > 0
+                                    ? [
+                                        {
+                                          label: 'Оцінити залишок',
+                                          icon: 'edit' as const,
+                                          onClick: () => setEditor({ kind: 'valuation', item })
+                                        }
+                                      ]
+                                    : []),
                                   {
                                     label: 'Надходження',
                                     icon: 'add' as const,
@@ -191,12 +219,14 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
                     ? 'Надходження на склад'
                     : editor?.kind === 'adjustment'
                       ? 'Коригування залишку'
-                      : editor?.kind === 'reversal'
-                        ? 'Скасування списання'
-                        : 'Історія позиції'}
+                      : editor?.kind === 'valuation'
+                        ? 'Оцінювання залишку'
+                        : editor?.kind === 'reversal'
+                          ? 'Скасування списання'
+                          : 'Історія позиції'}
             </DialogTitle>
             <DialogDescription>
-              Внутрішній кількісний облік матеріалів автомалярки.
+              Внутрішній облік кількості та собівартості матеріалів автомалярки.
             </DialogDescription>
           </DialogHeader>
           {editor?.kind === 'create' && (
@@ -208,6 +238,15 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
           )}
           {editor?.kind === 'edit' && (
             <StockItemForm
+              orgId={orgId}
+              item={editor.item}
+              onPendingChange={setPending}
+              onSaved={() => setEditor(null)}
+            />
+          )}
+          {editor?.kind === 'valuation' && (
+            <StockValuationForm
+              key={editor.item.id}
               orgId={orgId}
               item={editor.item}
               onPendingChange={setPending}

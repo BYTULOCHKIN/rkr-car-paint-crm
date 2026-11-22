@@ -23,7 +23,8 @@ import {
   receiveStock,
   adjustStock,
   consumeStock,
-  reverseConsumption
+  reverseConsumption,
+  valueStockBalance
 } from '@/features/inventory/api/service';
 
 vi.mock('server-only', () => ({}));
@@ -51,7 +52,8 @@ const repository = {
     receive: vi.fn(),
     adjust: vi.fn(),
     consume: vi.fn(),
-    reverse: vi.fn()
+    reverse: vi.fn(),
+    valueOpeningBalance: vi.fn()
   },
   workspace: vi.fn(() => workspace),
   addVehicleModel: vi.fn(() => '001'),
@@ -71,6 +73,9 @@ test('inventory writes reject workers and stale organizations; actors come from 
   const value = {
     itemId: '00000000-0000-4000-8000-000000000001',
     quantity: '1',
+    totalAmount: '100',
+    currency: 'UAH' as const,
+    exchangeRate: '1',
     operationId: '00000000-0000-4000-8000-000000000002',
     note: ''
   };
@@ -88,6 +93,14 @@ test('inventory writes reject workers and stale organizations; actors come from 
     await createStockItem(org, { name: 'Фарба', unit: 'л', notes: '' }),
     await updateStockItem(org, { id: value.itemId, name: 'Фарба', unit: 'л', notes: '' }),
     await archiveStockItem(org, { id: value.itemId, archived: true }),
+    await valueStockBalance(org, {
+      itemId: value.itemId,
+      operationId: value.operationId,
+      expectedBalanceMilli: 1000,
+      expectedRevision: 0,
+      totalAmount: '100',
+      note: 'Оцінка'
+    }),
     await receiveStock(org, value),
     await adjustStock(org, value),
     await consumeStock(org, { ...value, orderId: value.itemId }),
@@ -99,6 +112,7 @@ test('inventory writes reject workers and stale organizations; actors come from 
   ])
     expect(result.ok).toBe(false);
   expect(repository.inventory.consume).not.toHaveBeenCalled();
+  expect(repository.inventory.valueOpeningBalance).not.toHaveBeenCalled();
   await expect(getInventory('org_B')).rejects.toThrow('Автомалярку змінено');
   memberships.mockResolvedValue({
     totalCount: 1,
