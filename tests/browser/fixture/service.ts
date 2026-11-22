@@ -6,6 +6,7 @@ import { detailedCheckItems } from '@/features/order-economics/lib/details';
 import { previewDetailedEconomics } from '@/features/order-economics/lib/details';
 import { paymentDelta } from '@/features/crm/lib/payment-balance';
 export { refundPayment } from './finance-service';
+import { postReadyFixture } from './finance-service';
 import type { CrmWorkspace, TeamMember, Vehicle } from '@/features/crm/api/types';
 import type {
   CustomerInput,
@@ -21,6 +22,10 @@ const longDescription =
 const data: CrmWorkspace = { customers: [], vehicles: [], requests: [], orders: [], events: [] };
 export function financeFixtureData(): CrmWorkspace {
   return data;
+}
+export function persistFlowFixture(): void {
+  if (new URLSearchParams(location.search).has('flowDemo'))
+    sessionStorage.setItem('workshop-flow', JSON.stringify(data));
 }
 for (let index = 1; index <= 24; index++) {
   data.customers.push({
@@ -109,6 +114,21 @@ if (location.pathname.endsWith('/overview')) {
 let initializedCreatedDemo = false;
 let initializedEconomicsDemo = false;
 let initializedFinanceDemo = false;
+if (new URLSearchParams(location.search).has('flowDemo')) {
+  const saved = sessionStorage.getItem('workshop-flow');
+  if (saved) {
+    Object.assign(data, JSON.parse(saved));
+    initializedEconomicsDemo = true;
+    initializedFinanceDemo = true;
+  }
+  data.finance ??= {
+    defaultShareBps: 6000,
+    settingsRevision: 0,
+    inventoryRevision: '0'.repeat(64),
+    postings: [],
+    events: []
+  };
+}
 export async function saveOrderEconomics(input: SaveEconomicsInput) {
   const workspace = await getWorkspace();
   const order = data.orders.find((entry) => entry.id === input.orderId);
@@ -131,6 +151,7 @@ export async function saveOrderEconomics(input: SaveEconomicsInput) {
     0
   );
   order.workflowRevision = (order.workflowRevision ?? 0) + 1;
+  persistFlowFixture();
   return { ok: true as const, data: undefined };
 }
 export async function getWorkspace() {
@@ -467,6 +488,10 @@ export async function advanceOrder(input: AdvanceOrderInput) {
   if (!order) return { ok: false as const, error: 'Замовлення не знайдено' };
   const next = executorTransition(order, input);
   if (!next.ok) return next;
+  if (next.data.status === 'ready' && data.finance && order.economics) {
+    const posted = await postReadyFixture(order);
+    if (!posted.ok) return posted;
+  }
   Object.assign(order, {
     status: next.data.status,
     actualIntakeDate: next.data.actualIntakeDate || null,
@@ -474,6 +499,7 @@ export async function advanceOrder(input: AdvanceOrderInput) {
     actualDeliveryDate: next.data.actualDeliveryDate || null,
     workflowRevision: (order.workflowRevision ?? 0) + 1
   });
+  persistFlowFixture();
   return { ok: true as const, data: null };
 }
 

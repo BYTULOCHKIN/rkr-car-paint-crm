@@ -1,5 +1,9 @@
 import { advanceOrder, updateWorkflow } from '../api/service';
 import { saveOrderEconomics } from '@/features/order-economics/api/service';
+import { getPeriodReport } from '@/features/workshop-reports/api/service';
+import { reportQueries } from '@/features/workshop-reports/api/queries';
+import { reportFixture } from '@/features/workshop-reports/tests/fixtures';
+import type { StockMovement } from '@/features/inventory/api/types';
 import {
   recordSettlement,
   reverseSettlement,
@@ -78,6 +82,7 @@ const repository = {
     valueOpeningBalance: vi.fn()
   },
   workspace: vi.fn(() => workspace),
+  reportSnapshot: vi.fn<() => { workspace: CrmWorkspace; movements: StockMovement[] }>(),
   addVehicleModel: vi.fn(() => '001'),
   vehicleModels: vi.fn(() => [
     { make: 'ZEEKR', model: '001' },
@@ -160,6 +165,10 @@ test('inventory writes reject workers and stale organizations; actors come from 
 beforeEach(() => {
   vi.clearAllMocks();
   repository.workspace.mockReturnValue(workspace);
+  repository.reportSnapshot.mockImplementation(() => ({
+    workspace: repository.workspace(),
+    movements: repository.inventory.movements()
+  }));
   vi.mocked(getOrganizationRepository).mockReturnValue(
     repository as unknown as ReturnType<typeof getOrganizationRepository>
   );
@@ -730,4 +739,36 @@ test('workers receive only their cash journal while administrators receive all p
   });
   expect((await getWorkspace()).finance!.events.map((event) => event.id)).toEqual(['own']);
   expect(repository.workspace().finance!.events).toHaveLength(3);
+});
+
+test('report service verifies current organization, strict filters and scopes workers on the server', async () => {
+  const filters = { from: '2026-11-01', to: '2026-11-30', orderDate: 'ready' as const };
+  repository.reportSnapshot.mockReturnValue(reportFixture());
+  await expect(getPeriodReport('org_B', filters)).rejects.toThrow('Автомалярку змінено');
+  expect(repository.reportSnapshot).not.toHaveBeenCalled();
+  expect((await getPeriodReport('org_A', filters)).economics!.checkCents).toBe(1800000);
+  await expect(getPeriodReport('org_A', { ...filters, from: '2026-02-30' })).rejects.toThrow();
+  await expect(
+    getPeriodReport('org_A', { ...filters, workerId: 'q' } as typeof filters)
+  ).rejects.toThrow();
+  vi.mocked(auth).mockResolvedValue({ userId: 'p', orgId: 'org_A' } as unknown as Awaited<
+    ReturnType<typeof auth>
+  >);
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [{ role: 'org:member', publicUserData: { userId: 'p', firstName: 'Маляр' } }]
+  });
+  const result = await getPeriodReport('org_A', filters);
+  expect(result.access.role).toBe('worker');
+  expect(result.economics).toBeNull();
+  expect(result.cash).toBeNull();
+  expect(result.materials.rows).toEqual([]);
+  expect(result.settlements.payees.map((row) => row.payee.id)).toEqual(['p']);
+  expect(JSON.stringify(result)).not.toContain('Полірувальник');
+  expect(reportQueries.period('p', 'org_A', filters).queryKey).not.toEqual(
+    reportQueries.period('p', 'org_B', filters).queryKey
+  );
+  expect(reportQueries.period('p', 'org_A', filters).queryKey).not.toEqual(
+    reportQueries.period('p', 'org_A', { ...filters, to: '2026-12-31' }).queryKey
+  );
 });

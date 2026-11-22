@@ -26,6 +26,7 @@ import { businessToday } from '../lib/workflow';
 import { paymentDelta } from '../lib/payment-balance';
 import { paintPlanSchema, workflowSchema } from '../schemas/crm';
 import { InventoryRepository, inventoryTables } from '@/features/inventory/server/repository';
+import type { StockMovement } from '@/features/inventory/api/types';
 import { migrateStockValuation } from '@/features/inventory/server/valuation-migration';
 import { migrateOrderEconomics } from '@/features/order-economics/server/migration';
 import { migrateFinance } from '@/features/order-economics/server/finance-migration';
@@ -478,6 +479,13 @@ export class CrmRepository {
       payments: this.payments.list(),
       finance: this.financeWorkspace()
     };
+  }
+
+  reportSnapshot(): { workspace: CrmWorkspace; movements: StockMovement[] } {
+    return this.transaction(() => ({
+      workspace: this.workspace(),
+      movements: this.inventory.movements()
+    }));
   }
 
   financeWorkspace(): FinanceWorkspace {

@@ -48,6 +48,11 @@ export default defineConfig({
       },
       resolveId(source, importer) {
         if (
+          importer?.replaceAll('\\', '/').includes('/features/workshop-reports/api/queries') &&
+          source === './service'
+        )
+          return `${root}/tests/browser/fixture/report-service.ts`;
+        if (
           source === '@clerk/nextjs' &&
           ['/components/layout/app-sidebar', '/components/org-switcher', '/hooks/use-nav'].some(
             (part) => importer?.replaceAll('\\', '/').includes(part)

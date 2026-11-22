@@ -1,4 +1,5 @@
-import { financeFixtureData, getWorkspace } from './service';
+import { financeFixtureData, getWorkspace, persistFlowFixture } from './service';
+import type { RepairOrder } from '@/features/crm/api/types';
 import { getInventory, saveInventoryFixture } from './inventory-service';
 import type {
   CorrectionInput,
@@ -49,6 +50,7 @@ export async function recordSettlement(input: CashSettlementInput) {
     actor: { id: 'user_owner', name: 'Олена' },
     createdAt: new Date().toISOString()
   });
+  persistFlowFixture();
   return { ok: true as const, data: undefined };
 }
 export async function reverseSettlement(input: ReverseSettlementInput) {
@@ -208,10 +210,67 @@ export async function applyFinancialCorrection(input: CorrectionInput) {
     order.totalCents = posting.result.checkCents;
     order.workflowRevision = (order.workflowRevision ?? 0) + 1;
     saveInventoryFixture(stock);
+    persistFlowFixture();
     return { ok: true as const, data: posting };
   } catch (error) {
     return { ok: false as const, error: (error as Error).message };
   }
+}
+
+export async function postReadyFixture(order: RepairOrder) {
+  const finance = financeFixtureData().finance!;
+  if (finance.postings.some((posting) => posting.orderId === order.id))
+    return { ok: true as const };
+  const costs = orderMaterialCosts((await getInventory()).movements, order.id);
+  const preview = previewDetailedEconomics(order.economics!, costs);
+  if (!preview.result || preview.issues.length)
+    return { ok: false as const, error: preview.issues.join(' ') };
+  const allocations: PayeeAccrual[] = [];
+  for (const [role, amountCents] of [
+    ['painter', preview.result.painterAccrualCents],
+    ['polisher', preview.result.polisherAccrualCents],
+    ['assembler', preview.result.assemblerAccrualCents]
+  ] as const) {
+    const details = order.economics!;
+    if (details[`${role}Id`])
+      allocations.push({
+        payee: {
+          kind: 'worker',
+          id: details[`${role}Id`],
+          name: details[`${role}Name`] || 'Працівник'
+        },
+        amountCents
+      });
+  }
+  const posting: EconomicsPosting = {
+    id: crypto.randomUUID(),
+    operationId: crypto.randomUUID(),
+    orderId: order.id,
+    revision: 1,
+    kind: 'initial',
+    details: order.economics!,
+    costs: costs as EconomicsPosting['costs'],
+    result: preview.result,
+    allocations: aggregateAccruals(allocations),
+    note: 'Готовність авто',
+    actor: { id: 'user_worker', name: 'Маляр Андрій' },
+    createdAt: new Date().toISOString()
+  };
+  finance.postings.push(posting);
+  for (const entry of posting.allocations)
+    finance.events.push({
+      id: crypto.randomUUID(),
+      orderId: order.id,
+      payee: entry.payee,
+      kind: 'accrual',
+      amountCents: entry.amountCents,
+      postingId: posting.id,
+      reversalOf: null,
+      note: posting.note,
+      actor: posting.actor,
+      createdAt: posting.createdAt
+    });
+  return { ok: true as const };
 }
 export async function refundPayment(
   _orgId: string,

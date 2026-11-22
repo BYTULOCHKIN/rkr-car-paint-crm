@@ -18,7 +18,7 @@
     "format": "oxfmt --write . '!**/*.md' '!**/*.mdc' '!**/*.mdx' '!**/*.yml' '!**/*.yaml'",
     "format:check": "oxfmt --check . '!**/*.md' '!**/*.mdc' '!**/*.mdx' '!**/*.yml' '!**/*.yaml'",
     "prepare": "husky",
-    "test:crm": "tsx --test src/features/crm/tests/*.test.ts src/features/overview/tests/*.test.ts src/features/order-economics/tests/*.test.ts",
+    "test:crm": "node --import tsx --test src/features/crm/tests/*.test.ts src/features/overview/tests/*.test.ts src/features/order-economics/tests/*.test.ts src/features/workshop-reports/tests/*.test.ts",
     "test:economics": "node --import tsx --test src/features/order-economics/tests/*.test.ts",
     "crm:demo": "node --import tsx scripts/crm-demo.ts",
     "test:crm:ui": "vitest run",

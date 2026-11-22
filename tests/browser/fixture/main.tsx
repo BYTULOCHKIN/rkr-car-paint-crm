@@ -6,6 +6,7 @@ const UsersTable = lazy(() =>
   }))
 );
 import { InventoryView } from '@/features/inventory/components/inventory-view';
+import { ReportView } from '@/features/workshop-reports/components/report-view';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NuqsAdapter } from 'nuqs/adapters/react';
@@ -46,6 +47,7 @@ const route = location.pathname.split('/').pop() ?? 'clients';
 const titles: Record<string, string> = {
   users: 'Користувачі',
   inventory: 'Склад',
+  reports: 'Зведення за період',
   team: 'Команда',
   overview: 'Огляд автомалярки',
   kanban: 'Дошка робіт',
@@ -104,6 +106,13 @@ createRoot(document.getElementById('root')!).render(
                       <Suspense fallback={<p>Завантаження користувачів…</p>}>
                         <UsersTable />
                       </Suspense>
+                    ) : route === 'reports' ? (
+                      <ReportView
+                        userId='browser-test'
+                        orgId='org_test'
+                        initialToday={businessToday()}
+                        workerView={new URLSearchParams(location.search).get('role') === 'worker'}
+                      />
                     ) : route === 'inventory' ? (
                       <InventoryView userId='browser-test' orgId='org_test' />
                     ) : route === 'team' ? (

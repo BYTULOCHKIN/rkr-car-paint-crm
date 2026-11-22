@@ -64,6 +64,13 @@ export const navGroups: NavGroup[] = [
       },
       { title: 'Замовлення', url: '/dashboard/orders', icon: 'orders', items: [] },
       {
+        title: 'Зведення за період',
+        url: '/dashboard/reports',
+        icon: 'trendingUp',
+        items: [],
+        access: { requireOrg: true }
+      },
+      {
         title: 'Склад',
         url: '/dashboard/inventory',
         icon: 'inventory',
