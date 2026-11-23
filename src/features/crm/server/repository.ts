@@ -25,7 +25,11 @@ import type {
 import { businessToday } from '../lib/workflow';
 import { paymentDelta } from '../lib/payment-balance';
 import { paintPlanSchema, workflowSchema } from '../schemas/crm';
-import { InventoryRepository, inventoryTables } from '@/features/inventory/server/repository';
+import {
+  InventoryRepository,
+  inventoryTables,
+  consumptionBatchTable
+} from '@/features/inventory/server/repository';
 import type { StockMovement } from '@/features/inventory/api/types';
 import { migrateStockValuation } from '@/features/inventory/server/valuation-migration';
 import { migrateOrderEconomics } from '@/features/order-economics/server/migration';
@@ -53,6 +57,7 @@ import { migrateCustomerContacts, replaceCustomerContacts } from './customer-con
 import { customerSchema, updateCustomerSchema, type UpdateCustomerInput } from '../schemas/crm';
 import type { CustomerContact } from '../api/types';
 import { PaymentRepository, migrateCreatedStatus } from './payments';
+import { migrateThreeStatuses } from './workflow-migration';
 import { vehicleModelSchema, type VehicleModelInput } from '../schemas/vehicle-model';
 
 export class CrmError extends Error {}
@@ -234,6 +239,10 @@ export class CrmRepository {
         migrateFinance(this.db);
         this.db.exec('PRAGMA user_version=15');
       });
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 16)
+      this.transaction(() => this.db.exec(`${consumptionBatchTable} PRAGMA user_version=16;`));
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 17)
+      migrateThreeStatuses(this.db);
     this.payments = new PaymentRepository(this.db);
     this.inventory = new InventoryRepository(this.db);
     this.settlements = new SettlementRepository(this.db);
@@ -1011,7 +1020,7 @@ export class CrmRepository {
         throw new EconomicsError(
           'Дані розрахунку або складу змінилися. Оновіть замовлення та повторіть перегляд.'
         );
-      if (!prior && order.status !== 'ready' && order.status !== 'delivered')
+      if (!prior && order.status !== 'ready')
         throw new EconomicsError('Початкове нарахування виникає при готовності авто');
       this.db.exec('SAVEPOINT financial_correction');
       try {
@@ -1128,6 +1137,13 @@ export class CrmRepository {
       const actualChanges: ActualDateChange[] = [];
       if (value.kind === 'order') {
         const currentOrder = current as RepairOrder;
+        if (
+          value.actualDeliveryDate &&
+          value.actualDeliveryDate !== currentOrder.actualDeliveryDate
+        )
+          throw new CrmError(
+            'Дата видачі збережена лише для історичних замовлень. Завершуйте роботу статусом «Готово».'
+          );
         for (const field of [
           'actualIntakeDate',
           'actualReadyDate',
@@ -1149,11 +1165,7 @@ export class CrmRepository {
         (current.plannedDeliveryDate || '') !== value.plannedDeliveryDate;
       if (currentStatus === value.status && !planChanged && !actualChanges.length && !value.note)
         return;
-      if (
-        value.kind === 'order' &&
-        (value.status === 'ready' || value.status === 'delivered') &&
-        currentStatus !== value.status
-      ) {
+      if (value.kind === 'order' && value.status === 'ready' && currentStatus !== value.status) {
         const order = this.workspace().orders.find((order) => order.id === value.id)!;
         this.settlements.onReady(
           order,
@@ -1205,12 +1217,12 @@ const globalDb = globalThis as typeof globalThis & {
 export function getCrmRepository(): CrmRepository {
   if (
     globalDb.crmRepository &&
-    (globalDb.crmSchemaVersion !== 15 || !(globalDb.crmRepository instanceof CrmRepository))
+    (globalDb.crmSchemaVersion !== 17 || !(globalDb.crmRepository instanceof CrmRepository))
   ) {
     globalDb.crmRepository.close();
     globalDb.crmRepository = undefined;
   }
-  globalDb.crmSchemaVersion = 15;
+  globalDb.crmSchemaVersion = 17;
   return (globalDb.crmRepository ??= new CrmRepository(
     process.env.CRM_DATABASE_PATH || resolve('data/crm.sqlite')
   ));
@@ -1253,6 +1265,7 @@ const orgRegistry = globalThis as typeof globalThis & {
   crmOrganizations?: {
     filename: string;
     configuredAdmin?: string;
+    schemaVersion?: number;
     repositories: OrganizationRepositories;
   };
 };
@@ -1266,6 +1279,7 @@ export function getOrganizationRepository(
   const cached = orgRegistry.crmOrganizations;
   if (
     !cached ||
+    cached.schemaVersion !== 17 ||
     cached.filename !== filename ||
     cached.configuredAdmin !== configuredAdmin ||
     !(cached.repositories instanceof OrganizationRepositories)
@@ -1274,6 +1288,7 @@ export function getOrganizationRepository(
     orgRegistry.crmOrganizations = {
       filename,
       configuredAdmin,
+      schemaVersion: 17,
       repositories: new OrganizationRepositories(filename, configuredAdmin)
     };
   }

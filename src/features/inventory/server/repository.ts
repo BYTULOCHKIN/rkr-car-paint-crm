@@ -11,6 +11,7 @@ import {
   receiptSchema,
   adjustmentSchema,
   consumptionSchema,
+  batchConsumptionSchema,
   reversalSchema,
   quantityMilli,
   decimalScaled,
@@ -22,6 +23,7 @@ import type {
   ReceiptInput,
   AdjustmentInput,
   ConsumptionInput,
+  BatchConsumptionInput,
   ReversalInput,
   ValuationInput
 } from '../schemas/inventory';
@@ -43,6 +45,15 @@ export const inventoryTables = `
   );
   CREATE INDEX IF NOT EXISTS stock_movements_item ON stock_movements(itemId);
   CREATE INDEX IF NOT EXISTS stock_movements_order ON stock_movements(orderId);
+`;
+
+export const consumptionBatchTable = `
+  CREATE TABLE IF NOT EXISTS stock_consumption_batches (
+    id TEXT PRIMARY KEY,
+    orderId TEXT NOT NULL REFERENCES crm_orders(id),
+    fingerprint TEXT NOT NULL,
+    createdAt TEXT NOT NULL
+  );
 `;
 
 export class InventoryRepository {
@@ -291,6 +302,30 @@ export class InventoryRepository {
         cost === null ? null : delta > 0 ? cost : -cost,
         delta > 0 ? value : undefined
       );
+    });
+  }
+
+  consumeBatch(input: BatchConsumptionInput, actor: HistoryActor): void {
+    const value = batchConsumptionSchema.parse(input);
+    const fingerprint = JSON.stringify({ value, actor });
+    this.transaction(() => {
+      const existing = this.db
+        .prepare('SELECT fingerprint FROM stock_consumption_batches WHERE id=?')
+        .get(value.operationId);
+      if (existing) {
+        if (existing.fingerprint !== fingerprint)
+          throw new InventoryError(
+            'Це збереження вже виконано з іншими даними. Відкрийте нову форму списання.'
+          );
+        return;
+      }
+      for (const row of value.rows)
+        this.consume({ ...row, orderId: value.orderId, operationId: randomUUID() }, actor);
+      this.db
+        .prepare(
+          'INSERT INTO stock_consumption_batches(id,orderId,fingerprint,createdAt) VALUES (?,?,?,?)'
+        )
+        .run(value.operationId, value.orderId, fingerprint, new Date().toISOString());
     });
   }
 

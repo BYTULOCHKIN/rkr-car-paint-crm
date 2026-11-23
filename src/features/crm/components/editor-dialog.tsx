@@ -1,10 +1,6 @@
 'use client';
 
 import { ExecutorAdvance } from './executor-advance';
-import { OrderPayments } from './order-payments';
-import { OrderMaterials } from '@/features/inventory/components/order-materials';
-import { OrderEconomicsPanel } from '@/features/order-economics/components/economics-panel';
-import { OrderReadView } from './order-read-view';
 import { useEffect, useId, useMemo, useState } from 'react';
 import {
   Dialog,
@@ -33,15 +29,17 @@ import type {
   WorkflowRecord,
   BoardStatus
 } from '../api/types';
-import { CustomerForm, VehicleForm, VinForm, RequestForm, OrderForm } from './forms';
+import { CustomerForm, VehicleForm, VinForm, RequestForm } from './forms';
 import { Button } from './action-button';
 import type { FormState } from './form-status';
 import { WorkflowForm } from './workflow-form';
 import { WorkflowDates, WorkflowHistory } from './workflow-details';
 import { VehicleOwnerForm } from './vehicle-owner-form';
 import { VehicleDetails, DeleteVehicle } from './vehicle-details';
-import { buttonVariants } from '@/components/ui/button';
 import { DialogFormContext } from './dialog-form';
+import { OrderWorkspace } from './order-workspace';
+import type { OrderTab } from '../lib/order-tabs';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export type Editor =
   | { type: 'vehicleDetails'; vehicle: Vehicle }
@@ -51,7 +49,13 @@ export type Editor =
   | { type: 'vehicle'; customer?: Customer; vehicle?: Vehicle }
   | { type: 'vin'; vehicle: Vehicle }
   | { type: 'request' }
-  | { type: 'order'; request?: RepairRequest; order?: RepairOrder; historyCustomer?: Customer }
+  | {
+      type: 'order';
+      request?: RepairRequest;
+      order?: RepairOrder;
+      historyCustomer?: Customer;
+      tab?: OrderTab;
+    }
   | { type: 'history'; customer: Customer; initialVehicleId?: string }
   | { type: 'workflow'; target: WorkflowRecord; requestedStatus?: BoardStatus };
 
@@ -71,11 +75,14 @@ export function CrmEditorDialog({
   onBackToHistory
 }: CrmEditorDialogProps) {
   const [state, setState] = useState<FormState>({ dirty: false, pending: false });
-  const [materialsPending, setMaterialsPending] = useState(false);
-  const [paymentState, setPaymentState] = useState<FormState>({ dirty: false, pending: false });
-  const [economicsState, setEconomicsState] = useState<FormState>({ dirty: false, pending: false });
-  const dirty = state.dirty || paymentState.dirty || economicsState.dirty;
-  const busy = state.pending || materialsPending || paymentState.pending || economicsState.pending;
+  const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
+  const order =
+    editor.type === 'order'
+      ? (data.orders.find((entry) => entry.id === (createdOrderId ?? editor.order?.id)) ??
+        editor.order)
+      : undefined;
+  const dirty = state.dirty;
+  const busy = state.pending;
   const [discard, setDiscard] = useState(false);
   const [discardDestination, setDiscardDestination] = useState<'close' | 'history'>('close');
   const backToHistory =
@@ -143,8 +150,8 @@ export function CrmEditorDialog({
                     ? 'Нова заявка'
                     : editor.type === 'history'
                       ? `Історія: ${editor.customer.name}`
-                      : editor.order
-                        ? `Замовлення №${editor.order.number}`
+                      : order
+                        ? `Замовлення №${order.number}`
                         : editor.request
                           ? 'Створити замовлення із заявки'
                           : 'Нове замовлення';
@@ -169,7 +176,9 @@ export function CrmEditorDialog({
                     ? 'Виберіть клієнта, його автомобіль та опишіть потрібні роботи.'
                     : editor.type === 'history'
                       ? 'Автомобілі клієнта, деталі ремонтів і повна історія замовлень.'
-                      : 'Перевірте автомобіль, додайте роботи та вартість кожної позиції.';
+                      : order
+                        ? 'Керуйте роботами та розрахунками у вкладках.'
+                        : 'Вкажіть основні дані й роботи, щоб створити замовлення.';
   const props = {
     onSaved: backToHistory ?? onClose,
     onCancel: requestClose,
@@ -191,7 +200,7 @@ export function CrmEditorDialog({
             editor.type === 'history'
               ? 'sm:max-w-5xl'
               : editor.type === 'order'
-                ? 'sm:max-w-2xl'
+                ? 'h-[90dvh] sm:max-w-3xl'
                 : 'sm:max-w-lg'
           )}
         >
@@ -215,8 +224,13 @@ export function CrmEditorDialog({
           <DialogFormContext value={formLayout}>
             {/* Relative positioning contains Base UI's hidden inputs within this scroll area. */}
             <div
-              data-slot='crm-dialog-body'
-              className='relative flex min-h-0 flex-col gap-5 overflow-y-auto overscroll-contain px-5 py-5 [scrollbar-gutter:stable] sm:px-6'
+              data-slot={editor.type === 'order' ? 'crm-order-container' : 'crm-dialog-body'}
+              className={cn(
+                'relative flex min-h-0 flex-col',
+                editor.type === 'order'
+                  ? 'flex-1 overflow-hidden'
+                  : 'gap-5 overflow-y-auto overscroll-contain px-5 py-5 [scrollbar-gutter:stable] sm:px-6'
+              )}
             >
               {denied ? (
                 <p role='alert'>Ця дія доступна лише адміністратору.</p>
@@ -273,111 +287,22 @@ export function CrmEditorDialog({
                       <WorkflowHistory target={editor.target} data={data} />
                     </>
                   )}
-                  {editor.type === 'order' && (
-                    <>
-                      {backToHistory && (
-                        <Button
-                          type='button'
-                          variant='outline'
-                          className='self-start'
-                          disabled={busy}
-                          onClick={requestHistory}
-                        >
-                          <Icons.chevronLeft aria-hidden />
-                          До автомобілів клієнта
-                        </Button>
-                      )}
-                      {editor.order && (
-                        <div className='flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3'>
-                          <p className='text-sm text-muted-foreground'>
-                            {dirty
-                              ? 'Збережіть зміни перед друком.'
-                              : 'Друк збереженого замовлення зі схемою кузова.'}
-                          </p>
-                          {dirty || busy ? (
-                            <Button disabled variant='outline'>
-                              Друк замовлення
-                            </Button>
-                          ) : (
-                            <a
-                              href={`/print/orders/${editor.order.id}`}
-                              target='_blank'
-                              rel='noopener noreferrer'
-                              className={buttonVariants({ variant: 'outline' })}
-                            >
-                              Друк замовлення
-                            </a>
-                          )}
-                        </div>
-                      )}
-                      {editor.order && (
-                        <WorkflowDates target={{ kind: 'order', record: editor.order }} />
-                      )}
-                      {worker && editor.order ? (
-                        <>
-                          <OrderReadView order={editor.order} data={data} />
-                          <ExecutorAdvance order={editor.order} {...props} />
-                        </>
-                      ) : (
-                        <OrderForm
-                          disabled={
-                            paymentState.dirty ||
-                            paymentState.pending ||
-                            economicsState.dirty ||
-                            economicsState.pending
-                          }
-                          data={data}
-                          request={editor.request}
-                          order={editor.order}
-                          {...props}
-                        />
-                      )}
-                      {editor.order && data.access && (
-                        <OrderPayments
-                          disabled={
-                            state.dirty ||
-                            state.pending ||
-                            economicsState.dirty ||
-                            economicsState.pending
-                          }
-                          orderId={editor.order.id}
-                          data={data}
-                          onStateChange={setPaymentState}
-                        />
-                      )}
-                      {editor.order && data.access && (
-                        <OrderEconomicsPanel
-                          order={editor.order}
-                          data={data}
-                          disabled={
-                            state.dirty ||
-                            state.pending ||
-                            paymentState.dirty ||
-                            paymentState.pending ||
-                            materialsPending
-                          }
-                          onSaved={props.onSaved}
-                          onStateChange={setEconomicsState}
-                        />
-                      )}
-                      {editor.order && data.access && (
-                        <OrderMaterials
-                          order={editor.order}
-                          access={data.access}
-                          locked={data.finance?.postings.some(
-                            (posting) => posting.orderId === editor.order!.id
-                          )}
-                          onPendingChange={setMaterialsPending}
-                        />
-                      )}
-                      {editor.order && (
-                        <WorkflowHistory
-                          target={{ kind: 'order', record: editor.order }}
-                          data={data}
-                        />
-                      )}
-                    </>
-                  )}
+                  {editor.type === 'order' &&
+                    (createdOrderId && !order ? (
+                      <Skeleton className='m-5 h-32' />
+                    ) : (
+                      <OrderWorkspace
+                        key={order?.id ?? 'new-order'}
+                        order={order}
+                        request={editor.request}
+                        data={data}
+                        initialTab={editor.tab}
+                        onCreated={setCreatedOrderId}
+                        onClose={requestClose}
+                        onStateChange={setState}
+                        onBackToHistory={backToHistory ? requestHistory : undefined}
+                      />
+                    ))}
                   {editor.type === 'history' && (
                     <CustomerHistory
                       customer={editor.customer}
@@ -392,12 +317,12 @@ export function CrmEditorDialog({
             <div
               ref={setFooter}
               data-slot='crm-dialog-footer'
-              className='bg-muted/40 shrink-0 border-t px-5 py-4 sm:px-6'
+              className='bg-muted/40 shrink-0 border-t px-5 py-4 sm:px-6 [&:has([data-slot=crm-form-actions])_[data-slot=crm-dialog-fallback-actions]]:hidden'
               role='group'
               aria-label='Дії вікна'
             >
-              {readOnly && (
-                <div className='flex justify-end'>
+              {(readOnly || editor.type === 'order') && (
+                <div data-slot='crm-dialog-fallback-actions' className='flex justify-end'>
                   <Button variant='outline' disabled={busy} onClick={requestClose}>
                     Закрити вікно
                   </Button>

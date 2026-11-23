@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { CrmForm, DialogActions, useDialogFormId } from './dialog-form';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { toast } from 'sonner';
@@ -27,6 +28,7 @@ export function OrderPayments({
   data: CrmWorkspace;
   onStateChange: (state: FormState) => void;
 }) {
+  const formId = useDialogFormId();
   const client = useQueryClient();
   const [mode, setMode] = useState<string | null>(null);
   const [operationId, setOperationId] = useState(() => crypto.randomUUID());
@@ -132,7 +134,7 @@ export function OrderPayments({
         </div>
         <div>
           <dt className='text-muted-foreground'>
-            {order.status === 'delivered' ? 'Заборгованість' : 'Залишок до сплати'}
+            {['ready', 'delivered'].includes(order.status) ? 'Заборгованість' : 'Залишок до сплати'}
           </dt>
           <dd className='break-words font-semibold tabular-nums [overflow-wrap:anywhere]'>
             {money(balance.remainingCents)}
@@ -158,7 +160,7 @@ export function OrderPayments({
         </Button>
       )}
       {mode && admin && (
-        <form
+        <CrmForm
           onSubmit={(event) => {
             event.preventDefault();
             void form.handleSubmit();
@@ -206,8 +208,8 @@ export function OrderPayments({
                 </AlertDescription>
               </Alert>
             )}
-            <div className='flex flex-wrap gap-2'>
-              <Button type='submit' isLoading={pending} disabled={disabled}>
+            <DialogActions>
+              <Button type='submit' form={formId} isLoading={pending} disabled={disabled}>
                 {mode === 'receive'
                   ? 'Записати оплату'
                   : mode === 'refund'
@@ -222,9 +224,9 @@ export function OrderPayments({
               >
                 Скасувати введення
               </Button>
-            </div>
+            </DialogActions>
           </FieldGroup>
-        </form>
+        </CrmForm>
       )}
       {events.length ? (
         <ol className='flex flex-col divide-y text-sm'>

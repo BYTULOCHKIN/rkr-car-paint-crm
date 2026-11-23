@@ -6,12 +6,14 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { RepairOrder, CrmAccess } from '@/features/crm/api/types';
 import { inventoryQueries } from '../api/queries';
-import { StockOperationForm, StockReversalForm } from './stock-forms';
+import { StockReversalForm } from './stock-forms';
+import { BatchConsumptionForm } from './batch-consumption-form';
 import { MovementHistory } from './movement-history';
 import type { StockMovement } from '../api/types';
 import { stockQuantity } from '../lib/format';
 import { orderMaterialCosts } from '../lib/order-costs';
 import { money } from '@/features/crm/lib/format';
+import type { FormState } from '@/features/crm/components/form-status';
 
 function costLabel(amount: number | null): string {
   return amount === null ? 'Не визначена' : money(amount);
@@ -21,16 +23,24 @@ function Materials({
   order,
   access,
   locked = false,
-  onPendingChange
+  onPendingChange,
+  onStateChange,
+  disabled = false
 }: {
   order: RepairOrder;
   access: CrmAccess;
   locked?: boolean;
   onPendingChange?: (pending: boolean) => void;
+  onStateChange?: (state: FormState) => void;
+  disabled?: boolean;
 }) {
   const { data } = useSuspenseQuery(inventoryQueries.workspace(access.userId, access.orgId));
   const [adding, setAdding] = useState(false);
   const [pending, setPending] = useState(false);
+  const [formState, setFormState] = useState<FormState>({ dirty: false, pending: false });
+  useEffect(() => {
+    onStateChange?.(formState);
+  }, [formState, onStateChange]);
   useEffect(() => {
     onPendingChange?.(pending);
     return () => onPendingChange?.(false);
@@ -82,6 +92,7 @@ function Materials({
           variant='outline'
           className='self-start'
           onClick={() => setAdding(true)}
+          disabled={disabled}
         >
           Додати списання
         </Button>
@@ -98,12 +109,14 @@ function Materials({
       )}
       {adding && order.status === 'in_progress' && !financialLocked && (
         <div className='flex flex-col gap-3'>
-          <StockOperationForm
+          <BatchConsumptionForm
             orgId={access.orgId}
-            kind='consumption'
             items={data.items}
+            movements={data.movements}
             orderId={order.id}
             onPendingChange={setPending}
+            onStateChange={setFormState}
+            disabled={disabled}
             onSaved={() => setAdding(false)}
           />
           <Button type='button' variant='ghost' disabled={pending} onClick={() => setAdding(false)}>
@@ -117,6 +130,7 @@ function Materials({
             orgId={access.orgId}
             movement={reversing}
             onPendingChange={setPending}
+            onStateChange={setFormState}
             onSaved={() => setReversing(null)}
           />
           <Button
@@ -131,7 +145,7 @@ function Materials({
       )}
       <MovementHistory
         movements={movements}
-        onReverse={admin && !adding && !reversing ? setReversing : undefined}
+        onReverse={admin && !disabled && !adding && !reversing ? setReversing : undefined}
       />
     </section>
   );
@@ -142,6 +156,8 @@ export function OrderMaterials(props: {
   access: CrmAccess;
   locked?: boolean;
   onPendingChange?: (pending: boolean) => void;
+  onStateChange?: (state: FormState) => void;
+  disabled?: boolean;
 }) {
   return (
     <Suspense fallback={<Skeleton className='h-20 w-full' />}>

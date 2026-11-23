@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
 
-test('production sidebar layout contains the board and keeps Delivered reachable', async ({
+test('production sidebar layout contains the board and keeps Ready reachable', async ({
   page
 }, info) => {
   await page.goto('/dashboard/kanban');
-  await expect(page.locator('[data-slot=kanban-column]')).toHaveCount(6);
+  await expect(page.locator('[data-slot=kanban-column]')).toHaveCount(3);
   const main = page.locator('[data-slot=sidebar-inset]');
   const board = page.locator('[data-slot=crm-board-scroll]');
   const widths = await page.evaluate(() => {
@@ -30,18 +30,19 @@ test('production sidebar layout contains the board and keeps Delivered reachable
   });
   expect(widths.main).toBeLessThanOrEqual(widths.screen);
   expect(widths.mainRight).toBeLessThanOrEqual(widths.screen + 1);
-  expect(widths.board).toBeLessThan(widths.content);
+  expect(widths.board).toBeLessThanOrEqual(widths.content);
   expect(widths.page).toBeLessThanOrEqual(widths.screen + 1);
   await board.evaluate((element) => {
     element.scrollLeft = element.scrollWidth;
   });
-  await expect(page.getByRole('heading', { name: 'Видано', exact: true })).toBeInViewport({
+  await expect(page.getByRole('heading', { name: 'Готово', exact: true })).toBeInViewport({
     ratio: 1
   });
   await expect(main).toBeVisible();
 });
 
-test('visible navigation buttons reach Delivered and return to Backlog', async ({ page }, info) => {
+test('visible navigation buttons reach Ready and return to Created', async ({ page }, info) => {
+  await page.setViewportSize({ width: 900, height: 900 });
   await page.goto('/dashboard/kanban');
   const board = page.locator('[data-slot=crm-board-scroll]');
   const next = page.getByRole('button', { name: 'Прокрутити дошку праворуч', exact: true });
@@ -63,7 +64,7 @@ test('visible navigation buttons reach Delivered and return to Backlog', async (
       .toBeGreaterThan(before);
   }
   await expect(next).toBeDisabled();
-  await expect(page.getByRole('heading', { name: 'Видано', exact: true })).toBeInViewport({
+  await expect(page.getByRole('heading', { name: 'Готово', exact: true })).toBeInViewport({
     ratio: 1
   });
   await page.evaluate(() => document.fonts.ready);
@@ -78,7 +79,7 @@ test('visible navigation buttons reach Delivered and return to Backlog', async (
     body: JSON.stringify({ beforeCapture, afterCapture }),
     contentType: 'application/json'
   });
-  await expect(page.getByRole('heading', { name: 'Видано', exact: true })).toBeInViewport({
+  await expect(page.getByRole('heading', { name: 'Готово', exact: true })).toBeInViewport({
     ratio: 1
   });
   for (
@@ -91,7 +92,7 @@ test('visible navigation buttons reach Delivered and return to Backlog', async (
     await expect.poll(() => board.evaluate((element) => element.scrollLeft)).toBeLessThan(before);
   }
   await expect(previous).toBeDisabled();
-  await expect(page.getByRole('heading', { name: 'Backlog', exact: true })).toBeInViewport({
+  await expect(page.getByRole('heading', { name: 'Створено', exact: true })).toBeInViewport({
     ratio: 1
   });
 });
@@ -103,7 +104,7 @@ test('open and collapsed sidebars never expand the page at common desktop widths
     await page.setViewportSize({ width, height: 900 });
     for (const sidebar of ['open', 'closed']) {
       await page.goto(`/dashboard/kanban?sidebar=${sidebar}`);
-      await expect(page.locator('[data-slot=kanban-column]')).toHaveCount(6);
+      await expect(page.locator('[data-slot=kanban-column]')).toHaveCount(3);
       const bounds = await page.locator('[data-slot=sidebar-inset]').boundingBox();
       expect(bounds!.x + bounds!.width, `${width}px, sidebar ${sidebar}`).toBeLessThanOrEqual(
         width + 1
@@ -114,7 +115,7 @@ test('open and collapsed sidebars never expand the page at common desktop widths
       await board.evaluate((element) => {
         element.scrollLeft = element.scrollWidth;
       });
-      const last = await page.getByRole('heading', { name: 'Видано', exact: true }).boundingBox();
+      const last = await page.getByRole('heading', { name: 'Готово', exact: true }).boundingBox();
       expect(last!.x + last!.width).toBeLessThanOrEqual(width + 1);
     }
   }
@@ -123,7 +124,7 @@ test('open and collapsed sidebars never expand the page at common desktop widths
 test('navigation adapts when sidebar or viewport changes and disables when all columns fit', async ({
   page
 }) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.setViewportSize({ width: 900, height: 900 });
   await page.goto('/dashboard/kanban');
   await page.getByRole('button', { name: 'Toggle Sidebar', exact: true }).click();
   await expect(page.locator('[data-slot=sidebar][data-state]')).toHaveAttribute(
@@ -131,7 +132,7 @@ test('navigation adapts when sidebar or viewport changes and disables when all c
     'collapsed'
   );
   await page.getByRole('button', { name: 'Прокрутити дошку праворуч', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Видано', exact: true })).toBeInViewport({
+  await expect(page.getByRole('heading', { name: 'Готово', exact: true })).toBeInViewport({
     ratio: 1
   });
   await page.setViewportSize({ width: 2560, height: 1200 });
@@ -141,7 +142,7 @@ test('navigation adapts when sidebar or viewport changes and disables when all c
   await expect(
     page.getByRole('button', { name: 'Прокрутити дошку ліворуч', exact: true })
   ).toBeDisabled();
-  await expect(page.getByRole('heading', { name: 'Видано', exact: true })).toBeInViewport({
+  await expect(page.getByRole('heading', { name: 'Готово', exact: true })).toBeInViewport({
     ratio: 1
   });
 });

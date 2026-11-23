@@ -32,21 +32,19 @@ test('primary CRM icons are distinct and collapsed group labels do not intercept
   const icons = await buttons.evaluateAll((elements) =>
     elements.map((element) => element.querySelector('svg')?.innerHTML)
   );
-  expect(icons).toHaveLength(8);
+  expect(icons).toHaveLength(9);
   expect(icons.every(Boolean)).toBe(true);
   expect(new Set(icons).size).toBe(icons.length);
   for (const name of [
     'Огляд',
-    'Заявки',
     'Замовлення',
+    'Зарплати',
     'Склад',
     'Автомалярки',
     'Команда',
-    'Дошка робіт',
-    'AI Chat',
-    'Icons'
+    'Дошка робіт'
   ]) {
-    const link = page.getByRole('link', { name, exact: true });
+    const link = group.getByRole('link', { name, exact: true });
     await expect(link).toBeVisible();
     await expect
       .poll(() =>
@@ -58,6 +56,8 @@ test('primary CRM icons are distinct and collapsed group labels do not intercept
       )
       .toBe(true);
   }
+  for (const name of ['Product', 'Users', 'AI Chat', 'Icons', 'Chat'])
+    await expect(page.getByRole('link', { name, exact: true })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('sidebar-collapsed.png'), animations: 'disabled' });
 });
 
@@ -77,7 +77,7 @@ test('work board remains accessible after expanding and collapsing and with work
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/dashboard/orders?realSidebar&sidebar=closed&role=worker&dark');
   await expect(page.getByRole('link', { name: 'Заявки', exact: true })).toHaveCount(0);
-  for (const name of ['Огляд', 'Клієнти та автомобілі', 'Заявки']) {
+  for (const name of ['Огляд', 'Клієнти та автомобілі']) {
     const unavailable = page.getByRole('button', { name, exact: true });
     await expect(unavailable).toBeVisible();
     await expect(unavailable).toBeDisabled();
@@ -95,8 +95,10 @@ test('work board remains accessible after expanding and collapsing and with work
       /\/dashboard\/orders\?realSidebar&sidebar=closed&role=worker&dark$/
     );
   }
-  for (const name of ['Замовлення', 'Склад', 'Команда', 'Дошка робіт']) {
-    await expect(page.getByRole('link', { name, exact: true })).toBeEnabled();
+  for (const name of ['Замовлення', 'Зарплати', 'Склад', 'Команда', 'Дошка робіт']) {
+    await expect(
+      page.locator('[data-slot=sidebar]').getByRole('link', { name, exact: true })
+    ).toBeEnabled();
   }
   const toggle = page.getByRole('button', { name: 'Toggle Sidebar', exact: true }).first();
   const board = page.getByRole('link', { name: 'Дошка робіт', exact: true });

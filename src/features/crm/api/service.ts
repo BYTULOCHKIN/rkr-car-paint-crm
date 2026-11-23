@@ -1,6 +1,7 @@
 'use server';
 
 import { getOrganizationContext } from '../server/organization';
+import { clerkClient } from '@clerk/nextjs/server';
 import { z } from 'zod';
 import { executorTransition } from '../lib/executor-workflow';
 import { PaymentError } from '../server/payments';
@@ -33,7 +34,8 @@ import type {
   WorkflowInput,
   AdvanceOrderInput
 } from '../schemas/crm';
-import type { ActionResult, CrmWorkspace, OrderDocument } from './types';
+import type { ActionResult, CrmWorkspace, OrderDocument, WorkerSpecialty } from './types';
+import { updateTeamMemberSchema, type UpdateTeamMemberInput } from '../schemas/team-member';
 import { readCatalog, readVin } from '../server/vehicle-catalog';
 import { vehicleModelSchema, type VehicleModelInput } from '../schemas/vehicle-model';
 
@@ -265,6 +267,33 @@ export async function getTeam(expectedOrgId?: string | null) {
   if (expectedOrgId && expectedOrgId !== access.orgId)
     throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
   return { access, team };
+}
+
+export async function updateTeamMember(
+  input: UpdateTeamMemberInput
+): Promise<ActionResult<WorkerSpecialty[]>> {
+  try {
+    const { access, team } = await getOrganizationContext();
+    if (access.role !== 'admin')
+      throw new CrmError('Налаштовувати учасників може лише адміністратор автомалярки.');
+    const value = updateTeamMemberSchema.parse(input);
+    if (value.orgId !== access.orgId) throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
+    if (!team.some((member) => member.id === value.userId))
+      throw new CrmError('Учасник більше не належить до активної команди автомалярки.');
+    const client = await clerkClient();
+    // The dedicated metadata endpoint deep-merges these keys, preserving unrelated metadata.
+    await client.organizations.updateOrganizationMembershipMetadata({
+      organizationId: access.orgId,
+      userId: value.userId,
+      publicMetadata: { crm: { specialties: value.specialties } }
+    });
+    return { ok: true, data: value.specialties };
+  } catch (error) {
+    if (error instanceof z.ZodError)
+      return { ok: false, error: 'Перевірте спеціалізації учасника.' };
+    if (error instanceof CrmError) return { ok: false, error: error.message };
+    return { ok: false, error: 'Не вдалося зберегти налаштування учасника. Повторіть спробу.' };
+  }
 }
 
 export async function receivePayment(

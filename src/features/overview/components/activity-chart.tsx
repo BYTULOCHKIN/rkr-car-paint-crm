@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactElement } from 'react';
+import { SHOW_LEGACY_REQUEST_FLOW } from '@/config/product';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -24,12 +25,12 @@ interface ActivityChartProps {
 }
 
 export function ActivityChart({ data }: ActivityChartProps): ReactElement {
-  const hasData = data.some((month) => month.requests || month.orders);
+  const hasData = data.some((month) => month.orders);
   return (
     <Card className='min-w-0'>
       <CardHeader>
-        <CardTitle>Динаміка звернень</CardTitle>
-        <CardDescription>Створені заявки та замовлення за останні 6 місяців</CardDescription>
+        <CardTitle>Динаміка замовлень</CardTitle>
+        <CardDescription>Створені замовлення за останні 6 місяців</CardDescription>
       </CardHeader>
       <CardContent>
         {hasData ? (
@@ -37,7 +38,7 @@ export function ActivityChart({ data }: ActivityChartProps): ReactElement {
             <ChartContainer
               config={config}
               className='h-64 w-full'
-              aria-label='Кількість створених заявок і замовлень за місяцями'
+              aria-label='Кількість створених замовлень за місяцями'
             >
               <BarChart accessibilityLayer data={data} margin={{ left: -24, right: 0 }}>
                 <CartesianGrid vertical={false} />
@@ -51,12 +52,14 @@ export function ActivityChart({ data }: ActivityChartProps): ReactElement {
                 <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <ChartLegend content={<ChartLegendContent />} />
-                <Bar
-                  dataKey='requests'
-                  fill='var(--color-requests)'
-                  radius={[4, 4, 0, 0]}
-                  isAnimationActive={false}
-                />
+                {SHOW_LEGACY_REQUEST_FLOW && (
+                  <Bar
+                    dataKey='requests'
+                    fill='var(--color-requests)'
+                    radius={[4, 4, 0, 0]}
+                    isAnimationActive={false}
+                  />
+                )}
                 <Bar
                   dataKey='orders'
                   fill='var(--color-orders)'
@@ -70,7 +73,7 @@ export function ActivityChart({ data }: ActivityChartProps): ReactElement {
               <ul className='mt-2 flex flex-col gap-1'>
                 {data.map((month) => (
                   <li key={month.month}>
-                    {month.label}: заявки — {month.requests}, замовлення — {month.orders}
+                    {month.label}: замовлення — {month.orders}
                   </li>
                 ))}
               </ul>
@@ -79,10 +82,8 @@ export function ActivityChart({ data }: ActivityChartProps): ReactElement {
         ) : (
           <Empty className='min-h-64'>
             <EmptyHeader>
-              <EmptyTitle>Звернень ще немає</EmptyTitle>
-              <EmptyDescription>
-                Графік з’явиться після створення заявок або замовлень.
-              </EmptyDescription>
+              <EmptyTitle>Замовлень ще немає</EmptyTitle>
+              <EmptyDescription>Графік з’явиться після створення замовлень.</EmptyDescription>
             </EmptyHeader>
           </Empty>
         )}

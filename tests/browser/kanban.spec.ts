@@ -3,7 +3,7 @@ import { test, expect, type Page } from '@playwright/test';
 async function openBoard(page: Page, suffix = '') {
   await page.clock.setFixedTime(new Date('2026-10-31T10:00:00Z'));
   await page.goto('/dashboard/kanban' + suffix);
-  await expect(page.locator('[data-slot=kanban-column]')).toHaveCount(6);
+  await expect(page.locator('[data-slot=kanban-column]')).toHaveCount(3);
   await page.evaluate(() => document.fonts.ready);
 }
 
@@ -15,13 +15,13 @@ test('kanban contains long content and aligns columns without page overflow', as
   await openBoard(page);
   const columns = page.locator('[data-slot=kanban-column]');
   const scroll = page.locator('[data-slot=crm-board-scroll]');
-  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(46);
+  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(24);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
     true
   );
   await expect(page.locator('[data-slot=summary-card-link]')).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeGreaterThan(1700);
-  await expect(page.getByRole('heading', { name: 'Backlog', exact: true })).toBeInViewport();
+  await expect(page.getByRole('heading', { name: 'Створено', exact: true })).toBeInViewport();
   const bounds = await columns.evaluateAll((elements) =>
     elements.map((element) => {
       const box = element.getBoundingClientRect();
@@ -51,7 +51,7 @@ test('kanban contains long content and aligns columns without page overflow', as
   await scroll.evaluate((element) => {
     element.scrollLeft = element.scrollWidth;
   });
-  await expect(page.getByRole('heading', { name: 'Видано', exact: true })).toBeInViewport();
+  await expect(page.getByRole('heading', { name: 'Готово', exact: true })).toBeInViewport();
   await page.screenshot({
     path: info.outputPath('kanban-right.png'),
     fullPage: false,
@@ -106,7 +106,7 @@ test('search has clear empty feedback and restores all records', async ({ page }
     page.getByText('За вашим пошуком записів не знайдено.', { exact: true })
   ).toBeVisible();
   await page.getByRole('button', { name: 'Очистити пошук', exact: true }).click();
-  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(46);
+  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(24);
 });
 
 test('card actions open readable order and workflow dialogs', async ({ page }) => {
@@ -132,7 +132,7 @@ test('card actions open readable order and workflow dialogs', async ({ page }) =
 test('empty columns and dark theme remain contained at narrow widths', async ({ page }, info) => {
   await page.setViewportSize({ width: 320, height: 640 });
   await openBoard(page, '?empty&dark');
-  await expect(page.getByText('Немає записів', { exact: true })).toHaveCount(6);
+  await expect(page.getByText('Немає записів', { exact: true })).toHaveCount(3);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
     true
   );
@@ -142,7 +142,7 @@ test('empty columns and dark theme remain contained at narrow widths', async ({ 
     animations: 'disabled'
   });
   await page.goto('/dashboard/kanban?dark');
-  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(46);
+  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(24);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
     true
   );
@@ -162,6 +162,7 @@ test('empty columns and dark theme remain contained at narrow widths', async ({ 
 test('keyboard drag preview retains card dimensions and Escape restores the board', async ({
   page
 }, info) => {
+  if (info.project.name === 'desktop') await page.setViewportSize({ width: 900, height: 900 });
   await openBoard(page);
   const scroll = page.locator('[data-slot=crm-board-scroll]');
   await scroll.focus();
@@ -170,10 +171,13 @@ test('keyboard drag preview retains card dimensions and Escape restores the boar
   await scroll.evaluate((element) => {
     element.scrollLeft = 0;
   });
-  const handle = page.locator('[data-slot=kanban-item-handle]').first();
+  const sourceColumn = page
+    .locator('[data-slot=kanban-column]')
+    .filter({ has: page.getByRole('heading', { name: 'В роботі', exact: true }) });
+  const handle = sourceColumn.locator('[data-slot=kanban-item-handle]').first();
   await handle.focus();
   await expect(handle).toBeFocused();
-  const card = page.locator('[data-slot=crm-board-card]').first();
+  const card = sourceColumn.locator('[data-slot=crm-board-card]').first();
   const before = await card.boundingBox();
   await page.keyboard.press('Space');
   const preview = page.locator('[data-slot=crm-board-card][inert]');
@@ -185,7 +189,7 @@ test('keyboard drag preview retains card dimensions and Escape restores the boar
   await page.keyboard.press('Escape');
   await expect(preview).toHaveCount(0);
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(46);
+  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(24);
   await handle.focus();
   await page.keyboard.press('Space');
   await expect(preview).toBeVisible();
@@ -200,7 +204,7 @@ test('keyboard drag preview retains card dimensions and Escape restores the boar
     .toBeGreaterThan(startX + 30);
   await page.keyboard.press('Space');
   await expect(page.getByRole('dialog').getByRole('combobox', { name: 'Статус *' })).toContainText(
-    'Заплановано'
+    'Готово'
   );
 });
 
@@ -209,10 +213,13 @@ test('pointer drag opens confirmation without prematurely changing persisted sta
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await openBoard(page);
-  const handle = page.locator('[data-slot=kanban-item-handle]').first();
+  const sourceColumn = page
+    .locator('[data-slot=kanban-column]')
+    .filter({ has: page.getByRole('heading', { name: 'В роботі', exact: true }) });
+  const handle = sourceColumn.locator('[data-slot=kanban-item-handle]').first();
   const source = await handle.boundingBox();
   const destination = await page
-    .getByRole('heading', { name: 'Заплановано', exact: true })
+    .getByRole('heading', { name: 'Готово', exact: true })
     .boundingBox();
   await page.mouse.move(source!.x + source!.width / 2, source!.y + source!.height / 2);
   await page.mouse.down();
@@ -224,9 +231,7 @@ test('pointer drag opens confirmation without prematurely changing persisted sta
   );
   await page.mouse.up();
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('combobox', { name: 'Статус *' })).toContainText('Заплановано');
+  await expect(dialog.getByRole('combobox', { name: 'Статус *' })).toContainText('Готово');
   await dialog.getByRole('button', { name: 'Закрити', exact: true }).click();
-  await expect(
-    page.locator('[data-slot=kanban-column]').first().locator('[data-slot=crm-board-card]')
-  ).toHaveCount(11);
+  await expect(sourceColumn.locator('[data-slot=crm-board-card]')).toHaveCount(8);
 });

@@ -1,3 +1,4 @@
+import { isCompletedStatus } from '@/features/crm/lib/workflow';
 import type { CrmWorkspace, RepairOrder, Vehicle } from '../api/types';
 
 export interface VehicleHistoryEntry {
@@ -25,7 +26,7 @@ export function customerVehicleHistory(
       return {
         vehicle,
         orders,
-        activeCount: orders.filter((order) => order.status !== 'delivered').length,
+        activeCount: orders.filter((order) => !isCompletedStatus(order.status)).length,
         totalCents: orders.reduce((sum, order) => sum + order.totalCents, 0)
       };
     })

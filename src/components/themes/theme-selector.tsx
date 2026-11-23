@@ -1,7 +1,8 @@
 'use client';
 
 import { useThemeConfig } from '@/components/themes/active-theme';
-import { Label } from '@/components/ui/label';
+import { useId } from 'react';
+import { Field, FieldLabel } from '@/components/ui/field';
 import {
   Select,
   SelectContent,
@@ -13,17 +14,15 @@ import {
 } from '@/components/ui/select';
 
 import { Icons } from '../icons';
-import { Kbd } from '@/components/ui/kbd';
 import { THEMES } from './theme.config';
 
 export function ThemeSelector() {
   const { activeTheme, setActiveTheme } = useThemeConfig();
+  const id = useId();
 
   return (
-    <div className='flex items-center gap-2'>
-      <Label htmlFor='theme-selector' className='sr-only'>
-        Theme
-      </Label>
+    <Field>
+      <FieldLabel htmlFor={id}>Тема оформлення</FieldLabel>
       <Select
         items={THEMES.map((theme) => ({ value: theme.value, label: theme.name }))}
         value={activeTheme}
@@ -31,22 +30,15 @@ export function ThemeSelector() {
           if (value !== null) setActiveTheme(value);
         }}
       >
-        <SelectTrigger
-          id='theme-selector'
-          className='justify-start *:data-[slot=select-value]:w-24'
-        >
-          <span className='text-muted-foreground hidden sm:block'>
-            <Icons.palette />
-          </span>
-          <span className='text-muted-foreground block sm:hidden'>Theme</span>
-          <SelectValue placeholder='Select a theme' />
-          <Kbd>T T</Kbd>
+        <SelectTrigger id={id} className='w-full'>
+          <Icons.palette aria-hidden />
+          <SelectValue placeholder='Оберіть тему' />
         </SelectTrigger>
-        <SelectContent align='end'>
+        <SelectContent align='start' alignItemWithTrigger={false}>
           {THEMES.length > 0 && (
             <>
               <SelectGroup>
-                <SelectLabel>themes</SelectLabel>
+                <SelectLabel>Теми</SelectLabel>
                 {THEMES.map((theme) => (
                   <SelectItem key={theme.name} value={theme.value}>
                     {theme.name}
@@ -57,6 +49,6 @@ export function ThemeSelector() {
           )}
         </SelectContent>
       </Select>
-    </div>
+    </Field>
   );
 }

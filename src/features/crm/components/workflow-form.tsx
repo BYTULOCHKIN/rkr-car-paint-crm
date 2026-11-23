@@ -9,16 +9,18 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { crmMutations, crmQueries } from '../api/queries';
 import type { BoardStatus, WorkflowRecord } from '../api/types';
 import { workflowSchema, type WorkflowInput } from '../schemas/crm';
-import { businessToday, WORKFLOW_COLUMNS } from '../lib/workflow';
+import { businessToday, WORKFLOW_COLUMNS, REQUEST_COLUMNS } from '../lib/workflow';
 import { FormActions, FormStatus, type SaveProps } from './form-status';
 
 interface WorkflowFormProps extends SaveProps {
+  disabled?: boolean;
   target: WorkflowRecord;
   requestedStatus?: BoardStatus;
 }
 
 export function WorkflowForm({
   target,
+  disabled = false,
   requestedStatus,
   onSaved,
   onCancel,
@@ -48,11 +50,8 @@ export function WorkflowForm({
       actualIntakeDate:
         order?.actualIntakeDate ||
         (target.kind === 'order' && status !== 'created' ? businessToday() : ''),
-      actualReadyDate: ['ready', 'delivered'].includes(status)
-        ? order?.actualReadyDate || businessToday()
-        : '',
-      actualDeliveryDate:
-        status === 'delivered' ? order?.actualDeliveryDate || businessToday() : '',
+      actualReadyDate: status === 'ready' ? order?.actualReadyDate || businessToday() : '',
+      actualDeliveryDate: status === 'ready' ? order?.actualDeliveryDate || '' : '',
       note: ''
     } as WorkflowInput,
     validators: { onSubmit: workflowSchema },
@@ -60,11 +59,7 @@ export function WorkflowForm({
       await mutation.mutateAsync(value).catch(() => undefined);
     }
   });
-  const options = WORKFLOW_COLUMNS.filter((column) =>
-    target.kind === 'request'
-      ? ['backlog', 'scheduled'].includes(column.value)
-      : ['created', 'in_progress', 'ready', 'delivered'].includes(column.value)
-  );
+  const options = target.kind === 'request' ? REQUEST_COLUMNS : WORKFLOW_COLUMNS;
   return (
     <CrmForm
       onSubmit={(event) => {
@@ -77,7 +72,7 @@ export function WorkflowForm({
       >
         {(state) => <FormStatus {...state} onChange={onStateChange} />}
       </form.Subscribe>
-      <fieldset disabled={mutation.isPending} className='min-w-0'>
+      <fieldset disabled={mutation.isPending || disabled} className='min-w-0'>
         <FieldGroup>
           <form.AppField
             name='status'
@@ -89,15 +84,13 @@ export function WorkflowForm({
                     form.setFieldValue('actualIntakeDate', businessToday());
                   form.setFieldValue(
                     'actualReadyDate',
-                    ['ready', 'delivered'].includes(value)
+                    value === 'ready'
                       ? form.getFieldValue('actualReadyDate') || businessToday()
                       : ''
                   );
                   form.setFieldValue(
                     'actualDeliveryDate',
-                    value === 'delivered'
-                      ? form.getFieldValue('actualDeliveryDate') || businessToday()
-                      : ''
+                    value === 'ready' ? order?.actualDeliveryDate || '' : ''
                   );
                 }
               }
@@ -108,7 +101,7 @@ export function WorkflowForm({
           <Alert>
             <AlertDescription>
               Заплановані дати — домовленість із клієнтом. Фактичні — коли авто дійсно прийняли,
-              підготували та видали. Запізнення не переписує план.
+              завершили роботи. Запізнення не переписує план.
             </AlertDescription>
           </Alert>
           <FieldGroup className='grid gap-4 sm:grid-cols-2'>
@@ -147,22 +140,11 @@ export function WorkflowForm({
               <form.Subscribe selector={(state) => state.values.status}>
                 {(current) => (
                   <>
-                    {['ready', 'delivered'].includes(current) && (
+                    {current === 'ready' && (
                       <form.AppField name='actualReadyDate'>
                         {(field) => (
                           <field.CalendarDateField
                             label='Фактична готовність'
-                            required
-                            max={businessToday()}
-                          />
-                        )}
-                      </form.AppField>
-                    )}
-                    {current === 'delivered' && (
-                      <form.AppField name='actualDeliveryDate'>
-                        {(field) => (
-                          <field.CalendarDateField
-                            label='Фактична видача'
                             required
                             max={businessToday()}
                           />
@@ -184,6 +166,7 @@ export function WorkflowForm({
           </form.AppField>
           <FormActions
             pending={mutation.isPending}
+            disabled={disabled}
             error={mutation.error}
             onCancel={onCancel}
             label='Зберегти статус і дати'

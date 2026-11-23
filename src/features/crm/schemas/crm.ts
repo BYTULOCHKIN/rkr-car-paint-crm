@@ -180,7 +180,7 @@ export const workflowSchema = z
     id,
     expectedStatus: z.string(),
     expectedRevision: z.number().int().nonnegative().optional(),
-    status: z.enum(['backlog', 'scheduled', 'created', 'in_progress', 'ready', 'delivered']),
+    status: z.enum(['backlog', 'scheduled', 'created', 'in_progress', 'ready']),
     plannedIntakeDate: optionalDate,
     plannedDeliveryDate: optionalDate,
     actualIntakeDate: optionalDate,
@@ -205,14 +205,12 @@ export const workflowSchema = z
       if (value.status === 'backlog' && value.plannedIntakeDate)
         issue('plannedIntakeDate', 'Для дати прийому виберіть статус «Заплановано»');
     } else {
-      if (!['created', 'in_progress', 'ready', 'delivered'].includes(value.status))
+      if (!['created', 'in_progress', 'ready'].includes(value.status))
         issue('status', 'Замовлення не можна повернути в заявки');
       if (value.status !== 'created' && !value.actualIntakeDate)
         issue('actualIntakeDate', 'Вкажіть фактичну дату прийому');
-      if (['ready', 'delivered'].includes(value.status) && !value.actualReadyDate)
+      if (value.status === 'ready' && !value.actualReadyDate)
         issue('actualReadyDate', 'Вкажіть фактичну дату готовності');
-      if (value.status === 'delivered' && !value.actualDeliveryDate)
-        issue('actualDeliveryDate', 'Вкажіть фактичну дату видачі');
       for (const field of ['actualIntakeDate', 'actualReadyDate', 'actualDeliveryDate'] as const) {
         if (value[field] > businessToday())
           issue(field, 'Фактична дата не може бути в майбутньому');
@@ -234,8 +232,6 @@ export const workflowSchema = z
         (value.actualReadyDate || value.actualDeliveryDate)
       )
         issue('status', 'Для статусу «У роботі» очистьте дати готовності та видачі');
-      if (value.status === 'ready' && value.actualDeliveryDate)
-        issue('actualDeliveryDate', 'Для статусу «Готово» очистьте дату видачі');
     }
   });
 export type WorkflowInput = z.infer<typeof workflowSchema>;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useAppForm } from '@/lib/form';
@@ -20,6 +20,8 @@ import {
   valuationSchema
 } from '../schemas/inventory';
 import { stockQuantity, materialCategoryOptions } from '../lib/format';
+import { FormStatus, type FormState } from '@/features/crm/components/form-status';
+import { DialogActions } from '@/features/crm/components/dialog-form';
 import { stockUnitOptions } from '../constants/units';
 
 function useFeedback(onSaved: () => void) {
@@ -410,30 +412,48 @@ export function StockReversalForm({
   orgId,
   movement,
   onSaved,
-  onPendingChange
+  onPendingChange,
+  onStateChange
 }: {
   orgId: string;
   movement: StockMovement;
   onSaved: () => void;
   onPendingChange?: (pending: boolean) => void;
+  onStateChange?: (state: FormState) => void;
 }) {
+  const formId = useId();
+  useEffect(() => () => onStateChange?.({ dirty: false, pending: false }), [onStateChange]);
   const [operationId] = useState(() => crypto.randomUUID());
-  const mutation = useMutation({ ...inventoryMutations.reverse(orgId), ...useFeedback(onSaved) });
+  const mutation = useMutation({
+    ...inventoryMutations.reverse(orgId),
+    ...useFeedback(() => undefined)
+  });
   usePending(mutation.isPending, onPendingChange);
   const form = useAppForm({
     defaultValues: { movementId: movement.id, operationId, note: '' },
     validators: { onSubmit: reversalSchema },
     onSubmit: async ({ value }) => {
-      await mutation.mutateAsync(value).catch(() => undefined);
+      try {
+        await mutation.mutateAsync(value);
+        onSaved();
+      } catch {
+        /* Keep the reversal draft on failure. */
+      }
     }
   });
   return (
     <form
+      id={formId}
       onSubmit={(event) => {
         event.preventDefault();
         void form.handleSubmit();
       }}
     >
+      <form.Subscribe
+        selector={(state) => ({ dirty: !state.isDefaultValue, pending: state.isSubmitting })}
+      >
+        {(state) => <FormStatus {...state} onChange={onStateChange} />}
+      </form.Subscribe>
       <fieldset disabled={mutation.isPending} className='min-w-0'>
         <FieldGroup>
           <p className='text-sm'>
@@ -444,9 +464,11 @@ export function StockReversalForm({
             {(field) => <field.TextareaField label='Причина скасування' required />}
           </form.AppField>
           <FormError error={mutation.error} />
-          <Button type='submit' isLoading={mutation.isPending}>
-            Підтвердити скасування
-          </Button>
+          <DialogActions>
+            <Button type='submit' form={formId} isLoading={mutation.isPending}>
+              Підтвердити скасування
+            </Button>
+          </DialogActions>
         </FieldGroup>
       </fieldset>
     </form>

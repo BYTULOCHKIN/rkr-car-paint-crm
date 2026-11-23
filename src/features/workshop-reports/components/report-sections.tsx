@@ -6,21 +6,18 @@ import { money } from '@/features/crm/lib/format';
 import { statusLabel } from '@/features/crm/lib/workflow';
 import { historyTimestamp } from '@/features/crm/lib/workflow-history';
 import { stockQuantity } from '@/features/inventory/lib/format';
-import { sumIntegers } from '@/features/order-economics/lib/integers';
 import type {
   EconomicsTotals,
   PeriodReport,
   ReportOrder,
-  SettlementTotals,
   PostingReportRow,
   CashReportRow,
   OrderReportRow,
-  MaterialReportRow,
-  PayeeReportRow,
-  OrderSettlementRow,
-  SettlementReportEvent
+  MaterialReportRow
 } from '../api/types';
 import { ReportGrid, type ReportColumn } from './report-grid';
+
+export { SettlementsSection } from './settlements-section';
 
 function orderCell(order: ReportOrder) {
   return (
@@ -48,22 +45,6 @@ function economicsColumns<T>(get: (row: T) => EconomicsTotals | null): ReportCol
     }
   }));
 }
-function settlementColumns<T extends SettlementTotals>(): ReportColumn<T>[] {
-  return (
-    [
-      ['openingCents', 'На початок'],
-      ['accrualCents', 'Нарахування'],
-      ['adjustmentCents', 'Коригування'],
-      ['payoutCents', 'Виплати'],
-      ['returnCents', 'Повернення'],
-      ['reversalCents', 'Скасування (±)'],
-      ['closingCents', 'Баланс на кінець'],
-      ['payableCents', 'До виплати по авто'],
-      ['advanceCents', 'Аванси по авто']
-    ] as const
-  ).map(([id, title]) => ({ id, title, cell: (row: T) => money(row[id]) }));
-}
-
 const postingColumns: ReportColumn<PostingReportRow>[] = [
   { id: 'date', title: 'Проведено', cell: (row) => historyTimestamp(row.createdAt) },
   { id: 'order', title: 'Авто', cell: (row) => orderCell(row.order) },
@@ -178,56 +159,6 @@ function materialColumns(orders: ReportOrder[]): ReportColumn<MaterialReportRow>
   ];
 }
 
-const payeeColumns: ReportColumn<PayeeReportRow>[] = [
-  {
-    id: 'payee',
-    title: 'Одержувач',
-    cell: (row) => (
-      <div>
-        <strong>{row.payee.name}</strong>
-        <p>{row.payee.kind === 'worker' ? 'Працівник' : 'Підрядник'}</p>
-      </div>
-    )
-  },
-  ...settlementColumns()
-];
-
-const orderSettlementColumns: ReportColumn<OrderSettlementRow>[] = [
-  { id: 'payee', title: 'Одержувач', cell: (row) => row.payee.name },
-  { id: 'order', title: 'Авто', cell: (row) => orderCell(row.order) },
-  ...settlementColumns()
-];
-
-const settlementEventColumns: ReportColumn<SettlementReportEvent>[] = [
-  { id: 'date', title: 'Дата', cell: (row) => historyTimestamp(row.createdAt) },
-  { id: 'payee', title: 'Одержувач', cell: (row) => row.payee.name },
-  { id: 'order', title: 'Авто', cell: (row) => orderCell(row.order) },
-  {
-    id: 'kind',
-    title: 'Операція',
-    cell: (row) =>
-      ({
-        accrual: 'Нарахування',
-        adjustment: 'Коригування',
-        payout: 'Виплата / аванс',
-        return: 'Фактичне повернення',
-        reversal: 'Скасування помилкового запису'
-      })[row.kind]
-  },
-  { id: 'amount', title: 'Сума', cell: (row) => money(row.amountCents) },
-  { id: 'delta', title: 'Зміна балансу (±)', cell: (row) => money(row.balanceDeltaCents) },
-  {
-    id: 'note',
-    title: 'Підстава',
-    cell: (row) => (
-      <div className='max-w-72 whitespace-normal'>
-        <p>{row.note}</p>
-        <p className='text-muted-foreground'>{row.actor.name}</p>
-      </div>
-    )
-  }
-];
-
 export function ReportMetrics({ report }: { report: PeriodReport }) {
   if (!report.economics) return null;
   const totals = report.economics;
@@ -337,48 +268,6 @@ export function MaterialsSection({ report }: { report: PeriodReport }) {
         rows={report.materials.rows}
         rowKey={(row) => row.id}
         columns={materialColumns(report.materials.orders)}
-      />
-    </section>
-  );
-}
-
-export function SettlementsSection({ report }: { report: PeriodReport }) {
-  const due = sumIntegers(report.settlements.payees.map((row) => row.payableCents));
-  const advances = sumIntegers(report.settlements.payees.map((row) => row.advanceCents));
-  return (
-    <section aria-label='Розрахунки за період' className='flex min-w-0 flex-col gap-4'>
-      <p className='text-muted-foreground text-sm'>
-        {report.access.role === 'worker' ? 'Показано тільки ваші розрахунки. ' : ''}На початок —
-        баланс до першого дня; на кінець — включно з останнім днем у Києві. Нарахування, виплати,
-        повернення й скасування відібрані за датою запису.
-      </p>
-      <p className='font-medium'>
-        До виплати по авто: {money(due)} · Аванси / переплати по авто: {money(advances)}
-      </p>
-      <p className='text-muted-foreground text-sm'>
-        Баланс зі знаком — загальна різниця. «До виплати» й «Аванси» підсумовані окремо по кожному
-        авто, без автоматичного заліку між замовленнями. «Скасування» показує вплив виправлення
-        помилкового запису на баланс.
-      </p>
-      <ReportGrid
-        label='Підсумок по одержувачах'
-        rows={report.settlements.payees}
-        rowKey={(row) => `${row.payee.kind}:${row.payee.id}`}
-        columns={payeeColumns}
-      />
-      <h3 className='font-semibold'>Розрахунки по кожному авто</h3>
-      <ReportGrid
-        label='Баланси по авто'
-        rows={report.settlements.orders}
-        rowKey={(row) => JSON.stringify([row.order.id, row.payee.kind, row.payee.id])}
-        columns={orderSettlementColumns}
-      />
-      <h3 className='font-semibold'>Історія за період</h3>
-      <ReportGrid
-        label='Операції розрахунків'
-        rows={report.settlements.events}
-        rowKey={(row) => row.id}
-        columns={settlementEventColumns}
       />
     </section>
   );

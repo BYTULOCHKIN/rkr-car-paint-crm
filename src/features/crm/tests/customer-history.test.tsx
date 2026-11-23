@@ -74,7 +74,7 @@ test('selecting a car shows its VIN, order statuses, dates and totals without mi
   render(<CustomerHistory customer={customer} data={data} onSelectOrder={select} />);
   const panel = screen.getByRole('region', { name: 'Історія вибраного автомобіля' });
   expect(within(panel).getByText(vehicle.vin)).toBeDefined();
-  expect(within(panel).getByText('У роботі')).toBeDefined();
+  expect(within(panel).getByText('В роботі')).toBeDefined();
   await userEvent.click(within(panel).getByRole('button', { name: 'Відкрити замовлення №2' }));
   expect(select).toHaveBeenCalledWith(expect.objectContaining({ id: 'new' }));
   await userEvent.click(screen.getByRole('button', { name: /Обрати автомобіль Ford Fiesta/ }));

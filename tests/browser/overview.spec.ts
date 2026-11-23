@@ -10,11 +10,11 @@ test('overview displays CRM totals, queues and actual charts without demo conten
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/dashboard/overview');
-  await expect(page.getByRole('link', { name: /^Активні заявки: 22\./ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Створені замовлення: 0\./ })).toBeVisible();
   await expect(page.getByRole('link', { name: /^Замовлення в роботі: 22\./ })).toBeVisible();
-  await expect(page.getByRole('link', { name: /^Готові до видачі: 1\./ })).toBeVisible();
-  await expect(page.getByRole('link', { name: /^Видано цього місяця: 1\./ })).toBeVisible();
-  await expect(page.getByText('Вартість замовлень: 60K грн', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Готові замовлення: 2\./ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Завершено цього місяця: 2\./ })).toBeVisible();
+  await expect(page.getByText('Вартість замовлень: 120K грн', { exact: true })).toBeVisible();
   await expect(page.locator('[data-slot=chart]')).toBeVisible();
   await expect(page.locator('[data-slot=metric-trend]')).toHaveCount(7);
   await expect(
@@ -67,7 +67,7 @@ test('overview opens existing orders and workflow dialogs using CRM forms', asyn
 test('a new CRM has zero counters and helpful empty states', async ({ page }, info) => {
   await page.goto('/dashboard/overview?empty');
   await expect(page.getByText('Почнімо роботу з CRM', { exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: /^Активні заявки: 0\./ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Створені замовлення: 0\./ })).toBeVisible();
   await expect(page.getByRole('table')).toHaveCount(0);
   await expect(page.locator('[data-slot=chart]')).toHaveCount(0);
   await page.screenshot({
@@ -83,7 +83,7 @@ test('overview respects the dark theme and constrains the recent orders table', 
   page
 }, info) => {
   await page.goto('/dashboard/overview?dark');
-  await expect(page.getByRole('link', { name: /^Готові до видачі: 1\./ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^Готові замовлення: 2\./ })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
     true
   );

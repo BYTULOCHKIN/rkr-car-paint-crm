@@ -13,6 +13,7 @@ import {
   updateVehicleVin,
   getWorkspace,
   getTeam,
+  updateTeamMember,
   advanceOrder,
   updateWorkflow,
   getVehicleCatalog,
@@ -58,6 +59,11 @@ export const crmQueries = {
 };
 
 export const crmMutations = {
+  updateTeamMember: () =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof updateTeamMember>[0]) =>
+        unwrap(await updateTeamMember(input))
+    }),
   refundPayment: () =>
     mutationOptions({
       mutationFn: async ({

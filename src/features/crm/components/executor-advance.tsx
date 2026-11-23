@@ -8,6 +8,7 @@ import { FormStatus, type SaveProps } from './form-status';
 import { crmMutations, crmQueries } from '../api/queries';
 import type { RepairOrder } from '../api/types';
 import { executorTransition } from '../lib/executor-workflow';
+import { DialogActions } from './dialog-form';
 
 export function ExecutorAdvance({
   order,
@@ -21,12 +22,7 @@ export function ExecutorAdvance({
     expectedRevision: order.workflowRevision ?? 0
   };
   const possible = executorTransition(order, input);
-  const label =
-    order.status === 'created'
-      ? 'Почати роботу'
-      : order.status === 'in_progress'
-        ? 'Позначити готовим'
-        : 'Позначити виданим';
+  const label = order.status === 'created' ? 'Почати роботу' : 'Позначити готовим';
   const mutation = useMutation({
     ...crmMutations.advance(),
     onSuccess: () => {
@@ -51,14 +47,16 @@ export function ExecutorAdvance({
             Дату переходу буде зафіксовано автоматично. Зміна плану, цін і повернення статусу
             доступні адміністратору.
           </p>
-          <Button
-            type='button'
-            aria-label={label}
-            isLoading={mutation.isPending}
-            onClick={() => mutation.mutate(input)}
-          >
-            {label}
-          </Button>
+          <DialogActions>
+            <Button
+              type='button'
+              aria-label={label}
+              isLoading={mutation.isPending}
+              onClick={() => mutation.mutate(input)}
+            >
+              {label}
+            </Button>
+          </DialogActions>
         </>
       )}
     </div>

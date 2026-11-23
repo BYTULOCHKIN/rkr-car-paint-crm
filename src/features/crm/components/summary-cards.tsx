@@ -1,3 +1,4 @@
+import { isCompletedStatus } from '@/features/crm/lib/workflow';
 import { SummaryCardLink } from '@/components/summary-card-link';
 import { Icons } from '@/components/icons';
 import { cn } from '@/lib/utils';
@@ -25,17 +26,17 @@ export function SummaryCards({ data, compactOnMobile = false }: SummaryCardsProp
       icon: Icons.customers
     },
     {
-      title: 'Активні заявки',
-      count: data.requests.filter((request) => request.status !== 'converted').length,
-      href: '/dashboard/requests',
-      description: `Заплановано: ${data.requests.filter((request) => request.status === 'scheduled').length}`,
-      icon: Icons.requests
+      title: 'Створені замовлення',
+      count: data.orders.filter((order) => order.status === 'created').length,
+      href: '/dashboard/orders?orderStatus=created',
+      description: 'Очікують початку робіт',
+      icon: Icons.orders
     },
     {
       title: 'Замовлення в роботі',
-      count: data.orders.filter((order) => order.status !== 'delivered').length,
+      count: data.orders.filter((order) => !isCompletedStatus(order.status)).length,
       href: '/dashboard/orders',
-      description: `Готові до видачі: ${data.orders.filter((order) => order.status === 'ready').length}`,
+      description: `Готово: ${data.orders.filter((order) => order.status === 'ready').length}`,
       icon: Icons.orders
     }
   ];

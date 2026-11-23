@@ -21,7 +21,7 @@ export function StatusSummary({ statuses }: StatusSummaryProps): ReactElement {
     <Card className='min-w-0'>
       <CardHeader>
         <CardTitle>Поточне завантаження</CardTitle>
-        <CardDescription>Активні заявки й замовлення за статусами</CardDescription>
+        <CardDescription>Замовлення за трьома статусами</CardDescription>
       </CardHeader>
       <CardContent className='flex flex-1 flex-col gap-5'>
         {statuses.map((status) => (

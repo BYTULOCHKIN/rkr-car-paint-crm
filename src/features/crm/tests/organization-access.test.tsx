@@ -1,6 +1,8 @@
 import { advanceOrder, updateWorkflow } from '../api/service';
 import { saveOrderEconomics } from '@/features/order-economics/api/service';
 import { getPeriodReport } from '@/features/workshop-reports/api/service';
+import { getPayrollReport } from '@/features/payroll/api/service';
+import { payrollQueries } from '@/features/payroll/api/queries';
 import { reportQueries } from '@/features/workshop-reports/api/queries';
 import { reportFixture } from '@/features/workshop-reports/tests/fixtures';
 import type { StockMovement } from '@/features/inventory/api/types';
@@ -26,6 +28,7 @@ import {
   getOrderDocument,
   getWorkspace
 } from '../api/service';
+import { updateTeamMember } from '../api/service';
 import { crmQueries } from '../api/queries';
 import {
   receivePayment,
@@ -42,6 +45,7 @@ import {
   receiveStock,
   adjustStock,
   consumeStock,
+  consumeStockBatch,
   reverseConsumption,
   valueStockBalance
 } from '@/features/inventory/api/service';
@@ -53,6 +57,7 @@ vi.mock('../server/repository', () => ({
   getOrganizationRepository: vi.fn()
 }));
 const memberships = vi.fn();
+const updateMembershipMetadata = vi.fn();
 const workspace: CrmWorkspace = {
   customers: [],
   vehicles: [],
@@ -78,6 +83,7 @@ const repository = {
     receive: vi.fn(),
     adjust: vi.fn(),
     consume: vi.fn(),
+    consumeBatch: vi.fn(),
     reverse: vi.fn(),
     valueOpeningBalance: vi.fn()
   },
@@ -131,6 +137,11 @@ test('inventory writes reject workers and stale organizations; actors come from 
     await receiveStock(org, value),
     await adjustStock(org, value),
     await consumeStock(org, { ...value, orderId: value.itemId }),
+    await consumeStockBatch(org, {
+      operationId: value.operationId,
+      orderId: value.itemId,
+      rows: [{ itemId: value.itemId, quantity: '1', note: '', category: 'painting' }]
+    }),
     await reverseConsumption(org, {
       operationId: value.operationId,
       movementId: value.itemId,
@@ -139,6 +150,7 @@ test('inventory writes reject workers and stale organizations; actors come from 
   ])
     expect(result.ok).toBe(false);
   expect(repository.inventory.consume).not.toHaveBeenCalled();
+  expect(repository.inventory.consumeBatch).not.toHaveBeenCalled();
   expect(repository.inventory.valueOpeningBalance).not.toHaveBeenCalled();
   await expect(getInventory('org_B')).rejects.toThrow('Автомалярку змінено');
   memberships.mockResolvedValue({
@@ -176,7 +188,10 @@ beforeEach(() => {
     ReturnType<typeof auth>
   >);
   vi.mocked(clerkClient).mockResolvedValue({
-    organizations: { getOrganizationMembershipList: memberships }
+    organizations: {
+      getOrganizationMembershipList: memberships,
+      updateOrganizationMembershipMetadata: updateMembershipMetadata
+    }
   } as unknown as Awaited<ReturnType<typeof clerkClient>>);
   memberships.mockResolvedValue({
     totalCount: 1,
@@ -199,7 +214,13 @@ test('membership and role are read from Clerk and private metadata is not expose
   await expect(getWorkspace('org_B')).rejects.toThrow('Автомалярку змінено');
   expect(data.access).toEqual({ userId: 'user_admin', orgId: 'org_A', role: 'admin' });
   expect(data.team).toEqual([
-    { id: 'user_admin', name: 'Олена', identifier: 'owner@example.com', role: 'admin' }
+    {
+      id: 'user_admin',
+      name: 'Олена',
+      identifier: 'owner@example.com',
+      role: 'admin',
+      specialties: []
+    }
   ]);
   expect(getOrganizationRepository).toHaveBeenCalledWith('org_A', 'user_admin', true);
   await expect(getWorkspace('org_B')).rejects.toThrow('Автомалярку змінено');
@@ -371,7 +392,7 @@ test('worker advances any shop order through a dedicated strict endpoint but can
         id: order.id,
         expectedStatus: order.status,
         expectedRevision: 2,
-        status: 'delivered',
+        status: 'ready',
         plannedIntakeDate: '',
         plannedDeliveryDate: '',
         actualIntakeDate: '2020-01-02',
@@ -770,5 +791,103 @@ test('report service verifies current organization, strict filters and scopes wo
   );
   expect(reportQueries.period('p', 'org_A', filters).queryKey).not.toEqual(
     reportQueries.period('p', 'org_A', { ...filters, to: '2026-12-31' }).queryKey
+  );
+});
+
+test('specialties come from organization membership and only whitelisted metadata is exposed', async () => {
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [
+      {
+        role: 'org:admin',
+        publicUserData: { userId: 'user_admin', firstName: 'Сергій', identifier: 'p@example.com' },
+        publicMetadata: {
+          crm: { specialties: ['painter', 'colorist', 'unknown'], privateSetting: 'hidden' },
+          other: 'hidden'
+        },
+        privateMetadata: { sensitive: 'hidden' }
+      }
+    ]
+  });
+  const context = await getOrganizationContext();
+  expect(context.team[0].specialties).toEqual(['painter', 'colorist']);
+  expect(JSON.stringify(context.team)).not.toContain('hidden');
+});
+
+test('only verified admins can save specialties for current members in their active organization', async () => {
+  const input = {
+    orgId: 'org_A',
+    userId: 'user_admin',
+    specialties: ['painter', 'assembler'] as ('painter' | 'assembler')[]
+  };
+  expect((await updateTeamMember({ ...input, orgId: 'org_B' })).ok).toBe(false);
+  expect((await updateTeamMember({ ...input, userId: 'foreign_user' })).ok).toBe(false);
+  expect((await updateTeamMember({ ...input, role: 'org:admin' } as typeof input)).ok).toBe(false);
+  expect(updateMembershipMetadata).not.toHaveBeenCalled();
+  expect(await updateTeamMember(input)).toEqual({ ok: true, data: ['painter', 'assembler'] });
+  expect(updateMembershipMetadata).toHaveBeenCalledWith({
+    organizationId: 'org_A',
+    userId: 'user_admin',
+    publicMetadata: { crm: { specialties: ['painter', 'assembler'] } }
+  });
+  expect((await updateTeamMember({ ...input, specialties: [] })).ok).toBe(true);
+  expect(updateMembershipMetadata).toHaveBeenLastCalledWith({
+    organizationId: 'org_A',
+    userId: 'user_admin',
+    publicMetadata: { crm: { specialties: [] } }
+  });
+  updateMembershipMetadata.mockClear();
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [
+      {
+        role: 'org:member',
+        publicUserData: { userId: 'user_admin' },
+        publicMetadata: { crm: { specialties: ['painter'] } }
+      }
+    ]
+  });
+  expect((await updateTeamMember(input)).ok).toBe(false);
+  expect(updateMembershipMetadata).not.toHaveBeenCalled();
+});
+
+test('Clerk metadata failures return a retryable message without claiming success', async () => {
+  updateMembershipMetadata.mockRejectedValueOnce(new Error('secret backend details'));
+  const result = await updateTeamMember({
+    orgId: 'org_A',
+    userId: 'user_admin',
+    specialties: ['painter']
+  });
+  expect(result.ok).toBe(false);
+  if (!result.ok) {
+    expect(result.error).toContain('Повторіть спробу');
+    expect(result.error).not.toContain('secret');
+  }
+});
+
+test('payroll rejects a stale organization and invalid filters, and workers receive their own accruals without cash data', async () => {
+  const filters = { from: '2026-11-01', to: '2026-11-30' };
+  repository.reportSnapshot.mockReturnValue(reportFixture());
+  await expect(getPayrollReport('org_B', filters)).rejects.toThrow('Автомалярку змінено');
+  expect(repository.reportSnapshot).not.toHaveBeenCalled();
+  await expect(getPayrollReport('org_A', { ...filters, from: '2026-02-30' })).rejects.toThrow();
+  expect((await getPayrollReport('org_A', filters)).totals.totalCents).toBe(870000);
+  vi.mocked(auth).mockResolvedValue({ userId: 'p', orgId: 'org_A' } as unknown as Awaited<
+    ReturnType<typeof auth>
+  >);
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [{ role: 'org:member', publicUserData: { userId: 'p', firstName: 'Сергій' } }]
+  });
+  const report = await getPayrollReport('org_A', filters);
+  expect(report.workers.map((row) => row.id)).toEqual(['p']);
+  expect(report.totals.totalCents).toBe(840000);
+  expect(JSON.stringify(report)).not.toContain('Полірувальник');
+  expect(JSON.stringify(report)).not.toContain('payout');
+  expect(payrollQueries.period('p', 'org_A', filters).queryKey).not.toEqual(
+    payrollQueries.period('q', 'org_A', filters).queryKey
+  );
+  expect(payrollQueries.period('p', 'org_A', filters).queryKey).not.toEqual(
+    payrollQueries.period('p', 'org_B', filters).queryKey
   );
 });

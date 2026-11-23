@@ -26,12 +26,10 @@ test('worker sees all orders as read-only and takes successive forward status st
     .scrollIntoViewIfNeeded();
   await page.screenshot({ path: info.outputPath('worker-read-only.png'), animations: 'disabled' });
   await dialog.getByRole('button', { name: 'Позначити готовим', exact: true }).click();
-  await expect(dialog).toBeHidden();
-  await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Позначити виданим', exact: true }).click();
-  await expect(dialog).toBeHidden();
-  await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
-  await expect(dialog.getByText('Замовлення вже видано.', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Замовлення готове.', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Позначити виданим', exact: true })).toHaveCount(
+    0
+  );
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
     true
   );
@@ -49,5 +47,106 @@ test('team roles are readable and administration controls are not offered to wor
   await page.screenshot({ path: info.outputPath('team-worker.png'), animations: 'disabled' });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
     true
+  );
+});
+
+test('member specialties are configured in a keyboard-accessible modal and persist on reload', async ({
+  page
+}, info) => {
+  await page.goto('/dashboard/team');
+  const member = page.getByRole('button', {
+    name: 'Налаштувати учасника Маляр Андрій',
+    exact: true
+  });
+  await member.focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Учасник команди — Маляр Андрій', exact: true });
+  await dialog.getByRole('checkbox', { name: 'Маляр', exact: true }).check();
+  await dialog.getByRole('checkbox', { name: 'Розбірник-збірник', exact: true }).check();
+  await page.screenshot({
+    path: info.outputPath('member-specialties.png'),
+    animations: 'disabled'
+  });
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
+    true
+  );
+  await dialog.getByRole('button', { name: 'Зберегти налаштування', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const row = page.getByRole('row').filter({ has: member });
+  await expect(row.getByText('Маляр', { exact: true })).toBeVisible();
+  await expect(row.getByText('Розбірник-збірник', { exact: true })).toBeVisible();
+  await page.reload();
+  await page
+    .getByRole('button', { name: 'Налаштувати учасника Маляр Андрій', exact: true })
+    .click();
+  await expect(dialog.getByRole('checkbox', { name: 'Маляр', exact: true })).toBeChecked();
+  await dialog.getByRole('checkbox', { name: 'Маляр', exact: true }).uncheck();
+  await dialog.getByRole('checkbox', { name: 'Розбірник-збірник', exact: true }).uncheck();
+  await dialog.getByRole('button', { name: 'Зберегти налаштування', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(row.getByText('Не вказано', { exact: true })).toBeVisible();
+});
+
+test('member modal preserves drafts when cancelling closure and is read-only for workers', async ({
+  page
+}) => {
+  await page.goto('/dashboard/team');
+  await page
+    .getByRole('button', { name: 'Налаштувати учасника Маляр Андрій', exact: true })
+    .click();
+  let dialog = page.getByRole('dialog', { name: 'Учасник команди — Маляр Андрій', exact: true });
+  await dialog.getByRole('checkbox', { name: 'Маляр', exact: true }).check();
+  await page.keyboard.press('Escape');
+  const discard = page.getByRole('alertdialog', { name: 'Відкинути зміни?', exact: true });
+  await expect(discard).toBeVisible();
+  await discard.getByRole('button', { name: 'Продовжити редагування', exact: true }).click();
+  await expect(dialog.getByRole('checkbox', { name: 'Маляр', exact: true })).toBeChecked();
+  await dialog.getByRole('button', { name: 'Скасувати', exact: true }).click();
+  await discard.getByRole('button', { name: 'Відкинути зміни', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await page.goto('/dashboard/team?role=worker');
+  await page
+    .getByRole('button', { name: 'Переглянути учасника Маляр Андрій', exact: true })
+    .click();
+  dialog = page.getByRole('dialog', { name: 'Учасник команди — Маляр Андрій', exact: true });
+  await expect(dialog.getByRole('checkbox', { name: 'Маляр', exact: true })).toBeDisabled();
+  await expect(
+    dialog.getByRole('button', { name: 'Зберегти налаштування', exact: true })
+  ).toHaveCount(0);
+  await expect(dialog.getByRole('checkbox', { name: 'Маляр', exact: true })).not.toBeChecked();
+});
+
+test('work assignment suggests specialists and allows an explicit all-team replacement', async ({
+  page
+}) => {
+  await page.goto('/dashboard/team');
+  await page
+    .getByRole('button', { name: 'Налаштувати учасника Маляр Андрій', exact: true })
+    .click();
+  const memberDialog = page.getByRole('dialog', {
+    name: 'Учасник команди — Маляр Андрій',
+    exact: true
+  });
+  await memberDialog.getByRole('checkbox', { name: 'Маляр', exact: true }).check();
+  await memberDialog.getByRole('button', { name: 'Зберегти налаштування', exact: true }).click();
+  await expect(memberDialog).toBeHidden();
+  await page.goto('/dashboard/orders?economicsDemo');
+  await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
+  await page.getByRole('tab', { name: 'Роботи', exact: true }).click();
+  await page.getByRole('button', { name: 'Деталізувати чек', exact: true }).click();
+  const form = page.getByRole('form', { name: 'Редагування деталізованого чека' });
+  await form.getByRole('combobox', { name: 'Маляр', exact: true }).click();
+  const choices = page.getByRole('dialog', { name: 'Маляр', exact: true });
+  await expect(choices.getByRole('option', { name: 'Маляр Андрій', exact: true })).toBeVisible();
+  await expect(
+    choices.getByRole('option', { name: 'Олена Адміністратор', exact: true })
+  ).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await form.getByRole('button', { name: 'Показати всіх працівників', exact: true }).click();
+  await form.getByRole('combobox', { name: 'Маляр', exact: true }).click();
+  await choices.getByRole('option', { name: 'Олена Адміністратор', exact: true }).click();
+  await form.getByRole('button', { name: 'Лише за спеціалізацією', exact: true }).click();
+  await expect(form.getByRole('combobox', { name: 'Маляр', exact: true })).toContainText(
+    'Олена Адміністратор'
   );
 });

@@ -114,16 +114,16 @@ export function generateDemoData(
           'created',
           'in_progress',
           'ready',
-          'delivered',
-          'delivered',
-          'delivered',
-          'delivered',
-          'delivered',
-          'delivered',
-          'delivered'
+          'ready',
+          'ready',
+          'ready',
+          'ready',
+          'ready',
+          'ready',
+          'ready'
         ] as const
       )[i % 10];
-      const age = status === 'delivered' ? 8 + ((i * 37) % 170) : 4 + (i % 14);
+      const age = status === 'ready' ? 8 + ((i * 37) % 170) : 4 + (i % 14);
       const intake = dateOffset(-age);
       const plannedIntakeDate = status === 'created' ? dateOffset((i % 21) - 7) : intake;
       const plannedDeliveryDate =
@@ -163,7 +163,7 @@ export function generateDemoData(
       const createdAt = `${dateOffset(-age - 2)}T09:00:00Z`;
       db.prepare('UPDATE crm_orders SET createdAt=? WHERE id=?').run(createdAt, id);
       db.prepare('UPDATE crm_workflow_events SET createdAt=? WHERE recordId=?').run(createdAt, id);
-      const stages = ['in_progress', 'ready', 'delivered'] as const;
+      const stages = ['in_progress', 'ready'] as const;
       const stageCount = status === 'created' ? 0 : stages.indexOf(status) + 1;
       for (let stage = 0; stage < stageCount; stage++) {
         repository.updateWorkflow(
@@ -199,7 +199,7 @@ export function generateDemoData(
           actor
         );
         db.prepare('UPDATE crm_payments SET createdAt=? WHERE id=?').run(
-          `${status === 'delivered' ? dateOffset(-age + 3) : dateOffset(-age)}T14:00:00Z`,
+          `${status === 'ready' ? dateOffset(-age + 3) : dateOffset(-age)}T14:00:00Z`,
           paymentId
         );
       }

@@ -18,10 +18,17 @@ import { StatusBadge } from './status-badge';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { SHOW_LEGACY_REQUEST_FLOW } from '@/config/product';
 import { assigneeLabel } from '../lib/assignee';
 import { crmQueries } from '../api/queries';
 import type { BoardStatus, CrmWorkspace, WorkflowRecord } from '../api/types';
-import { displayDate, overdueLabel, WORKFLOW_COLUMNS, transitionKind } from '../lib/workflow';
+import {
+  displayDate,
+  overdueLabel,
+  WORKFLOW_COLUMNS,
+  transitionKind,
+  boardStatus
+} from '../lib/workflow';
 import { Button } from './action-button';
 import { CrmEditorDialog, type Editor } from './editor-dialog';
 import { vehicleLabel } from './format';
@@ -227,7 +234,7 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
             list.some((entry) => entry.id === over.id)
           )?.[0]);
     setDraft(null);
-    if (!card || !destination || destination === card.target.record.status) return;
+    if (!card || !destination || destination === boardStatus(card.target.record.status)) return;
     const action = transitionKind(card.target, destination as BoardStatus);
     if (action === 'convert') {
       openOrder(card.target);
@@ -248,7 +255,9 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
     <div className='flex min-w-0 flex-1 flex-col gap-4'>
       <div className='flex flex-wrap items-center gap-3'>
         <BoardSearch key={searchReset} search={search} onSearch={applySearch} />
-        {!worker && <Button onClick={() => setEditor({ type: 'request' })}>Нова заявка</Button>}
+        {!worker && SHOW_LEGACY_REQUEST_FLOW && (
+          <Button onClick={() => setEditor({ type: 'request' })}>Нова заявка</Button>
+        )}
         {!worker && (
           <Button variant='outline' onClick={() => setEditor({ type: 'order' })}>
             Нове замовлення

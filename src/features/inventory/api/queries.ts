@@ -8,6 +8,7 @@ import {
   receiveStock,
   adjustStock,
   consumeStock,
+  consumeStockBatch,
   reverseConsumption,
   valueStockBalance
 } from './service';
@@ -28,6 +29,11 @@ export const inventoryQueries = {
     })
 };
 export const inventoryMutations = {
+  consumeBatch: (orgId: string) =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof consumeStockBatch>[1]) =>
+        unwrap(await consumeStockBatch(orgId, input))
+    }),
   value: (orgId: string) =>
     mutationOptions({
       mutationFn: async (input: Parameters<typeof valueStockBalance>[1]) =>

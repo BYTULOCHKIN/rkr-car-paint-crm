@@ -8,10 +8,11 @@ import { DashboardInset } from '@/components/layout/dashboard-inset';
 import { auth } from '@clerk/nextjs/server';
 import type { Metadata } from 'next';
 import { cookies } from 'next/headers';
+import { SHOW_TEMPLATE_DEMOS } from '@/config/product';
 
 export const metadata: Metadata = {
-  title: 'Next Shadcn Dashboard Starter',
-  description: 'Basic dashboard with Next.js and Shadcn',
+  title: 'CRM автомалярки',
+  description: 'Замовлення, склад та облік автомалярки',
   robots: {
     index: false,
     follow: false
@@ -32,14 +33,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
           href='#main-content'
           className='bg-background ring-ring sr-only rounded-md px-3 py-2 text-sm font-medium shadow focus:not-sr-only focus:absolute focus:top-2 focus:start-2 focus:z-50 focus:ring-2'
         >
-          Skip to content
+          Перейти до вмісту
         </a>
         <AppSidebar />
         <DashboardInset id='main-content' tabIndex={-1} className='scroll-mt-16'>
           <Header />
           <InfobarProvider defaultOpen={false}>
             {children}
-            <InfoSidebar side='right' />
+            {SHOW_TEMPLATE_DEMOS && <InfoSidebar side='right' />}
           </InfobarProvider>
         </DashboardInset>
       </SidebarProvider>

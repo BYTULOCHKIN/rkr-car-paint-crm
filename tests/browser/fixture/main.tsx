@@ -1,4 +1,5 @@
 import { TeamView } from '@/features/crm/components/team-view';
+import { PayrollView } from '@/features/payroll/components/payroll-view';
 import { lazy, Profiler, Suspense } from 'react';
 const UsersTable = lazy(() =>
   import('@/features/users/components/users-table').then((module) => ({
@@ -24,6 +25,7 @@ import Header from '@/components/layout/header';
 import AppSidebar from '@/components/layout/app-sidebar';
 import { ActiveThemeProvider } from '@/components/themes/active-theme';
 import ThemeProvider from '@/components/themes/theme-provider';
+import { DEFAULT_THEME, THEMES } from '@/components/themes/theme.config';
 import { KBarProvider } from 'kbar';
 
 function ProfiledBoard() {
@@ -48,6 +50,7 @@ const titles: Record<string, string> = {
   users: 'Користувачі',
   inventory: 'Склад',
   reports: 'Зведення за період',
+  payroll: 'Зарплати',
   team: 'Команда',
   overview: 'Огляд автомалярки',
   kanban: 'Дошка робіт',
@@ -58,6 +61,13 @@ const titles: Record<string, string> = {
 };
 if (new URLSearchParams(location.search).has('dark'))
   document.documentElement.classList.add('dark');
+const settingsDemo = new URLSearchParams(location.search).has('settingsDemo');
+const savedTheme = document.cookie
+  .split('; ')
+  .find((cookie) => cookie.startsWith('active_theme='))
+  ?.slice('active_theme='.length);
+const initialTheme =
+  settingsDemo && THEMES.some((theme) => theme.value === savedTheme) ? savedTheme : DEFAULT_THEME;
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 function FixturePage({ children }: { children: React.ReactNode }) {
   return ['clients', 'orders'].includes(route) ? (
@@ -75,9 +85,18 @@ createRoot(document.getElementById('root')!).render(
         <KBarProvider actions={[]}>
           <ThemeProvider
             attribute='class'
-            forcedTheme={new URLSearchParams(location.search).has('dark') ? 'dark' : 'light'}
+            forcedTheme={
+              settingsDemo
+                ? undefined
+                : new URLSearchParams(location.search).has('dark')
+                  ? 'dark'
+                  : 'light'
+            }
+            defaultTheme='system'
+            enableSystem
+            disableTransitionOnChange
           >
-            <ActiveThemeProvider initialTheme='vercel'>
+            <ActiveThemeProvider initialTheme={initialTheme}>
               <SidebarProvider
                 defaultOpen={new URLSearchParams(location.search).get('sidebar') !== 'closed'}
               >
@@ -106,6 +125,12 @@ createRoot(document.getElementById('root')!).render(
                       <Suspense fallback={<p>Завантаження користувачів…</p>}>
                         <UsersTable />
                       </Suspense>
+                    ) : route === 'payroll' ? (
+                      <PayrollView
+                        userId='browser-test'
+                        orgId='org_test'
+                        initialToday={businessToday()}
+                      />
                     ) : route === 'reports' ? (
                       <ReportView
                         userId='browser-test'

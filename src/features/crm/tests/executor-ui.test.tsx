@@ -43,7 +43,7 @@ function show(record: RepairOrder, close = vi.fn()) {
     >
       <CrmEditorDialog
         editor={{ type: 'order', order: record }}
-        data={data}
+        data={{ ...data, orders: [record] }}
         onClose={close}
         onSelectOrder={vi.fn()}
       />
@@ -64,7 +64,8 @@ test('worker reads another executor’s order without edit controls and sends on
   expect(screen.queryByRole('button', { name: 'Зберегти замовлення' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Позначити виданим' })).toBeNull();
   await userEvent.setup().click(screen.getByRole('button', { name: 'Позначити готовим' }));
-  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  await waitFor(() => expect(advanceOrder).toHaveBeenCalledOnce());
+  expect(close).not.toHaveBeenCalled();
   expect(advanceOrder).toHaveBeenCalledWith({
     id: order.id,
     expectedStatus: 'in_progress',
@@ -76,14 +77,14 @@ test('missing factual dates explain administrative correction instead of inventi
   expect(screen.getByText(/адміністратор має уточнити/)).toBeDefined();
   expect(screen.queryByRole('button', { name: 'Позначити готовим' })).toBeNull();
 });
-test('delivered orders have no next status action', () => {
+test('ready orders have no next status action', () => {
   show({
     ...order,
-    status: 'delivered',
+    status: 'ready',
     actualReadyDate: '2020-01-03',
     actualDeliveryDate: '2020-01-04'
   });
-  expect(screen.getByText('Замовлення вже видано.')).toBeDefined();
+  expect(screen.getByText('Замовлення готове.')).toBeDefined();
   expect(screen.queryByRole('button', { name: 'Позначити готовим' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Позначити виданим' })).toBeNull();
 });
@@ -111,5 +112,6 @@ test('pending status update prevents duplicate action and dialog dismissal', asy
   await user.keyboard('{Escape}');
   expect(close).not.toHaveBeenCalled();
   finish?.({ ok: true, data: null });
-  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  await waitFor(() => expect(advanceOrder).toHaveBeenCalledOnce());
+  expect(close).not.toHaveBeenCalled();
 });

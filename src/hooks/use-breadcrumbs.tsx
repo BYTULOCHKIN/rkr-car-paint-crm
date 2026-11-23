@@ -22,6 +22,22 @@ const routeMapping: Record<string, BreadcrumbItem[]> = {
   // Add more custom mappings as needed
 };
 
+const crmLabels: Record<string, string> = {
+  dashboard: 'Автомалярка',
+  overview: 'Огляд',
+  clients: 'Клієнти',
+  vehicles: 'Автомобілі',
+  requests: 'Архів заявок',
+  orders: 'Замовлення',
+  reports: 'Зведення за період',
+  payroll: 'Зарплати',
+  inventory: 'Склад',
+  workspaces: 'Автомалярки',
+  team: 'Команда',
+  kanban: 'Дошка робіт',
+  profile: 'Профіль'
+};
+
 export function useBreadcrumbs() {
   const pathname = usePathname();
 
@@ -36,7 +52,7 @@ export function useBreadcrumbs() {
     return segments.map((segment, index) => {
       const path = `/${segments.slice(0, index + 1).join('/')}`;
       return {
-        title: segment.charAt(0).toUpperCase() + segment.slice(1),
+        title: crmLabels[segment] ?? segment.charAt(0).toUpperCase() + segment.slice(1),
         link: path
       };
     });

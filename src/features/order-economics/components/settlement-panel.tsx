@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { CrmForm, DialogActions, useDialogFormId } from '@/features/crm/components/dialog-form';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { toast } from 'sonner';
@@ -41,6 +42,7 @@ export default function SettlementPanel({
   onSaved,
   onStateChange
 }: SettlementPanelProps) {
+  const formId = useDialogFormId();
   const finance = data.finance!;
   const access = data.access!;
   const admin = access.role === 'admin';
@@ -173,7 +175,10 @@ export default function SettlementPanel({
       <CorrectionEditor
         order={order}
         data={data}
-        onSaved={onSaved}
+        onSaved={() => {
+          setCorrecting(false);
+          onSaved();
+        }}
         onCancel={() => setCorrecting(false)}
         onStateChange={onStateChange}
       />
@@ -254,7 +259,7 @@ export default function SettlementPanel({
         </div>
       )}
       {mode && admin && (
-        <form
+        <CrmForm
           onSubmit={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -329,8 +334,8 @@ export default function SettlementPanel({
                   </AlertDescription>
                 </Alert>
               )}
-              <div className='flex flex-wrap gap-2'>
-                <Button type='submit' isLoading={pending}>
+              <DialogActions>
+                <Button type='submit' form={formId} isLoading={pending} disabled={disabled}>
                   Зберегти фінансову операцію
                 </Button>
                 <Button
@@ -341,10 +346,10 @@ export default function SettlementPanel({
                 >
                   Скасувати введення розрахунку
                 </Button>
-              </div>
+              </DialogActions>
             </FieldGroup>
           </fieldset>
-        </form>
+        </CrmForm>
       )}
       <ol className='flex flex-col gap-2 text-sm' aria-label='Історія нарахувань та виплат'>
         {events.toReversed().map((event) => {

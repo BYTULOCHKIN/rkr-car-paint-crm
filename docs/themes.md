@@ -2,6 +2,14 @@
 
 This guide explains how to add a new theme to the application. The theme system uses CSS custom properties with `[data-theme]` selectors for easy theme switching.
 
+## Appearance Settings in the CRM
+
+The **Налаштування** gear button in the dashboard header opens a side panel on desktop and mobile. All organization members can select any palette registered in `THEMES`, choose light, dark, or system mode, and restore the default appearance. Changes apply immediately without a save action.
+
+Palette selection uses the existing `active_theme` cookie and is restored by the root layout. Display mode uses the existing `next-themes` preference in browser local storage. Preferences belong to the current browser. Reset restores `DEFAULT_THEME` and system mode; it leaves other browser preferences intact.
+
+The settings panel lives in `src/features/settings/components/settings-panel.tsx` and reuses `ThemeSelector`. It is available independently of `SHOW_TEMPLATE_DEMOS`.
+
 ## The Journey: Adding a New Theme
 
 When adding a new theme, follow this journey:
@@ -10,7 +18,7 @@ When adding a new theme, follow this journey:
 2. **Import theme** → Add `@import` to `src/styles/theme.css`
 3. **Register theme** → Add to `THEMES` array in `src/components/themes/theme.config.ts`
 4. **Add fonts (if needed)** → Import fonts in `src/components/themes/font.config.ts` if using custom Google Fonts
-5. **Set as default (optional)** → Update `DEFAULT_THEME` in `src/components/themes/active-theme.tsx`
+5. **Set as default (optional)** → Update `DEFAULT_THEME` in `src/components/themes/theme.config.ts`
 
 See the **Step-by-Step Guide** section below for detailed instructions.
 
@@ -18,8 +26,8 @@ See the **Step-by-Step Guide** section below for detailed instructions.
 
 To make your new theme the default (so it loads automatically without the theme switcher):
 
-1. Open `src/components/themes/active-theme.tsx`
-2. Change line 12: `const DEFAULT_THEME = 'your-theme-name';`
+1. Open `src/components/themes/theme.config.ts`
+2. Change `export const DEFAULT_THEME = 'your-theme-name';`
 3. Save and restart your dev server
 
 That's it! Your theme will now be the default for all new users.

@@ -1,5 +1,6 @@
 import { beforeEach, expect, test, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NuqsTestingAdapter } from 'nuqs/adapters/testing';
 import { ReportView } from '@/features/workshop-reports/components/report-view';
@@ -60,4 +61,35 @@ test('worker report has own balances and no administrative tabs, even with an ad
   expect(screen.queryByText('Полірувальник')).toBeNull();
   expect(screen.getByText(/Показано тільки ваші розрахунки/)).toBeDefined();
   expect(screen.queryByRole('region', { name: 'Підсумок проведень за період' })).toBeNull();
+});
+
+test('settlements show a compact summary, scoped search and individual car history instead of three full tables', async () => {
+  view('?reportFrom=2026-11-01&reportTo=2026-11-30&reportTab=settlements');
+  const table = await screen.findByRole('table', { name: 'Підсумок по одержувачах' });
+  expect(within(table).getAllByRole('columnheader')).toHaveLength(5);
+  expect(screen.queryByRole('table', { name: 'Баланси по авто' })).toBeNull();
+  expect(screen.queryByLabelText('Відбір на вкладці «Авто»')).toBeNull();
+  expect(screen.getByRole('region', { name: 'Підсумок розрахунків' }).textContent).toContain(
+    '3\u00a0000,00'
+  );
+  const user = userEvent.setup();
+  await user.click(within(table).getByRole('button', { name: 'Деталі розрахунків: Маляр' }));
+  const dialog = screen.getByRole('dialog', { name: 'Розрахунки — Маляр' });
+  expect(within(dialog).getByRole('table', { name: 'Баланси по авто' })).toBeDefined();
+  await user.click(within(dialog).getByRole('tab', { name: 'Історія операцій' }));
+  expect(within(dialog).getByRole('table', { name: 'Операції розрахунків' }).textContent).toContain(
+    'Виплата / аванс'
+  );
+  await user.click(within(dialog).getByRole('button', { name: 'Закрити' }));
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Пошук одержувача' }), {
+    target: { value: 'Полірувальник' }
+  });
+  await waitFor(() =>
+    expect(
+      screen.getByRole('table', { name: 'Підсумок по одержувачах' }).textContent
+    ).not.toContain('Маляр')
+  );
+  expect(screen.getByRole('table', { name: 'Підсумок по одержувачах' }).textContent).toContain(
+    'Полірувальник'
+  );
 });

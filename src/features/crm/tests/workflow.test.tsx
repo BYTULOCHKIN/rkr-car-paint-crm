@@ -10,7 +10,6 @@ import { WorkflowDates } from '../components/workflow-details';
 import { updateWorkflow } from '../api/service';
 import { crmQueries } from '../api/queries';
 import type { CrmWorkspace, RepairRequest, RepairOrder } from '../api/types';
-import { businessToday } from '../lib/workflow';
 
 vi.mock('../api/service', () => ({
   addVehicleModel: vi.fn(),
@@ -127,12 +126,12 @@ test('planned column requires a receipt date before saving a backlog request', a
   expect(updateWorkflow).not.toHaveBeenCalled();
 });
 
-test('delivery defaults to today and preserves earlier factual and planned dates', async () => {
+test('readiness preserves earlier factual and planned dates', async () => {
   const saved = vi.fn();
   renderUi(
     <WorkflowForm
       target={{ kind: 'order', record: order }}
-      requestedStatus='delivered'
+      requestedStatus='ready'
       onSaved={saved}
     />
   );
@@ -140,12 +139,12 @@ test('delivery defaults to today and preserves earlier factual and planned dates
   await waitFor(() => expect(saved).toHaveBeenCalledOnce());
   expect(updateWorkflow).toHaveBeenCalledWith(
     expect.objectContaining({
-      status: 'delivered',
+      status: 'ready',
       plannedIntakeDate: '2020-01-01',
       plannedDeliveryDate: '2020-01-10',
       actualIntakeDate: '2020-01-05',
       actualReadyDate: '2020-01-07',
-      actualDeliveryDate: businessToday()
+      actualDeliveryDate: ''
     })
   );
 });
@@ -154,8 +153,10 @@ test('board has one card after conversion and opens the existing order workflow'
   renderUi(<CrmKanbanBoard userId='admin' />);
   expect(screen.getAllByText('Замовлення №1')).toHaveLength(1);
   expect(screen.queryByText('Заявка', { exact: true })).toBeNull();
-  expect(screen.getByRole('heading', { name: 'Заплановано' })).toBeDefined();
-  expect(screen.getByRole('heading', { name: 'Видано' })).toBeDefined();
+  expect(screen.getByRole('heading', { name: 'Створено' })).toBeDefined();
+  expect(screen.getByRole('heading', { name: 'В роботі' })).toBeDefined();
+  expect(screen.getByRole('heading', { name: 'Готово' })).toBeDefined();
+  expect(screen.queryByRole('heading', { name: 'Видано' })).toBeNull();
   await userEvent.setup().click(screen.getByRole('button', { name: 'Статус і дати' }));
   const dialog = await screen.findByRole('dialog');
   expect(within(dialog).getByRole('combobox', { name: 'Статус *' }).textContent).toContain(

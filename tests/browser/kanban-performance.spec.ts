@@ -8,8 +8,8 @@ test('large board keeps typing responsive and searches records beyond the first 
   const cards = page.locator('[data-slot=crm-board-card]');
   await expect(cards.first()).toBeVisible();
   const initialCards = await cards.count();
-  expect(initialCards).toBe(150);
-  await expect(page.getByText('Знайдено 1200 із 1200', { exact: true })).toBeVisible();
+  expect(initialCards).toBe(75);
+  await expect(page.getByText('Знайдено 1000 із 1000', { exact: true })).toBeVisible();
   await expect(page.getByText('Замовлення №1000', { exact: true })).toHaveCount(0);
   const initialCommits = await page.evaluate(
     () => (window as unknown as { boardProfile: unknown[] }).boardProfile.length
@@ -46,10 +46,10 @@ test('one shared button reveals all columns and search resets the shared batch s
   await page.goto('/dashboard/kanban?largeBoard');
   const backlog = page
     .locator('[data-slot=kanban-column]')
-    .filter({ has: page.getByRole('heading', { name: 'Backlog', exact: true }) });
+    .filter({ has: page.getByRole('heading', { name: 'Створено', exact: true }) });
   const cards = backlog.locator('[data-slot=crm-board-card]');
   await expect(cards).toHaveCount(25);
-  await expect(backlog.locator('[data-slot=crm-column-header]')).toContainText('100');
+  await expect(backlog.locator('[data-slot=crm-column-header]')).toContainText('334');
   const more = page.getByRole('button', { name: 'Показати ще', exact: true });
   await expect(more).toHaveCount(1);
   await expect(more).not.toBeInViewport();
@@ -72,11 +72,11 @@ test('one shared button reveals all columns and search resets the shared batch s
   await more.click();
   await expect(cards).toHaveCount(50);
   expect(await board.evaluate((element) => element.scrollLeft)).toBe(scrollLeft);
-  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(300);
+  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(150);
   for (const column of await page.locator('[data-slot=kanban-column]').all()) {
     await expect(column.locator('[data-slot=crm-board-card]')).toHaveCount(50);
   }
-  await expect(page.getByText('Показано 300 із 1200', { exact: true })).toBeVisible();
+  await expect(page.getByText('Показано 150 із 1000', { exact: true })).toBeVisible();
   const search = page.getByRole('searchbox', { name: 'Пошук на дошці' });
   await search.fill('Ремонт');
   await expect(search).toHaveAttribute('aria-busy', 'false');
@@ -89,27 +89,27 @@ test('one shared button reveals all columns and search resets the shared batch s
   await search.fill('RareNeedle');
   await page.getByRole('button', { name: 'Очистити пошук', exact: true }).click();
   await expect(search).toHaveValue('');
-  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(150);
+  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(75);
   await expect(search).toHaveAttribute('aria-busy', 'false');
   await expect(more).toBeVisible();
   // A shared limit stops adding to exhausted columns and disappears once all records are visible.
-  for (let batch = 0; batch < 9; batch++) await more.click();
-  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(1200);
-  await expect(cards).toHaveCount(100);
+  for (let batch = 0; batch < 13; batch++) await more.click();
+  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(1000);
+  await expect(cards).toHaveCount(334);
   await expect(more).toHaveCount(0);
-  await expect(page.getByText('Показано 1200 із 1200', { exact: true })).toBeVisible();
+  await expect(page.getByText('Показано 1000 із 1000', { exact: true })).toBeVisible();
 });
 
 test('workers search all orders in batches without receiving request columns or drag handles', async ({
   page
 }) => {
   await page.goto('/dashboard/kanban?largeBoard&role=worker');
-  await expect(page.locator('[data-slot=kanban-column]')).toHaveCount(4);
-  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(100);
+  await expect(page.locator('[data-slot=kanban-column]')).toHaveCount(3);
+  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(75);
   await expect(page.getByText('Знайдено 1000 із 1000', { exact: true })).toBeVisible();
   await expect(page.locator('[data-slot=kanban-item-handle]')).toHaveCount(0);
   await page.getByRole('button', { name: 'Показати ще', exact: true }).click();
-  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(200);
+  await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(150);
   await page.getByRole('searchbox', { name: 'Пошук на дошці' }).fill('RareNeedle');
   await expect(page.locator('[data-slot=crm-board-card]')).toHaveCount(1);
   await expect(page.locator('[data-slot=crm-board-card]')).toContainText('Замовлення №1000');

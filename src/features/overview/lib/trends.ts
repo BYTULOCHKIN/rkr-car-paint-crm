@@ -4,7 +4,7 @@ import { paymentDelta } from '@/features/crm/lib/payment-balance';
 import { overviewMetrics, type OverviewMetrics } from './metrics';
 
 export type TrendKey =
-  | 'activeRequests'
+  | 'createdOrders'
   | 'inProgress'
   | 'ready'
   | 'deliveredThisMonth'
@@ -30,7 +30,7 @@ export interface OverviewTrends {
   metrics: Record<TrendKey, MetricTrend>;
 }
 const keys: TrendKey[] = [
-  'activeRequests',
+  'createdOrders',
   'inProgress',
   'ready',
   'deliveredThisMonth',
@@ -118,18 +118,10 @@ export function overviewTrends(
         dayOf(entry.createdAt) <= today
     )
     .map((entry) => ({ ...entry, amountCents: paymentDelta(entry), day: dayOf(entry.createdAt) }));
-  const requestDates = new Map(
-    data.requests.map((request) => [request.id, dayOf(request.createdAt)])
-  );
   const orderDates = new Map(data.orders.map((order) => [order.id, dayOf(order.createdAt)]));
-  const conversions = new Map(
-    data.orders
-      .filter((order) => order.requestId)
-      .map((order) => [order.requestId!, orderDates.get(order.id)!])
-  );
 
   function snapshot(day: string): Record<TrendKey, number | null> {
-    let activeRequests: number | null = 0;
+    let createdOrders: number | null = 0;
     let inProgress: number | null = 0;
     let ready: number | null = 0;
     let deliveredThisMonth: number | null = 0;
@@ -142,30 +134,6 @@ export function overviewTrends(
       if (payment.day > day) continue;
       paid.set(payment.orderId, (paid.get(payment.orderId) ?? 0) + payment.amountCents);
       if (payment.day.startsWith(month)) monthlyReceiptsCents += payment.amountCents;
-    }
-    for (const request of data.requests) {
-      if (requestDates.get(request.id)! > day) continue;
-      const events = histories.get(`request:${request.id}`) ?? [];
-      const last = events.findLast((event) => dayOf(event.createdAt) <= day);
-      const future = events.find((event) => dayOf(event.createdAt) > day);
-      const conversion = conversions.get(request.id);
-      const status =
-        last?.toStatus ??
-        future?.fromStatus ??
-        (conversion
-          ? conversion <= day
-            ? 'converted'
-            : 'backlog'
-          : request.status === 'converted'
-            ? null
-            : request.status);
-      if (!status) activeRequests = null;
-      else if (
-        status !== 'converted' &&
-        (!conversion || conversion > day) &&
-        activeRequests !== null
-      )
-        activeRequests++;
     }
     for (const order of data.orders) {
       if (orderDates.get(order.id)! > day) continue;
@@ -184,28 +152,30 @@ export function overviewTrends(
       }
       const status = last?.toStatus ?? future[0]?.fromStatus ?? fallbackStatus(order, facts, day);
       if (!status) {
+        createdOrders = null;
         inProgress = null;
         ready = null;
         debtCents = null;
         pendingPaymentCents = null;
-        if (!facts.actualDeliveryDate) deliveredThisMonth = null;
+        if (!facts.actualReadyDate && !facts.actualDeliveryDate) deliveredThisMonth = null;
         continue;
       }
+      if (status === 'created' && createdOrders !== null) createdOrders++;
       if (status === 'in_progress' && inProgress !== null) inProgress++;
-      if (status === 'ready' && ready !== null) ready++;
+      if ((status === 'ready' || status === 'delivered') && ready !== null) ready++;
       const remaining = Math.max(0, total - (paid.get(order.id) ?? 0));
-      if (status === 'delivered') {
+      if (status === 'ready' || status === 'delivered') {
         if (debtCents !== null) debtCents += remaining;
         if (
-          facts.actualDeliveryDate?.startsWith(month) &&
-          facts.actualDeliveryDate <= day &&
+          (facts.actualReadyDate ?? facts.actualDeliveryDate)?.startsWith(month) &&
+          (facts.actualReadyDate ?? facts.actualDeliveryDate)! <= day &&
           deliveredThisMonth !== null
         )
           deliveredThisMonth++;
       } else if (pendingPaymentCents !== null) pendingPaymentCents += remaining;
     }
     return {
-      activeRequests,
+      createdOrders,
       inProgress,
       ready,
       deliveredThisMonth,

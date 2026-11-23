@@ -1,4 +1,5 @@
 import { NavGroup } from '@/types';
+import { SHOW_TEMPLATE_DEMOS, SHOW_LEGACY_REQUEST_FLOW } from './product';
 
 /**
  * Navigation configuration with RBAC support
@@ -33,7 +34,7 @@ import { NavGroup } from '@/types';
  * Note: The `visible` function is deprecated but still supported for backward compatibility.
  * Use the `access` property for new items.
  */
-export const navGroups: NavGroup[] = [
+export const allNavGroups: NavGroup[] = [
   {
     label: 'Автомалярка',
     items: [
@@ -63,6 +64,13 @@ export const navGroups: NavGroup[] = [
         access: { requireOrg: true, role: 'org:admin' }
       },
       { title: 'Замовлення', url: '/dashboard/orders', icon: 'orders', items: [] },
+      {
+        title: 'Зарплати',
+        url: '/dashboard/payroll',
+        icon: 'billing',
+        items: [],
+        access: { requireOrg: true }
+      },
       {
         title: 'Зведення за період',
         url: '/dashboard/reports',
@@ -226,3 +234,14 @@ export const navGroups: NavGroup[] = [
     ]
   }
 ];
+
+export const navGroups = SHOW_TEMPLATE_DEMOS
+  ? allNavGroups
+  : allNavGroups
+      .filter((group) => group.label === 'Автомалярка')
+      .map((group) => ({
+        ...group,
+        items: group.items.filter(
+          (item) => SHOW_LEGACY_REQUEST_FLOW || item.url !== '/dashboard/requests'
+        )
+      }));

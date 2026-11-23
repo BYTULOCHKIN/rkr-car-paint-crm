@@ -89,6 +89,20 @@ export const consumptionSchema = z
     category: z.enum(['painting', 'polishing']).default('painting')
   })
   .strict();
+export const batchConsumptionSchema = z
+  .object({
+    operationId: z.uuid(),
+    orderId: z.uuid(),
+    rows: z
+      .array(
+        consumptionSchema
+          .omit({ operationId: true, orderId: true })
+          .extend({ category: z.enum(['painting', 'polishing']) })
+      )
+      .min(1, 'Додайте матеріал')
+      .max(100, 'До 100 матеріалів за одне збереження')
+  })
+  .strict();
 export const valuationSchema = z
   .object({
     ...baseMovement,
@@ -117,5 +131,6 @@ export type UpdateItemInput = z.infer<typeof updateItemSchema>;
 export type ReceiptInput = z.infer<typeof receiptSchema>;
 export type AdjustmentInput = z.input<typeof adjustmentSchema>;
 export type ConsumptionInput = z.input<typeof consumptionSchema>;
+export type BatchConsumptionInput = z.input<typeof batchConsumptionSchema>;
 export type ReversalInput = z.infer<typeof reversalSchema>;
 export type ValuationInput = z.infer<typeof valuationSchema>;

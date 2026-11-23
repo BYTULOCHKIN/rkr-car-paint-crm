@@ -3,6 +3,7 @@ import { expect, test, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { OrderEconomicsPanel } from '@/features/order-economics/components/economics-panel';
+import { OrderWorkDetails } from '@/features/order-economics/components/order-work-details';
 import { OrderDocument } from '../components/order-document';
 import type { RepairOrder, CrmWorkspace } from '../api/types';
 
@@ -54,11 +55,17 @@ test('worker sees internal economics without editing controls', async () => {
   };
   render(
     <QueryClientProvider client={new QueryClient()}>
+      <OrderWorkDetails
+        order={order}
+        data={data}
+        onStateChange={vi.fn()}
+        onFinancialCorrection={vi.fn()}
+      />
       <OrderEconomicsPanel order={order} data={data} onSaved={vi.fn()} />
     </QueryClientProvider>
   );
-  expect(await screen.findByText('Маляр: Ім’я маляра')).toBeDefined();
-  expect(screen.getByText(/Попередній розрахунок/)).toBeDefined();
+  expect(await screen.findByText('Ім’я маляра')).toBeDefined();
+  expect(await screen.findByText(/Попередній розрахунок/)).toBeDefined();
   expect(screen.getByText('Маляру (попередньо)')).toBeDefined();
   expect(screen.queryByRole('button', { name: /чек/ })).toBeNull();
 });

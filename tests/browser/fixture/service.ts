@@ -8,11 +8,17 @@ import { paymentDelta } from '@/features/crm/lib/payment-balance';
 export { refundPayment } from './finance-service';
 import { postReadyFixture } from './finance-service';
 import type { CrmWorkspace, TeamMember, Vehicle } from '@/features/crm/api/types';
+import {
+  updateTeamMemberSchema,
+  type UpdateTeamMemberInput
+} from '@/features/crm/schemas/team-member';
+import { readWorkerSpecialties } from '@/features/crm/lib/team-specialties';
 import type {
   CustomerInput,
   UpdateCustomerInput,
   VehicleInput,
-  OrderInput
+  OrderInput,
+  UpdateOrderInput
 } from '@/features/crm/schemas/crm';
 const uuid = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(12, '0')}`;
 const longDescription =
@@ -88,18 +94,15 @@ if (location.pathname.endsWith('/kanban')) {
     if (data.requests[index].status === 'backlog') data.requests[index].plannedIntakeDate = null;
   }
   for (let index = 0; index < data.orders.length; index++) {
-    data.orders[index].status =
-      index % 3 === 0 ? 'in_progress' : index % 3 === 1 ? 'ready' : 'delivered';
-    if (data.orders[index].status !== 'in_progress')
-      data.orders[index].actualReadyDate = '2026-10-31';
-    if (data.orders[index].status === 'delivered')
-      data.orders[index].actualDeliveryDate = '2026-10-31';
+    data.orders[index].status = (['in_progress', 'ready', 'created'] as const)[index % 3];
+    if (data.orders[index].status === 'ready') data.orders[index].actualReadyDate = '2026-10-31';
+    if (data.orders[index].status === 'created') data.orders[index].actualIntakeDate = null;
   }
 }
 if (location.pathname.endsWith('/overview')) {
   data.orders[1].status = 'ready';
   data.orders[1].actualReadyDate = '2026-10-31';
-  data.orders[2].status = 'delivered';
+  data.orders[2].status = 'ready';
   data.orders[2].actualReadyDate = '2026-10-30';
   data.orders[2].actualDeliveryDate = '2026-10-31';
   data.requests[2].plannedIntakeDate = '2026-10-31';
@@ -269,7 +272,7 @@ export async function getWorkspace() {
     }
     Object.assign(result.orders[0], {
       createdAt: '2026-09-01T10:00:00Z',
-      status: 'delivered',
+      status: 'ready',
       actualIntakeDate: '2026-09-01',
       actualReadyDate: '2026-09-09',
       actualDeliveryDate: '2026-09-10'
@@ -317,7 +320,7 @@ export async function getWorkspace() {
       order.actualDeliveryDate = null;
     }
     result.orders[0].actualReadyDate = businessToday();
-    result.orders[0].status = 'delivered';
+    result.orders[0].status = 'ready';
     result.orders[0].actualDeliveryDate = businessToday();
     result.payments = [
       {
@@ -335,7 +338,7 @@ export async function getWorkspace() {
   }
   if (new URLSearchParams(location.search).has('orderStatuses')) {
     result.orders[1].status = 'ready';
-    result.orders[2].status = 'delivered';
+    result.orders[2].status = 'ready';
   }
   if (new URLSearchParams(location.search).has('brandAvatars')) {
     result.vehicles[0].make = 'ZEEKR';
@@ -370,7 +373,7 @@ export async function getWorkspace() {
       requestId: null,
       vehicleId: result.vehicles[index % 500].id,
       customerId: result.vehicles[index % 500].customerId!,
-      status: (['created', 'in_progress', 'ready', 'delivered'] as const)[index % 4],
+      status: (['created', 'in_progress', 'ready'] as const)[index % 3],
       description: index === 999 ? 'Ремонт RareNeedle' : `Ремонт кузова ${index + 1}`
     }));
     result.requests = Array.from({ length: 200 }, (_, index) => ({
@@ -396,6 +399,14 @@ export async function getWorkspace() {
     },
     { id: 'user_worker', name: 'Маляр Андрій', identifier: 'worker@example.com', role: 'worker' }
   ];
+  const memberSettings = JSON.parse(sessionStorage.getItem('team-settings') ?? '{}') as Record<
+    string,
+    unknown
+  >;
+  result.team = result.team.map((member) => ({
+    ...member,
+    specialties: readWorkerSpecialties(memberSettings[member.id])
+  }));
   result.orders = result.orders.map((order) => ({
     ...order,
     assigneeId: order.assigneeId ?? 'user_owner',
@@ -456,13 +467,67 @@ export async function updateVehicle(input: VehicleInput & { id: string }) {
   if (vehicle) Object.assign(vehicle, input);
   return { ok: true as const, data: null };
 }
-export async function createOrder(_input: OrderInput) {
-  return { ok: true as const, data: crypto.randomUUID() };
+export async function createOrder(input: OrderInput) {
+  const workspace = await getWorkspace();
+  const id = crypto.randomUUID();
+  const items = input.items.map((item) => ({
+    description: item.description,
+    quantity: item.quantity,
+    unitPriceCents: Math.round(item.unitPrice * 100)
+  }));
+  data.orders.push({
+    id,
+    number: Math.max(0, ...data.orders.map((entry) => entry.number)) + 1,
+    requestId: input.requestId || null,
+    customerId: input.customerId,
+    vehicleId: input.vehicleId,
+    description: input.description,
+    assigneeId: input.assigneeId,
+    assigneeName: workspace.team?.find((entry) => entry.id === input.assigneeId)?.name,
+    status: 'created',
+    workflowRevision: 0,
+    createdAt: new Date().toISOString(),
+    plannedIntakeDate: input.plannedIntakeDate || null,
+    plannedDeliveryDate: input.plannedDeliveryDate || null,
+    actualIntakeDate: input.actualIntakeDate || null,
+    actualReadyDate: null,
+    actualDeliveryDate: null,
+    paintPlan: input.paintPlan ?? [],
+    items,
+    totalCents: items.reduce((total, item) => total + item.quantity * item.unitPriceCents, 0)
+  });
+  if (input.requestId) {
+    const request = data.requests.find((entry) => entry.id === input.requestId);
+    if (request) request.status = 'converted';
+  }
+  persistFlowFixture();
+  return { ok: true as const, data: id };
 }
 export async function createRequest() {
   return { ok: true as const, data: crypto.randomUUID() };
 }
-export async function updateOrder() {
+export async function updateOrder(input: UpdateOrderInput) {
+  const workspace = await getWorkspace();
+  const order = data.orders.find((entry) => entry.id === input.id)!;
+  if ((order.workflowRevision ?? 0) !== (input.expectedRevision ?? 0))
+    return { ok: false as const, error: 'Запис уже змінено в іншому вікні' };
+  order.description = input.description;
+  order.items = input.items.map((item) => ({
+    description: item.description,
+    quantity: item.quantity,
+    unitPriceCents: Math.round(item.unitPrice * 100)
+  }));
+  order.totalCents = order.items.reduce(
+    (total, item) => total + item.quantity * item.unitPriceCents,
+    0
+  );
+  order.paintPlan = input.paintPlan ?? order.paintPlan;
+  if (input.assigneeId) {
+    order.assigneeId = input.assigneeId;
+    order.assigneeName = workspace.team?.find((entry) => entry.id === input.assigneeId)?.name;
+  }
+  order.workflowRevision = (order.workflowRevision ?? 0) + 1;
+  persistFlowFixture();
   return { ok: true as const, data: null };
 }
 export async function updateWorkflow() {
@@ -482,6 +547,20 @@ export async function deleteVehicle(id: Vehicle['id']) {
 export async function getTeam() {
   const workspace = await getWorkspace();
   return { access: workspace.access!, team: workspace.team ?? ([] as TeamMember[]) };
+}
+export async function updateTeamMember(input: UpdateTeamMemberInput) {
+  const workspace = await getWorkspace();
+  if (
+    workspace.access?.role !== 'admin' ||
+    input.orgId !== workspace.access.orgId ||
+    !workspace.team?.some((member) => member.id === input.userId)
+  )
+    return { ok: false as const, error: 'Немає доступу' };
+  const value = updateTeamMemberSchema.parse(input);
+  const settings = JSON.parse(sessionStorage.getItem('team-settings') ?? '{}');
+  settings[value.userId] = { crm: { specialties: value.specialties } };
+  sessionStorage.setItem('team-settings', JSON.stringify(settings));
+  return { ok: true as const, data: value.specialties };
 }
 export async function advanceOrder(input: AdvanceOrderInput) {
   const order = data.orders.find((order) => order.id === input.id);

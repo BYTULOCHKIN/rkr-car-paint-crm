@@ -4,7 +4,57 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { historyOrderChanges } from '../lib/workflow-history';
-import { CrmRepository, OrganizationRepositories } from '../server/repository';
+import {
+  CrmRepository,
+  OrganizationRepositories,
+  getOrganizationRepository
+} from '../server/repository';
+
+test('organization cache reopens repositories from an older app version and preserves their data', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'crm-schema-cache-'));
+  const filename = join(directory, 'crm.sqlite');
+  const holder = globalThis as unknown as {
+    crmOrganizations?: {
+      filename: string;
+      configuredAdmin?: string;
+      schemaVersion?: number;
+      repositories: OrganizationRepositories;
+    };
+  };
+  const previous = holder.crmOrganizations;
+  const databasePath = process.env.CRM_DATABASE_PATH;
+  const configuredAdmin = process.env.CRM_ADMIN_USER_ID;
+  const oldRegistry = new OrganizationRepositories(filename);
+  const oldRepository = oldRegistry.forOrganization('org_A', 'owner', true);
+  const customerId = oldRepository.createCustomer({
+    name: 'Існуючий клієнт',
+    phone: '0501234567',
+    notes: ''
+  });
+  const itemId = oldRepository.inventory.createItem({ name: 'Лак', unit: 'л', notes: '' });
+  holder.crmOrganizations = { filename, repositories: oldRegistry };
+  process.env.CRM_DATABASE_PATH = filename;
+  delete process.env.CRM_ADMIN_USER_ID;
+  try {
+    const reopened = getOrganizationRepository('org_A', 'owner', true);
+    assert.notEqual(reopened, oldRepository);
+    assert.throws(() => oldRepository.workspace());
+    assert.equal(reopened.workspace().customers[0].id, customerId);
+    const item = reopened.inventory.items().find((entry) => entry.id === itemId)!;
+    assert.equal(item.totalCostCents, 0);
+    assert.equal(item.valuationRevision, 0);
+    assert.equal(getOrganizationRepository('org_A', 'owner', true), reopened);
+    assert.equal(holder.crmOrganizations?.schemaVersion, 17);
+  } finally {
+    holder.crmOrganizations?.repositories.close();
+    holder.crmOrganizations = previous;
+    if (databasePath === undefined) delete process.env.CRM_DATABASE_PATH;
+    else process.env.CRM_DATABASE_PATH = databasePath;
+    if (configuredAdmin === undefined) delete process.env.CRM_ADMIN_USER_ID;
+    else process.env.CRM_ADMIN_USER_ID = configuredAdmin;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test('only legacy owner can bind existing data, other organizations remain isolated across reopen', () => {
   const dir = mkdtempSync(join(tmpdir(), 'crm-organizations-'));

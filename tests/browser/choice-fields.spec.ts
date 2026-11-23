@@ -117,8 +117,8 @@ test('unmatched searches keep a stable empty panel and do not change the selecte
 });
 
 test('vehicle search finds VINs and changing a customer clears the vehicle', async ({ page }) => {
-  await page.goto('/dashboard/requests');
-  await page.getByRole('button', { name: 'Нова заявка', exact: true }).first().click();
+  await page.goto('/dashboard/orders');
+  await page.getByRole('button', { name: 'Нове замовлення', exact: true }).first().click();
   let popup = await openField(page, 'Клієнт *');
   await popup.getByRole('option', { name: /Тестовий клієнт із довгим/ }).click();
   popup = await openField(page, 'Автомобіль *');
@@ -134,7 +134,9 @@ test('vehicle search finds VINs and changing a customer clears the vehicle', asy
   await expect(page.getByRole('combobox', { name: 'Автомобіль *', exact: true })).toContainText(
     'Виберіть автомобіль'
   );
-  await expect(page.getByRole('button', { name: 'Зберегти заявку', exact: true })).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: 'Створити замовлення', exact: true })
+  ).toBeDisabled();
 });
 
 test('dropdown stays inside a short viewport and short statuses stay compact', async ({

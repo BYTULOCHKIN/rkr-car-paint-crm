@@ -13,11 +13,9 @@ export function executorTransition(
     (order.workflowRevision ?? 0) !== expected.expectedRevision
   )
     return { ok: false, error: 'Замовлення вже змінено. Відкрийте його повторно.' };
-  if (order.status === 'delivered') return { ok: false, error: 'Замовлення вже видано.' };
-  if (
-    (order.status !== 'created' && !order.actualIntakeDate) ||
-    (order.status === 'ready' && !order.actualReadyDate)
-  )
+  if (order.status === 'ready' || order.status === 'delivered')
+    return { ok: false, error: 'Замовлення готове.' };
+  if (order.status !== 'created' && !order.actualIntakeDate)
     return { ok: false, error: 'Спочатку адміністратор має уточнити попередні фактичні дати.' };
   if (order.status === 'in_progress' && order.actualDeliveryDate)
     return { ok: false, error: 'Адміністратор має виправити фактичні дати цього замовлення.' };
@@ -26,17 +24,12 @@ export function executorTransition(
     id: order.id,
     expectedStatus: order.status,
     expectedRevision: expected.expectedRevision,
-    status:
-      order.status === 'created'
-        ? 'in_progress'
-        : order.status === 'in_progress'
-          ? 'ready'
-          : 'delivered',
+    status: order.status === 'created' ? 'in_progress' : 'ready',
     plannedIntakeDate: order.plannedIntakeDate ?? '',
     plannedDeliveryDate: order.plannedDeliveryDate ?? '',
     actualIntakeDate: order.actualIntakeDate || today,
     actualReadyDate: order.status === 'created' ? '' : order.actualReadyDate || today,
-    actualDeliveryDate: order.status === 'ready' ? order.actualDeliveryDate || today : '',
+    actualDeliveryDate: '',
     note: ''
   });
   return value.success

@@ -134,7 +134,7 @@ function setup(repository: CrmRepository) {
 function transition(
   repository: CrmRepository,
   id: string,
-  status: 'in_progress' | 'ready' | 'delivered',
+  status: 'in_progress' | 'ready',
   note = ''
 ) {
   const order = repository.workspace().orders.find((entry) => entry.id === id)!;
@@ -149,7 +149,7 @@ function transition(
       plannedDeliveryDate: '',
       actualIntakeDate: businessToday(),
       actualReadyDate: status === 'in_progress' ? '' : businessToday(),
-      actualDeliveryDate: status === 'delivered' ? businessToday() : '',
+      actualDeliveryDate: '',
       note
     },
     actor
@@ -215,14 +215,14 @@ test('readiness posts one immutable snapshot with Excel amounts and no duplicate
     assert.equal(repository.settlements.events().length, 5);
   }));
 
-test('administrative delivery directly from work cannot bypass accrual posting', () =>
+test('administrative readiness directly from work cannot bypass accrual posting', () =>
   withRepository((repository) => {
     const { id } = setup(repository);
-    transition(repository, id, 'delivered');
+    transition(repository, id, 'ready');
     assert.equal(repository.settlements.latest(id)!.revision, 1);
     assert.equal(repository.settlements.latest(id)!.result.painterAccrualCents, 840000);
     transition(repository, id, 'in_progress', 'Доопрацювання');
-    transition(repository, id, 'delivered');
+    transition(repository, id, 'ready');
     assert.equal(repository.settlements.postings().length, 1);
   }));
 
@@ -267,7 +267,7 @@ test('v14 finance migration preserves detailed checks, cash and stock without in
     );
     const verification = new DatabaseSync(path);
     try {
-      assert.equal(verification.prepare('PRAGMA user_version').get()!.user_version, 15);
+      assert.equal(verification.prepare('PRAGMA user_version').get()!.user_version, 17);
       assert.deepEqual(verification.prepare('PRAGMA foreign_key_check').all(), []);
     } finally {
       verification.close();

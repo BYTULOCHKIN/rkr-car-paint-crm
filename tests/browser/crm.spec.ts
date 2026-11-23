@@ -107,8 +107,10 @@ test('long order modal scrolls its body while header and footer stay visible', a
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
-  // Wait for material data before observing animations from the resolved dialog.
-  await expect(dialog.getByRole('region', { name: 'Матеріали замовлення' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Роботи', exact: true }).click();
+  await expect(
+    dialog.getByRole('group', { name: 'Схема кузова автомобіля', exact: true })
+  ).toBeVisible();
   await dialog.evaluate(async (element) => {
     await Promise.all(
       element.getAnimations({ subtree: true }).map((animation) => animation.finished)
@@ -181,7 +183,6 @@ test('creation dialogs fit a low viewport with stationary actions', async ({ pag
   for (const [route, label] of [
     ['clients', 'Додати клієнта'],
     ['vehicles', 'Додати автомобіль'],
-    ['requests', 'Нова заявка'],
     ['orders', 'Нове замовлення']
   ]) {
     await page.goto(`/dashboard/${route}`);
@@ -207,7 +208,7 @@ test('customer history and request workflow keep complete content accessible', a
   await expect(page.getByRole('region', { name: 'Історія вибраного автомобіля' })).toBeVisible();
   await page.screenshot({ animations: 'disabled', path: info.outputPath('customer-history.png') });
   await page.getByRole('button', { name: 'Закрити вікно', exact: true }).click();
-  await page.goto('/dashboard/requests');
+  await page.goto('/dashboard/requests?requestStatus=backlog');
   await page
     .getByRole('table')
     .locator('tbody tr')

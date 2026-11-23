@@ -48,6 +48,11 @@ export default defineConfig({
       },
       resolveId(source, importer) {
         if (
+          importer?.replaceAll('\\', '/').includes('/features/payroll/api/queries') &&
+          source === './service'
+        )
+          return `${root}/tests/browser/fixture/payroll-service.ts`;
+        if (
           importer?.replaceAll('\\', '/').includes('/features/workshop-reports/api/queries') &&
           source === './service'
         )

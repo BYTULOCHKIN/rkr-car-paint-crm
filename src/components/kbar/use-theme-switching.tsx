@@ -1,3 +1,4 @@
+import { SHOW_TEMPLATE_DEMOS } from '@/config/product';
 import { useRegisterActions } from 'kbar';
 import { useTheme } from 'next-themes';
 import { useThemeConfig } from '@/components/themes/active-theme';
@@ -22,31 +23,34 @@ const useThemeSwitching = () => {
       id: 'cycleTheme',
       name: 'Switch Theme',
       shortcut: ['t', 't'],
-      section: 'Theme',
+      section: 'Оформлення',
       perform: cycleTheme
     },
     {
       id: 'toggleDarkLight',
-      name: 'Toggle Dark/Light Mode',
-      shortcut: ['d', 'd'],
-      section: 'Theme',
+      name: 'Змінити світлий / темний режим',
+      shortcut: ['t', 'd'],
+      section: 'Оформлення',
       perform: toggleDarkLight
     },
     {
       id: 'setLightTheme',
-      name: 'Set Light Theme',
-      section: 'Theme',
+      name: 'Світлий режим',
+      section: 'Оформлення',
       perform: () => setTheme('light')
     },
     {
       id: 'setDarkTheme',
-      name: 'Set Dark Theme',
-      section: 'Theme',
+      name: 'Темний режим',
+      section: 'Оформлення',
       perform: () => setTheme('dark')
     }
   ];
 
-  useRegisterActions(themeActions, [theme, activeTheme]);
+  useRegisterActions(
+    themeActions.filter((action) => SHOW_TEMPLATE_DEMOS || action.id !== 'cycleTheme'),
+    [theme, activeTheme]
+  );
 };
 
 export default useThemeSwitching;

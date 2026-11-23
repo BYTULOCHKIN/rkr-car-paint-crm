@@ -57,6 +57,87 @@ function receive(repository: CrmRepository, itemId: string, quantity = '1') {
   return input;
 }
 
+test('batch consumption is atomic, includes repeated positions and retries without duplicating costs', () => {
+  const repository = new CrmRepository(':memory:');
+  try {
+    const orderId = order(repository);
+    const paint = repository.inventory.createItem({ name: 'Фарба', unit: 'л', notes: '' });
+    const polish = repository.inventory.createItem({ name: 'Паста', unit: 'кг', notes: '' });
+    receive(repository, paint);
+    receive(repository, polish);
+    const row = { itemId: paint, quantity: '0,6', category: 'painting' as const, note: '' };
+    const input = {
+      operationId: randomUUID(),
+      orderId,
+      rows: [row, { ...row, quantity: '0,5', category: 'polishing' as const }]
+    };
+    const before = repository.inventory.items();
+    assert.throws(() => repository.inventory.consumeBatch(input, actor), /Недостатньо/);
+    assert.deepEqual(repository.inventory.items(), before);
+    assert.equal(
+      repository.inventory.movements().filter((entry) => entry.kind === 'consumption').length,
+      0
+    );
+    input.rows[1].quantity = '0,4';
+    input.rows.push({ ...row, itemId: polish, quantity: '0,25' });
+    repository.inventory.consumeBatch(input, actor);
+    const saved = repository.inventory.movements();
+    repository.inventory.consumeBatch(input, actor);
+    assert.deepEqual(repository.inventory.movements(), saved);
+    assert.equal(saved.filter((entry) => entry.kind === 'consumption').length, 3);
+    assert.equal(
+      saved
+        .filter((entry) => entry.kind === 'consumption')
+        .reduce((total, entry) => total + entry.costDeltaCents!, 0),
+      -12500
+    );
+    assert.equal(repository.inventory.items().find((entry) => entry.id === paint)!.balanceMilli, 0);
+    assert.equal(
+      repository.inventory.items().find((entry) => entry.id === polish)!.balanceMilli,
+      750
+    );
+    assert.throws(
+      () => repository.inventory.consumeBatch({ ...input, rows: [row] }, actor),
+      /іншими даними/
+    );
+    assert.throws(
+      () => repository.inventory.consumeBatch(input, { ...actor, id: 'other' }),
+      /іншими даними/
+    );
+    const current = repository.workspace().orders[0];
+    repository.updateWorkflow({
+      kind: 'order',
+      id: orderId,
+      expectedStatus: current.status,
+      expectedRevision: current.workflowRevision,
+      status: 'ready',
+      plannedIntakeDate: '',
+      plannedDeliveryDate: '',
+      actualIntakeDate: '2026-11-16',
+      actualReadyDate: '2026-11-17',
+      actualDeliveryDate: '',
+      note: ''
+    });
+    // A retry of an already completed request remains safe after readiness.
+    repository.inventory.consumeBatch(input, actor);
+    assert.throws(
+      () =>
+        repository.inventory.consumeBatch(
+          {
+            ...input,
+            operationId: randomUUID(),
+            rows: [{ ...row, itemId: polish, quantity: '0,1' }]
+          },
+          actor
+        ),
+      /В роботі/
+    );
+    assert.deepEqual(repository.inventory.movements(), saved);
+  } finally {
+    repository.close();
+  }
+});
+
 test('fractional stock, atomic insufficient-stock rejection, retry safety and order total independence', () => {
   const repository = new CrmRepository(':memory:');
   try {
@@ -115,7 +196,7 @@ test('completed orders reject new consumption; cancellation returns stock once e
     const consumption = { itemId, orderId, quantity: '0.250', operationId: randomUUID(), note: '' };
     repository.inventory.consume(consumption, actor);
     const db = new DatabaseSync(filename);
-    db.prepare("UPDATE crm_orders SET status='delivered' WHERE id=?").run(orderId);
+    db.prepare("UPDATE crm_orders SET status='ready' WHERE id=?").run(orderId);
     db.close();
     assert.throws(
       () => repository.inventory.consume({ ...consumption, operationId: randomUUID() }, actor),

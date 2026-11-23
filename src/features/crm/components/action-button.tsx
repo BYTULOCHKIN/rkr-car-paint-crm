@@ -11,11 +11,18 @@ interface ButtonProps extends ComponentProps<typeof BaseButton> {
 // The installed template has no isLoading prop on its primitive Button.
 // Extend it here so CRM follows the loading contract without modifying ui/.
 export function Button({ isLoading, children, disabled, ...props }: ButtonProps) {
+  if (isLoading === undefined)
+    return (
+      <BaseButton {...props} disabled={disabled}>
+        {children}
+      </BaseButton>
+    );
+
   return (
     <BaseButton {...props} disabled={disabled || isLoading} aria-busy={isLoading || undefined}>
-      <span className='grid place-items-center'>
+      <span className='grid place-items-center gap-[inherit]'>
         <span
-          className='col-start-1 row-start-1'
+          className='col-start-1 row-start-1 inline-flex items-center justify-center gap-[inherit]'
           style={{ visibility: isLoading ? 'hidden' : undefined }}
         >
           {children}

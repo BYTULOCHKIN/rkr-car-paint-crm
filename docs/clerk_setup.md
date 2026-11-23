@@ -2,6 +2,31 @@
 
 This guide covers the setup and configuration of Clerk features used in this starter template.
 
+## Project environments
+
+Use the same Clerk application, `next-shadcn-dashboard-starter`
+(`app_3Ls9xzktCpuu68h6LqdYiL4LczH`), for both environments:
+
+| Environment | Clerk instance | Keys | Configuration |
+| --- | --- | --- | --- |
+| Local development | Development | `pk_test_…` / `sk_test_…` | `.env.local` |
+| Deployed application | Production | `pk_live_…` / `sk_live_…` | Production deployment secrets; `.env.production` for local deployment tooling |
+
+Development and Production have separate users and organizations. CRM databases are
+also separate and bound to organization IDs; deploying code does not copy local data
+or Clerk memberships into Production. Local organization copies are «АВТО ФАРБА»
+and «Ruslan BMW». SQLite migration backups and the verified migration report are in
+`data/backups/clerk-app-migration/` (ignored by Git).
+
+To refresh local keys, explicitly target the application and Development instance:
+
+```bash
+npx -y clerk@latest env pull --app app_3Ls9xzktCpuu68h6LqdYiL4LczH --instance dev --file .env.local
+```
+
+Env files and their backups are ignored by Git. Use Development keys from the
+application above when working with the migrated local databases.
+
 ## Clerk Scopes Required
 
 - **Authentication** - User sign-in/sign-up and session management

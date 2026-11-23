@@ -1,18 +1,32 @@
 import type { BoardStatus, CrmWorkspace, WorkflowRecord } from '../api/types';
 
-export const WORKFLOW_COLUMNS: { value: BoardStatus; label: string }[] = [
+export const REQUEST_COLUMNS: { value: BoardStatus; label: string }[] = [
   { value: 'backlog', label: 'Backlog' },
-  { value: 'scheduled', label: 'Заплановано' },
-  { value: 'created', label: 'Створено' },
-  { value: 'in_progress', label: 'У роботі' },
-  { value: 'ready', label: 'Готово' },
-  { value: 'delivered', label: 'Видано' }
+  { value: 'scheduled', label: 'Заплановано' }
 ];
+export const WORKFLOW_COLUMNS: { value: BoardStatus; label: string }[] = [
+  { value: 'created', label: 'Створено' },
+  { value: 'in_progress', label: 'В роботі' },
+  { value: 'ready', label: 'Готово' }
+];
+
+export function isCompletedStatus(status: string): boolean {
+  return status === 'ready' || status === 'delivered';
+}
+
+export function boardStatus(status: string): BoardStatus {
+  if (status === 'backlog' || status === 'scheduled') return 'created';
+  if (status === 'delivered') return 'ready';
+  return status as BoardStatus;
+}
 
 export function statusLabel(status: string): string {
   return status === 'converted'
     ? 'У замовленні'
-    : (WORKFLOW_COLUMNS.find((column) => column.value === status)?.label ?? status);
+    : status === 'delivered'
+      ? 'Видано' // Historical events retain their original meaning.
+      : ([...WORKFLOW_COLUMNS, ...REQUEST_COLUMNS].find((column) => column.value === status)
+          ?.label ?? status);
 }
 
 // Calendar dates, not UTC timestamps. The workshop operates in Kyiv time.
@@ -53,7 +67,7 @@ export function overdueLabel(item: WorkflowRecord, today = businessToday()): str
       record.plannedIntakeDate < today
       ? 'Прострочено прийом'
       : null;
-  if (item.record.status === 'delivered') return null;
+  if (isCompletedStatus(item.record.status)) return null;
   return record.plannedDeliveryDate && record.plannedDeliveryDate < today
     ? 'Прострочено видачу'
     : null;
@@ -67,8 +81,6 @@ export function transitionKind(
   if (target.kind === 'request' && target.record.status === 'converted') return 'invalid';
   if (target.kind === 'request' && ['created', 'in_progress'].includes(status)) return 'convert';
   const allowed =
-    target.kind === 'request'
-      ? ['backlog', 'scheduled']
-      : ['created', 'in_progress', 'ready', 'delivered'];
+    target.kind === 'request' ? ['backlog', 'scheduled'] : ['created', 'in_progress', 'ready'];
   return allowed.includes(status) ? 'workflow' : 'invalid';
 }

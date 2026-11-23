@@ -14,6 +14,8 @@ import { reportQueries } from '../api/queries';
 import type { ReportFilters } from '../api/types';
 import { defaultReportFilters, reportFiltersSchema, orderDateOptions } from '../schemas/filters';
 import { reportCsv, type ReportTab } from '../lib/csv';
+import { useSettlementFilters } from '../lib/use-settlement-filters';
+import { filterSettlementReport } from '../lib/settlements';
 import {
   PostingsSection,
   OrdersSection,
@@ -24,10 +26,12 @@ import {
 function FiltersForm({
   filters,
   workerView,
+  showOrderDate,
   onApply
 }: {
   filters: ReportFilters;
   workerView: boolean;
+  showOrderDate: boolean;
   onApply: (value: ReportFilters) => void;
 }) {
   const form = useAppForm({
@@ -46,7 +50,7 @@ function FiltersForm({
       <FieldGroup
         className={cn(
           'grid items-end gap-3 sm:grid-cols-2',
-          workerView ? 'xl:grid-cols-3' : 'xl:grid-cols-4'
+          !workerView && showOrderDate ? 'xl:grid-cols-4' : 'xl:grid-cols-3'
         )}
       >
         <form.AppField name='from'>
@@ -55,7 +59,7 @@ function FiltersForm({
         <form.AppField name='to'>
           {(field) => <field.TextField type='date' label='Кінець періоду' required />}
         </form.AppField>
-        {!workerView && (
+        {!workerView && showOrderDate && (
           <form.AppField name='orderDate'>
             {(field) => (
               <field.SelectField label='Відбір на вкладці «Авто»' options={orderDateOptions} />
@@ -77,6 +81,7 @@ function ReportContent({
   filters: ReportFilters;
 }) {
   const { data: report } = useSuspenseQuery(reportQueries.period(userId, orgId, filters));
+  const [settlementFilters] = useSettlementFilters();
   const [tab, setTab] = useQueryState(
     'reportTab',
     parseAsStringLiteral(['postings', 'orders', 'materials', 'settlements'] as const)
@@ -87,7 +92,20 @@ function ReportContent({
   function download(): void {
     const selected: ReportTab = worker ? 'settlements' : tab;
     const url = URL.createObjectURL(
-      new Blob([reportCsv(report, selected)], { type: 'text/csv;charset=utf-8;' })
+      new Blob(
+        [
+          reportCsv(
+            selected === 'settlements'
+              ? filterSettlementReport(report, {
+                  search: settlementFilters.settlementSearch,
+                  kind: settlementFilters.settlementKind
+                })
+              : report,
+            selected
+          )
+        ],
+        { type: 'text/csv;charset=utf-8;' }
+      )
     );
     const link = document.createElement('a');
     link.href = url;
@@ -158,6 +176,10 @@ export function ReportView({
   workerView?: boolean;
 }) {
   const defaults = defaultReportFilters(initialToday);
+  const [tab] = useQueryState(
+    'reportTab',
+    parseAsString.withDefault('postings').withOptions({ shallow: true })
+  );
   const [params, setParams] = useQueryStates(
     {
       reportFrom: parseAsString.withDefault(defaults.from),
@@ -183,6 +205,7 @@ export function ReportView({
         key={key}
         filters={filters}
         workerView={workerView}
+        showOrderDate={tab === 'orders'}
         onApply={(value) =>
           void setParams({
             reportFrom: value.from,

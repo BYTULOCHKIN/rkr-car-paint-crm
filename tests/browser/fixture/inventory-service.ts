@@ -5,6 +5,7 @@ import type {
   ReceiptInput,
   AdjustmentInput,
   ConsumptionInput,
+  BatchConsumptionInput,
   ReversalInput,
   ValuationInput
 } from '@/features/inventory/schemas/inventory';
@@ -205,6 +206,18 @@ export async function adjustStock(_org: string, input: AdjustmentInput) {
 }
 export async function consumeStock(_org: string, input: ConsumptionInput) {
   return move(input, 'consumption', input.orderId);
+}
+export async function consumeStockBatch(orgId: string, input: BatchConsumptionInput) {
+  const before = data();
+  const quantities = new Map(before.items.map((item) => [item.id, item.balanceMilli]));
+  for (const row of input.rows) {
+    const remaining = (quantities.get(row.itemId) ?? 0) - quantityMilli(row.quantity);
+    if (remaining < 0) return { ok: false as const, error: 'Недостатньо матеріалу на складі' };
+    quantities.set(row.itemId, remaining);
+  }
+  for (const row of input.rows)
+    await consumeStock(orgId, { ...row, orderId: input.orderId, operationId: crypto.randomUUID() });
+  return { ok: true as const, data: undefined };
 }
 export async function reverseConsumption(_org: string, input: ReversalInput) {
   const value = data();

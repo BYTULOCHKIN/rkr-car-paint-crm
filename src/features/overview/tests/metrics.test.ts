@@ -71,22 +71,22 @@ test('conversion does not duplicate workload; ready and in-progress counts are s
   assert.equal(metrics.backlog, 1);
   assert.equal(metrics.scheduled, 1);
   assert.equal(metrics.inProgress, 1);
-  assert.equal(metrics.ready, 1);
-  assert.equal(metrics.activeValueCents, 200002);
+  assert.equal(metrics.ready, 2);
+  assert.equal(metrics.activeValueCents, 100001);
   assert.equal(
     metrics.statuses.reduce((sum, status) => sum + status.count, 0),
-    4
+    3
   );
   assert.equal(metrics.activity.at(-1)?.requests, 4);
 });
 
-test('monthly completed value uses actual delivery dates and integer kopecks', () => {
+test('monthly completed value uses readiness dates and legacy delivery dates and integer kopecks', () => {
   const data = empty();
   data.orders = [
     order('this-month', {
       createdAt: '2026-07-01T10:00:00Z',
-      status: 'delivered',
-      actualDeliveryDate: '2026-10-01',
+      status: 'ready',
+      actualReadyDate: '2026-10-01',
       totalCents: 12345
     }),
     order('old', { status: 'delivered', actualDeliveryDate: '2026-09-30' }),
@@ -97,8 +97,8 @@ test('monthly completed value uses actual delivery dates and integer kopecks', (
   const metrics = overviewMetrics(data, '2026-10-31');
   assert.equal(metrics.deliveredThisMonth, 1);
   assert.equal(metrics.deliveredValueCents, 12345);
-  assert.equal(metrics.undatedDelivered, 1);
-  assert.equal(metrics.overdue, 1);
+  assert.equal(metrics.undatedDelivered, 2);
+  assert.equal(metrics.overdue, 0);
 });
 
 test('the schedule includes today through day six, excludes completed and overdue work', () => {
@@ -122,15 +122,15 @@ test('the schedule includes today through day six, excludes completed and overdu
   const metrics = overviewMetrics(data, '2026-10-31');
   assert.deepEqual(
     metrics.schedule.map((entry) => entry.target.record.id),
-    ['today', 'out', 'last']
+    ['out']
   );
   assert.deepEqual(
     metrics.schedule.map((entry) => entry.kind),
-    ['intake', 'delivery', 'intake']
+    ['delivery']
   );
   assert.deepEqual(
     metrics.attention.map((target) => target.record.id),
-    ['late', 'ready']
+    []
   );
   assert.equal(data.requests[0].plannedIntakeDate, '2026-10-30');
 });

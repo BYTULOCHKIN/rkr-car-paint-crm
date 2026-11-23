@@ -13,6 +13,7 @@ import type {
   ReceiptInput,
   AdjustmentInput,
   ConsumptionInput,
+  BatchConsumptionInput,
   ReversalInput,
   ValuationInput
 } from '../schemas/inventory';
@@ -103,6 +104,14 @@ export async function reverseConsumption(
   input: ReversalInput
 ): Promise<ActionResult<void>> {
   return write(orgId, (context) => context.repository.inventory.reverse(input, actor(context)));
+}
+export async function consumeStockBatch(
+  orgId: string,
+  input: BatchConsumptionInput
+): Promise<ActionResult<void>> {
+  return write(orgId, (context) =>
+    context.repository.inventory.consumeBatch(input, actor(context))
+  );
 }
 export async function valueStockBalance(
   orgId: string,

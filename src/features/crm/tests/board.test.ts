@@ -97,7 +97,7 @@ test('indexed search includes contacts, VIN, make, plate, description and number
   assert.deepEqual(data, unchanged);
 });
 
-test('linked requests stay deduplicated and worker indexes contain only orders', () => {
+test('legacy requests remain archived and all board indexes contain only orders', () => {
   const data = workspace();
   data.requests = [
     {
@@ -111,8 +111,8 @@ test('linked requests stay deduplicated and worker indexes contain only orders',
       createdAt: ''
     }
   ];
-  assert.equal(indexBoard(data).length, 101);
-  assert.equal(indexBoard(data)[0].id, 'request:request');
+  assert.equal(indexBoard(data).length, 100);
+  assert.ok(indexBoard(data).every((card) => card.target.kind === 'order'));
   data.orders[0].requestId = 'request';
   assert.equal(indexBoard(data).length, 100);
   data.orders[0].requestId = null;

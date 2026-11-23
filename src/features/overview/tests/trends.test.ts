@@ -157,7 +157,7 @@ test('unknown legacy status produces a history gap instead of invented zero', ()
   assert.equal(trends.metrics.debtCents.points.at(-1)!.value, 10000);
 });
 
-test('conversion history avoids double counting and Kyiv timestamps choose the correct month', () => {
+test('created-order history ignores archived requests and Kyiv timestamps choose the correct month', () => {
   const data = empty();
   data.requests = [
     {
@@ -171,14 +171,21 @@ test('conversion history avoids double counting and Kyiv timestamps choose the c
       plannedDeliveryDate: null
     }
   ];
-  data.orders = [order({ requestId: 'request', createdAt: '2026-11-05T10:00:00Z' })];
+  data.orders = [
+    order({
+      requestId: 'request',
+      status: 'created',
+      actualIntakeDate: null,
+      createdAt: '2026-11-05T10:00:00Z'
+    })
+  ];
   data.payments = [payment('boundary', '2026-10-31', 1000, { createdAt: '2026-10-31T22:30:00Z' })];
   const trends = overviewTrends(data, '2026-11-17');
-  assert.equal(trends.metrics.activeRequests.previous, 1);
-  assert.equal(trends.metrics.activeRequests.points[3].value, 1);
-  assert.equal(trends.metrics.activeRequests.points[4].value, 0);
+  assert.equal(trends.metrics.createdOrders.previous, 0);
+  assert.equal(trends.metrics.createdOrders.points[3].value, 0);
+  assert.equal(trends.metrics.createdOrders.points[4].value, 1);
   assert.equal(trends.metrics.monthlyReceiptsCents.points[0].value, 1000);
   const firstDay = overviewTrends(empty(), '2026-11-01');
-  assert.equal(firstDay.metrics.activeRequests.points.length, 1);
-  assert.equal(firstDay.metrics.activeRequests.percentage, 0);
+  assert.equal(firstDay.metrics.createdOrders.points.length, 1);
+  assert.equal(firstDay.metrics.createdOrders.percentage, 0);
 });

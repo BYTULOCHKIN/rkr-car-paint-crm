@@ -52,7 +52,9 @@ test('material pivot and CSV preserve fractional quantities and unknown historic
 
 test('worker sees and exports own settlements without administrative data', async ({ page }) => {
   await page.goto(`/dashboard/reports?${period}&role=worker&reportTab=postings`);
-  await expect(page.getByRole('table', { name: 'Підсумок по одержувачах' })).toContainText('Маляр');
+  await expect(page.getByRole('region', { name: 'Підсумок по одержувачах' })).toContainText(
+    'Маляр'
+  );
   await expect(page.getByRole('tab')).toHaveCount(0);
   await expect(page.getByText('Полірувальник', { exact: true })).toHaveCount(0);
   const downloading = page.waitForEvent('download');
@@ -82,6 +84,7 @@ test('workshop process from EUR receipt through readiness and payout to correcti
   await expect(dialog).toBeHidden();
   await page.goto('/dashboard/orders?flowDemo&economicsDemo');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
+  await page.getByRole('tab', { name: 'Роботи', exact: true }).click();
   await page.getByRole('button', { name: 'Деталізувати чек', exact: true }).click();
   const form = page.getByRole('form', { name: 'Редагування деталізованого чека' });
   for (const [role, name] of [
@@ -97,23 +100,24 @@ test('workshop process from EUR receipt through readiness and payout to correcti
   await page.getByRole('option', { name: 'Фарбування деталі', exact: true }).click();
   await expect(page.getByRole('option', { name: 'Фарбування деталі', exact: true })).toBeHidden();
   await form.getByRole('textbox', { name: 'З цієї суми полірування, грн' }).fill('1000');
-  await form.getByRole('button', { name: 'Зберегти деталізований чек' }).click();
-  await expect(dialog).toBeHidden();
-  await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
+  await page.getByRole('button', { name: 'Зберегти деталізований чек' }).click();
+  await expect(form).toBeHidden();
+  await page.getByRole('tab', { name: 'Матеріали', exact: true }).click();
   const materials = page.getByRole('region', { name: 'Матеріали замовлення' });
   await materials.getByRole('button', { name: 'Додати списання' }).click();
   await materials.getByRole('combobox', { name: 'Матеріал' }).click();
   await page.getByRole('option', { name: /^Фарба/ }).click();
   await materials.getByRole('textbox', { name: 'Кількість', exact: false }).fill('0.8');
-  await materials.getByRole('button', { name: 'Списати матеріал' }).click();
+  await page.getByRole('button', { name: 'Списати матеріали' }).click();
   await expect(materials).toContainText('Собівартість матеріалів: 800,00');
   async function payout(amount: string) {
+    await page.getByRole('tab', { name: 'Економіка', exact: true }).click();
     const payroll = page.getByRole('region', { name: 'Нарахування та виплати' });
     await payroll.getByRole('button', { name: 'Записати виплату / аванс', exact: true }).click();
     await payroll.getByRole('combobox', { name: 'Одержувач' }).click();
     await page.getByRole('option', { name: 'Маляр Андрій · Працівник', exact: true }).click();
     await payroll.getByRole('textbox', { name: 'Сума виплати / авансу, грн' }).fill(amount);
-    await payroll.getByRole('button', { name: 'Зберегти фінансову операцію' }).click();
+    await page.getByRole('button', { name: 'Зберегти фінансову операцію' }).click();
     await expect(
       payroll.getByRole('button', { name: 'Записати виплату / аванс', exact: true })
     ).toBeVisible();
@@ -122,9 +126,10 @@ test('workshop process from EUR receipt through readiness and payout to correcti
   await page.goto('/dashboard/orders?flowDemo&role=worker');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
   await dialog.getByRole('button', { name: 'Позначити готовим', exact: true }).click();
-  await expect(dialog).toBeHidden();
+  await expect(dialog.getByText('Замовлення готове.', { exact: true })).toBeVisible();
   await page.goto('/dashboard/orders?flowDemo');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
+  await page.getByRole('tab', { name: 'Економіка', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Нарахування та виплати' })).toContainText(
     'Нараховано: 9\u00a0720,00'
   );
@@ -142,16 +147,19 @@ test('workshop process from EUR receipt through readiness and payout to correcti
     page.getByRole('region', { name: 'Перегляд фінансового коригування' })
   ).toContainText('Маляр Андрій: -120,00');
   await page.getByRole('button', { name: 'Провести коригування', exact: true }).click();
-  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('region', { name: 'Перегляд фінансового коригування' })).toBeHidden();
   await page.goto('/dashboard/reports?flowDemo');
   await expect(page.getByRole('region', { name: 'Підсумок проведень за період' })).toContainText(
     '10\u00a0200,00'
   );
   await page.getByRole('tab', { name: 'Розрахунки', exact: true }).click();
-  const painter = page
-    .getByRole('table', { name: 'Підсумок по одержувачах' })
-    .getByRole('row')
-    .filter({ hasText: 'Маляр Андрій' });
+  const painter =
+    page.viewportSize()!.width < 768
+      ? page.getByRole('article', { name: 'Розрахунки: Маляр Андрій', exact: true })
+      : page
+          .getByRole('table', { name: 'Підсумок по одержувачах' })
+          .getByRole('row')
+          .filter({ hasText: 'Маляр Андрій' });
   await expect(painter).toContainText('6\u00a0600,00');
   await expect(painter).toContainText('3\u00a0000,00');
   await page.getByRole('tab', { name: 'Матеріали', exact: true }).click();

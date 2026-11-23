@@ -18,6 +18,7 @@ import type { CorrectionPreview, OrderEconomicsDetails } from '../api/types';
 import { correctionSchema, type CorrectionInput } from '../schemas/finance';
 import { financeMutations } from '../api/finance-queries';
 import DetailedCheckForm from './detailed-check-form';
+import { DialogActions } from '@/features/crm/components/dialog-form';
 
 const planSchema = z.object({
   note: z.string().trim().min(1, 'Вкажіть причину коригування').max(1000),
@@ -49,6 +50,10 @@ export default function CorrectionEditor({
 }: CorrectionEditorProps) {
   const access = data.access!;
   const finance = data.finance!;
+  const [expected] = useState(() => ({
+    order: order.workflowRevision ?? 0,
+    posting: finance.postings.filter((entry) => entry.orderId === order.id).at(-1)?.revision ?? 0
+  }));
   const { data: inventory } = useSuspenseQuery(
     inventoryQueries.workspace(access.userId, access.orgId)
   );
@@ -64,7 +69,6 @@ export default function CorrectionEditor({
     ...financeMutations.correct(),
     onSuccess: () => {
       toast.success('Фінансове коригування проведено');
-      onSaved();
     },
     onSettled: () =>
       Promise.all([
@@ -89,9 +93,9 @@ export default function CorrectionEditor({
         orgId: access.orgId,
         orderId: order.id,
         operationId,
-        expectedRevision: order.workflowRevision ?? 0,
-        expectedPostingRevision:
-          finance.postings.filter((entry) => entry.orderId === order.id).at(-1)?.revision ?? 0,
+        expectedRevision: expected.order,
+        expectedPostingRevision: expected.posting,
+        // Preview uses current stock; the reviewed input retains this revision until posting.
         expectedInventoryRevision: finance.inventoryRevision,
         details,
         note: value.note,
@@ -233,15 +237,18 @@ export default function CorrectionEditor({
           </FieldGroup>
         </fieldset>
       </form>
-      <DetailedCheckForm
-        order={order}
-        team={data.team ?? []}
-        orgId={access.orgId}
-        onSaved={onSaved}
-        onCancel={onCancel}
-        prepareCorrection={preview}
-        disabled={pending || !!review}
-      />
+      <div hidden={!!review} inert={!!review}>
+        <DetailedCheckForm
+          order={order}
+          team={data.team ?? []}
+          orgId={access.orgId}
+          onSaved={onSaved}
+          onCancel={onCancel}
+          prepareCorrection={preview}
+          disabled={pending || !!review}
+          footerActions={!review}
+        />
+      </div>
       {(error || post.error) && (
         <Alert variant='destructive'>
           <AlertDescription>{error || post.error?.message}</AlertDescription>
@@ -274,11 +281,16 @@ export default function CorrectionEditor({
           <p className='text-muted-foreground text-sm'>
             Записані виплати не зміняться. Можлива переплата відображатиметься окремо.
           </p>
-          <div className='flex flex-wrap gap-2'>
+          <DialogActions>
             <Button
               type='button'
               isLoading={post.isPending}
-              onClick={() => void post.mutateAsync(review.input).catch(() => undefined)}
+              onClick={() =>
+                void post
+                  .mutateAsync(review.input)
+                  .then(onSaved)
+                  .catch(() => undefined)
+              }
             >
               Провести коригування
             </Button>
@@ -290,7 +302,7 @@ export default function CorrectionEditor({
             >
               Повернутися до редагування
             </Button>
-          </div>
+          </DialogActions>
         </section>
       )}
     </div>

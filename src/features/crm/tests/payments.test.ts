@@ -51,7 +51,7 @@ function advance(repository: CrmRepository, id: string) {
   if (next.ok) repository.updateWorkflow(next.data, actor);
 }
 
-test('created orders advance forward; unpaid delivery creates debt independent from monthly receipts', () => {
+test('created orders advance forward; unpaid readiness creates debt independent from monthly receipts', () => {
   const repository = new CrmRepository(':memory:');
   try {
     const id = seed(repository);
@@ -65,7 +65,6 @@ test('created orders advance forward; unpaid delivery creates debt independent f
       /ідентифікатор/i
     );
     assert.throws(() => receive(repository, id, '70'), /перевищує/);
-    advance(repository, id);
     advance(repository, id);
     advance(repository, id);
     let metrics = overviewMetrics(repository.workspace());
@@ -205,7 +204,7 @@ test('v10 migration preserves linked stock, order history and numbering gaps', (
       const sql = (
         old.prepare("SELECT sql FROM sqlite_master WHERE name='crm_orders'").get()!.sql as string
       )
-        .replace("'created',", '')
+        .replace("('created','in_progress','ready')", "('in_progress','ready','delivered')")
         .replace(/CREATE TABLE\s+["`]?crm_orders["`]?/i, 'CREATE TABLE crm_orders_v10');
       const columns = old
         .prepare('PRAGMA table_info(crm_orders)')

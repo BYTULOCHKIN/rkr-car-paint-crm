@@ -12,11 +12,11 @@ test('monthly card trends show real percentages, daily lines and favorable debt 
   await expect(receipts).toContainText('+100%');
   await expect(receipts.locator('[data-slot=card-title]')).toHaveText('20K грн');
   await expect(receipts).toHaveAttribute('aria-label', /20\s000,00\sгрн/);
-  const pending = page.getByRole('link', { name: /^До сплати за невиданими авто:/ });
+  const pending = page.getByRole('link', { name: /^До сплати за відкритими авто:/ });
   await expect(pending.locator('[data-slot=card-title]')).toHaveText('1.4M грн');
   await expect(pending.locator('[data-slot=metric-trend] > span')).toHaveText('+1.4M грн');
   await expect(page.getByText(/Попередній період:/)).toHaveCount(0);
-  const debt = page.getByRole('link', { name: /^Заборгованість за виданими авто:/ });
+  const debt = page.getByRole('link', { name: /^Заборгованість за готовими авто:/ });
   await expect(debt).toContainText(/[-−]40%/);
   await expect(debt.locator('[data-slot=metric-trend] span').first()).toHaveClass(/text-emerald/);
   const chart = receipts.getByRole('img', {

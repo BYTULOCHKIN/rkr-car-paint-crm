@@ -9,7 +9,9 @@ import {
   boardRecords,
   businessToday,
   overdueLabel,
-  WORKFLOW_COLUMNS
+  WORKFLOW_COLUMNS,
+  isCompletedStatus,
+  boardStatus
 } from '@/features/crm/lib/workflow';
 
 export interface ActivityMonth {
@@ -56,27 +58,25 @@ function addDays(date: string, days: number): string {
 }
 
 export function overviewMetrics(data: CrmWorkspace, today = businessToday()): OverviewMetrics {
-  const records = boardRecords(data);
-  const active = records.filter((target) => target.record.status !== 'delivered');
-  const activeRequests = active.filter((target) => target.kind === 'request');
+  const records = boardRecords(data).filter((target) => target.kind === 'order');
+  const active = records.filter((target) => !isCompletedStatus(target.record.status));
+  const activeRequests = boardRecords(data).filter((target) => target.kind === 'request');
   const inProgress = data.orders.filter((order) => order.status === 'in_progress');
-  const ready = data.orders.filter((order) => order.status === 'ready');
+  const ready = data.orders.filter((order) => isCompletedStatus(order.status));
   const deliveredThisMonth = data.orders.filter(
     (order) =>
-      order.status === 'delivered' &&
-      order.actualDeliveryDate?.startsWith(today.slice(0, 7)) &&
-      order.actualDeliveryDate <= today
+      isCompletedStatus(order.status) &&
+      (order.actualReadyDate ?? order.actualDeliveryDate)?.startsWith(today.slice(0, 7)) &&
+      (order.actualReadyDate ?? order.actualDeliveryDate)! <= today
   );
   const overdue = active.filter((target) => overdueLabel(target, today));
-  const attention = active
-    .filter((target) => overdueLabel(target, today) || target.record.status === 'ready')
+  const attention = records
+    .filter((target) => overdueLabel(target, today))
     .toSorted((a, b) => {
       const priority =
         Number(Boolean(overdueLabel(b, today))) - Number(Boolean(overdueLabel(a, today)));
-      const dateA =
-        a.kind === 'request' ? a.record.plannedIntakeDate : a.record.plannedDeliveryDate;
-      const dateB =
-        b.kind === 'request' ? b.record.plannedIntakeDate : b.record.plannedDeliveryDate;
+      const dateA = a.record.plannedDeliveryDate;
+      const dateB = b.record.plannedDeliveryDate;
       return (
         priority ||
         (dateA ?? '9999').localeCompare(dateB ?? '9999') ||
@@ -88,11 +88,18 @@ export function overviewMetrics(data: CrmWorkspace, today = businessToday()): Ov
   const lastDay = addDays(today, 6);
   for (const target of active) {
     const date =
-      target.kind === 'request'
+      target.record.status === 'created' && target.record.plannedIntakeDate
         ? target.record.plannedIntakeDate
         : target.record.plannedDeliveryDate;
     if (date && date >= today && date <= lastDay)
-      schedule.push({ target, date, kind: target.kind === 'request' ? 'intake' : 'delivery' });
+      schedule.push({
+        target,
+        date,
+        kind:
+          target.record.status === 'created' && target.record.plannedIntakeDate
+            ? 'intake'
+            : 'delivery'
+      });
   }
   const sortedSchedule = schedule.toSorted(
     (a, b) => a.date.localeCompare(b.date) || a.target.record.id.localeCompare(b.target.record.id)
@@ -145,14 +152,14 @@ export function overviewMetrics(data: CrmWorkspace, today = businessToday()): Ov
     .reduce((sum, entry) => sum + paymentDelta(entry), 0);
   const balances = data.orders.map((order) => ({ order, ...paymentBalance(order, payments) }));
   const debts = balances.filter(
-    (entry) => entry.order.status === 'delivered' && entry.remainingCents > 0
+    (entry) => isCompletedStatus(entry.order.status) && entry.remainingCents > 0
   );
   return {
     monthlyReceiptsCents,
     debtCents: debts.reduce((sum, entry) => sum + entry.remainingCents, 0),
     debtOrderCount: debts.length,
     pendingPaymentCents: balances
-      .filter((entry) => entry.order.status !== 'delivered')
+      .filter((entry) => !isCompletedStatus(entry.order.status))
       .reduce((sum, entry) => sum + entry.remainingCents, 0),
     createdOrders: data.orders.filter((order) => order.status === 'created').length,
     activeRequests: activeRequests.length,
@@ -161,20 +168,21 @@ export function overviewMetrics(data: CrmWorkspace, today = businessToday()): Ov
     inProgress: inProgress.length,
     ready: ready.length,
     activeValueCents: data.orders
-      .filter((order) => order.status !== 'delivered')
+      .filter((order) => !isCompletedStatus(order.status))
       .reduce((sum, order) => sum + order.totalCents, 0),
     deliveredThisMonth: deliveredThisMonth.length,
     deliveredValueCents: deliveredThisMonth.reduce((sum, order) => sum + order.totalCents, 0),
     undatedDelivered: data.orders.filter(
-      (order) => order.status === 'delivered' && !order.actualDeliveryDate
+      (order) =>
+        isCompletedStatus(order.status) && !order.actualReadyDate && !order.actualDeliveryDate
     ).length,
     overdue: overdue.length,
     attention,
     schedule: sortedSchedule,
     activity,
-    statuses: WORKFLOW_COLUMNS.filter((column) => column.value !== 'delivered').map((column) => ({
+    statuses: WORKFLOW_COLUMNS.map((column) => ({
       ...column,
-      count: active.filter((target) => target.record.status === column.value).length
+      count: records.filter((target) => boardStatus(target.record.status) === column.value).length
     })),
     recentOrders: data.orders
       .toSorted((a, b) => b.createdAt.localeCompare(a.createdAt) || b.number - a.number)

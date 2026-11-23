@@ -66,6 +66,7 @@ export interface RepairOrder {
   items: OrderItem[];
   paintPlan?: PaintSelection[];
   totalCents: number;
+  /** `delivered` is accepted only when reading legacy snapshots and history; current writes use three statuses. */
   status: 'created' | 'in_progress' | 'ready' | 'delivered';
   plannedIntakeDate: string | null;
   plannedDeliveryDate: string | null;
@@ -127,12 +128,14 @@ export interface WorkflowEvent {
 }
 
 export type CrmRole = 'admin' | 'worker';
+export type WorkerSpecialty = 'painter' | 'polisher' | 'assembler' | 'colorist';
 export interface TeamMember {
   imageUrl?: string;
   id: string;
   name: string;
   identifier: string;
   role: CrmRole;
+  specialties?: WorkerSpecialty[];
 }
 export interface CrmAccess {
   userId: string;

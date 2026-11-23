@@ -10,7 +10,7 @@ test('worker sees disabled administrative entries and cannot reach their childre
   const sidebar = resolveNavigation(items, context, true);
   assert.deepEqual(
     sidebar.filter((item) => item.disabled).map((item) => item.title),
-    ['Огляд', 'Клієнти та автомобілі', 'Заявки']
+    ['Огляд', 'Клієнти та автомобілі']
   );
   assert.ok(
     sidebar
@@ -20,7 +20,15 @@ test('worker sees disabled administrative entries and cannot reach their childre
   const shortcuts = resolveNavigation(items, context);
   assert.deepEqual(
     shortcuts.map((item) => item.title),
-    ['Замовлення', 'Зведення за період', 'Склад', 'Автомалярки', 'Команда', 'Дошка робіт']
+    [
+      'Замовлення',
+      'Зарплати',
+      'Зведення за період',
+      'Склад',
+      'Автомалярки',
+      'Команда',
+      'Дошка робіт'
+    ]
   );
 });
 

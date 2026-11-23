@@ -50,7 +50,7 @@ test('reduced motion keeps cards stationary and the whole card still navigates',
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/dashboard/overview');
-  const target = page.getByRole('link', { name: /^Активні заявки: / });
+  const target = page.getByRole('link', { name: /^Створені замовлення: / });
   const visual = target.locator('[data-slot=card]');
   await target.hover();
   await page.mouse.down();
@@ -61,5 +61,5 @@ test('reduced motion keeps cards stationary and the whole card still navigates',
     }))
   ).toEqual({ translate: 'none', scale: 'none' });
   await page.mouse.up();
-  await expect(page).toHaveURL(/\/dashboard\/requests$/);
+  await expect(page).toHaveURL(/\/dashboard\/orders\?orderStatus=created$/);
 });

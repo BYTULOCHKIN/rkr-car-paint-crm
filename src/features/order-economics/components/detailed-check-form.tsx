@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useId } from 'react';
+import { DialogActions } from '@/features/crm/components/dialog-form';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useAppForm } from '@/lib/form';
@@ -20,6 +21,7 @@ import {
 } from '../schemas/form';
 import { workKindOptions } from '../lib/details';
 import { money } from '@/features/crm/lib/format';
+import { specialtyWorkerOptions } from '@/features/crm/lib/team-specialties';
 
 interface DetailedCheckFormProps {
   order: RepairOrder;
@@ -30,6 +32,7 @@ interface DetailedCheckFormProps {
   onStateChange?: (state: FormState) => void;
   prepareCorrection?: (details: OrderEconomicsDetails) => Promise<void>;
   disabled?: boolean;
+  footerActions?: boolean;
 }
 
 export default function DetailedCheckForm({
@@ -40,15 +43,19 @@ export default function DetailedCheckForm({
   onSaved,
   onStateChange,
   prepareCorrection,
-  disabled = false
+  disabled = false,
+  footerActions = false
 }: DetailedCheckFormProps) {
   const [defaults] = useState(() => initialDetailedCheck(order));
+  const [expectedRevision] = useState(order.workflowRevision ?? 0);
+  const [showAllWorkers, setShowAllWorkers] = useState(false);
+  const specialtiesConfigured = team.some((member) => member.specialties?.length);
+  const formId = useId();
   const client = useQueryClient();
   const mutation = useMutation({
     ...economicsMutations.save(),
     onSuccess: () => {
       toast.success('Деталізований чек збережено');
-      onSaved();
     },
     onSettled: () => client.invalidateQueries({ queryKey: crmQueries.all() })
   });
@@ -61,18 +68,22 @@ export default function DetailedCheckForm({
         await prepareCorrection(formToEconomics(value));
         return;
       }
-      await mutation
-        .mutateAsync({
+      try {
+        await mutation.mutateAsync({
           orgId,
           orderId: order.id,
-          expectedRevision: order.workflowRevision ?? 0,
+          expectedRevision,
           details: formToEconomics(value)
-        })
-        .catch(() => undefined);
+        });
+        onSaved();
+      } catch {
+        /* Keep the draft and show the mutation error. */
+      }
     }
   });
   return (
     <form
+      id={formId}
       aria-label='Редагування деталізованого чека'
       onSubmit={(event) => {
         event.preventDefault();
@@ -89,27 +100,41 @@ export default function DetailedCheckForm({
             Ціни в гривнях. Полірування входить у фарбування. Матеріали списуються на все авто. Один
             виконавець на кожен вид робіт.
           </p>
+          {specialtiesConfigured ? (
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              onClick={() => setShowAllWorkers((current) => !current)}
+            >
+              {showAllWorkers ? 'Лише за спеціалізацією' : 'Показати всіх працівників'}
+            </Button>
+          ) : (
+            <p className='text-sm text-muted-foreground'>
+              Спеціалізації ще не задані. Доступна вся команда.
+            </p>
+          )}
           {(['painter', 'polisher', 'assembler'] as const).map((role) => {
             const labels = { painter: 'Маляр', polisher: 'Полірувальник', assembler: 'Розбірник' };
-            const currentId = order.economics?.[`${role}Id`];
             return (
               <form.AppField key={role} name={`${role}Id`}>
                 {(field) => (
                   <field.ComboboxField
                     label={labels[role]}
                     placeholder='Не призначено'
-                    options={[
-                      ...team.map((member) => ({ value: member.id, label: member.name })),
-                      ...(currentId && !team.some((member) => member.id === currentId)
-                        ? [
-                            {
-                              value: currentId,
-                              label: order.economics?.[`${role}Name`] || 'Колишній учасник',
-                              disabled: true
-                            }
-                          ]
-                        : [])
-                    ]}
+                    emptyMessage='Немає працівників цієї спеціалізації. Натисніть «Показати всіх працівників».'
+                    description={
+                      specialtiesConfigured && !showAllWorkers
+                        ? 'Працівники за спеціалізацією та поточний виконавець.'
+                        : undefined
+                    }
+                    options={specialtyWorkerOptions(
+                      team,
+                      role,
+                      field.state.value,
+                      order.economics?.[`${role}Name`],
+                      showAllWorkers
+                    )}
                   />
                 )}
               </form.AppField>
@@ -324,8 +349,8 @@ export default function DetailedCheckForm({
               <AlertDescription>{mutation.error.message}</AlertDescription>
             </Alert>
           )}
-          <div className='flex flex-wrap gap-2'>
-            <Button type='submit' isLoading={mutation.isPending}>
+          <FormActionLayout footer={footerActions}>
+            <Button type='submit' form={formId} isLoading={mutation.isPending}>
               {prepareCorrection ? 'Переглянути коригування' : 'Зберегти деталізований чек'}
             </Button>
             <Button
@@ -336,9 +361,17 @@ export default function DetailedCheckForm({
             >
               Скасувати деталізацію
             </Button>
-          </div>
+          </FormActionLayout>
         </FieldGroup>
       </fieldset>
     </form>
+  );
+}
+
+function FormActionLayout({ footer, children }: { footer: boolean; children: React.ReactNode }) {
+  return footer ? (
+    <DialogActions>{children}</DialogActions>
+  ) : (
+    <div className='flex flex-wrap gap-2'>{children}</div>
   );
 }

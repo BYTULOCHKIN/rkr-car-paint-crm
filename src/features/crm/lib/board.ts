@@ -1,7 +1,7 @@
 import type { UniqueIdentifier } from '@dnd-kit/core';
 import type { CrmWorkspace, Customer, Vehicle, WorkflowRecord } from '../api/types';
 import { contactSearchValues } from './customer-contacts';
-import { boardRecords, WORKFLOW_COLUMNS } from './workflow';
+import { boardRecords, boardStatus, WORKFLOW_COLUMNS } from './workflow';
 
 export const BOARD_BATCH_SIZE = 25;
 
@@ -23,7 +23,7 @@ export function indexBoard(data: CrmWorkspace): BoardCard[] {
     data.customers.map((customer) => [customer.id, contactSearchValues(customer)])
   );
   return boardRecords(data)
-    .filter((target) => data.access?.role !== 'worker' || target.kind === 'order')
+    .filter((target) => target.kind === 'order')
     .map((target) => {
       const customer = customers.get(target.record.customerId);
       const vehicle = vehicles.get(target.record.vehicleId);
@@ -44,10 +44,7 @@ export function indexBoard(data: CrmWorkspace): BoardCard[] {
         ]
           .join(' ')
           .toLocaleLowerCase('uk-UA'),
-        plannedDate:
-          (target.kind === 'request'
-            ? target.record.plannedIntakeDate
-            : target.record.plannedDeliveryDate) || '9999'
+        plannedDate: target.record.plannedDeliveryDate || '9999'
       };
     })
     .toSorted(
@@ -63,7 +60,8 @@ export function filterBoard(cards: BoardCard[], search: string): BoardColumns {
   );
   const query = search.trim().toLocaleLowerCase('uk-UA');
   for (const card of cards) {
-    if (!query || card.searchText.includes(query)) columns[card.target.record.status]?.push(card);
+    if (!query || card.searchText.includes(query))
+      columns[boardStatus(card.target.record.status)]?.push(card);
   }
   return columns;
 }

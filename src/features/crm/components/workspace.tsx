@@ -1,7 +1,9 @@
 'use client';
+import Link from 'next/link';
+import { SHOW_LEGACY_REQUEST_FLOW } from '@/config/product';
 import PageContainer from '@/components/layout/page-container';
 import { Icons } from '@/components/icons';
-import { Button as HeaderButton } from '@/components/ui/button';
+import { Button as HeaderButton, buttonVariants } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
 import {
   DropdownMenu,
@@ -310,6 +312,21 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
               onClick: () => setEditor({ type: 'order', order: row.original })
             },
             {
+              label: 'Матеріали',
+              icon: 'inventory',
+              onClick: () => setEditor({ type: 'order', order: row.original, tab: 'materials' })
+            },
+            {
+              label: 'Оплати клієнта',
+              icon: 'billing',
+              onClick: () => setEditor({ type: 'order', order: row.original, tab: 'payments' })
+            },
+            {
+              label: 'Економіка й виплати',
+              icon: 'trendingUp',
+              onClick: () => setEditor({ type: 'order', order: row.original, tab: 'economics' })
+            },
+            {
               label: data.access?.role === 'worker' ? 'Оновити статус' : 'Статус і дати',
               icon: 'clock',
               onClick: () =>
@@ -376,14 +393,10 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
       page: parseAsInteger.withDefault(1),
       customerOrder: parseAsStringLiteral(['newest', 'oldest']).withDefault('newest'),
       sort: parseAsString,
-      requestStatus: parseAsString.withDefault('backlog'),
-      orderStatus: parseAsStringLiteral([
-        'all',
-        'created',
-        'in_progress',
-        'ready',
-        'delivered'
-      ]).withDefault('all')
+      requestStatus: parseAsString.withDefault('all'),
+      orderStatus: parseAsStringLiteral(['all', 'created', 'in_progress', 'ready']).withDefault(
+        'all'
+      )
     },
     { shallow: true }
   );
@@ -500,14 +513,16 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
               {params.requestStatus === 'all' ? 'Показати лише активні' : 'Показати всі заявки'}
             </Button>
           )}
-          {view !== 'customers' && data.access?.role !== 'worker' && (
-            <Button onClick={create}>
-              <span className='flex items-center gap-2'>
-                <Icons.add aria-hidden />
-                {createLabel}
-              </span>
-            </Button>
-          )}
+          {view !== 'customers' &&
+            (view !== 'requests' || SHOW_LEGACY_REQUEST_FLOW) &&
+            data.access?.role !== 'worker' && (
+              <Button onClick={create}>
+                <span className='flex items-center gap-2'>
+                  <Icons.add aria-hidden />
+                  {createLabel}
+                </span>
+              </Button>
+            )}
         </div>
       )}
       {empty ? (
@@ -524,11 +539,11 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
               {view === 'customers'
                 ? 'Створіть клієнта, додайте його автомобіль і запишіть на ремонт.'
                 : view === 'requests'
-                  ? 'Заявка — попередній запис. VIN можна додати пізніше.'
-                  : 'Візьміть заявку в роботу або створіть замовлення напряму.'}
+                  ? 'Тут зберігаються попередні заявки та їхня історія. Нові записи створюйте як замовлення.'
+                  : 'Створіть замовлення. Воно почне роботу зі статусу «Створено».'}
             </EmptyDescription>
           </EmptyHeader>
-          {data.access?.role !== 'worker' && (
+          {data.access?.role !== 'worker' && (view !== 'requests' || SHOW_LEGACY_REQUEST_FLOW) && (
             <Button onClick={create}>
               <span className='flex items-center gap-2'>
                 <Icons.add aria-hidden />
@@ -581,6 +596,11 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
         pageHeaderAction={
           <div className='flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto'>
             {searchControl}
+            {data.access?.role !== 'worker' && data.requests.length > 0 && (
+              <Link href='/dashboard/requests' className={buttonVariants({ variant: 'ghost' })}>
+                Архів заявок
+              </Link>
+            )}
             <DropdownMenu open={statusMenuOpen} onOpenChange={setStatusMenuOpen}>
               <DropdownMenuTrigger
                 render={<HeaderButton variant='outline' aria-label='Фільтр статусу замовлень' />}
@@ -590,20 +610,18 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
               </DropdownMenuTrigger>
               <DropdownMenuContent align='end' className='w-max min-w-48 whitespace-nowrap'>
                 <DropdownMenuRadioGroup value={params.orderStatus}>
-                  {(['all', 'created', 'in_progress', 'ready', 'delivered'] as const).map(
-                    (status) => (
-                      <DropdownMenuRadioItem
-                        key={status}
-                        value={status}
-                        onClick={() => {
-                          void setParams({ orderStatus: status, page: 1 });
-                          setStatusMenuOpen(false);
-                        }}
-                      >
-                        {status === 'all' ? 'Усі статуси' : statusLabel(status)}
-                      </DropdownMenuRadioItem>
-                    )
-                  )}
+                  {(['all', 'created', 'in_progress', 'ready'] as const).map((status) => (
+                    <DropdownMenuRadioItem
+                      key={status}
+                      value={status}
+                      onClick={() => {
+                        void setParams({ orderStatus: status, page: 1 });
+                        setStatusMenuOpen(false);
+                      }}
+                    >
+                      {status === 'all' ? 'Усі статуси' : statusLabel(status)}
+                    </DropdownMenuRadioItem>
+                  ))}
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
             </DropdownMenu>

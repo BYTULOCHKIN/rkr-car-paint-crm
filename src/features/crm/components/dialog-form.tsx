@@ -14,6 +14,7 @@ import { DialogFooter } from '@/components/ui/dialog';
 interface DialogFormLayout {
   formId: string;
   footer: HTMLElement | null;
+  active?: boolean;
 }
 export const DialogFormContext = createContext<DialogFormLayout | null>(null);
 
@@ -27,10 +28,14 @@ export function CrmForm(props: ComponentProps<'form'>): ReactElement {
 // Submit buttons target CrmForm by ID, preserving native submission and validation.
 export function DialogActions({ children }: { children: ReactNode }): ReactElement | null {
   const layout = useContext(DialogFormContext);
+  if (layout?.active === false) return null;
   if (!layout) return <DialogFooter>{children}</DialogFooter>;
   return layout.footer
     ? createPortal(
-        <div className='flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-end'>
+        <div
+          data-slot='crm-form-actions'
+          className='flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-end'
+        >
           {children}
         </div>,
         layout.footer

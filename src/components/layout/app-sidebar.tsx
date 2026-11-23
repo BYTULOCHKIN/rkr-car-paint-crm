@@ -35,6 +35,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Icons } from '../icons';
 import { OrgSwitcher } from '../org-switcher';
 import { cn } from '@/lib/utils';
+import { SHOW_TEMPLATE_DEMOS } from '@/config/product';
 
 export default function AppSidebar() {
   const pathname = usePathname();
@@ -180,24 +181,26 @@ export default function AppSidebar() {
                 <DropdownMenuGroup>
                   <DropdownMenuItem onClick={() => router.push('/dashboard/profile')}>
                     <Icons.account className='mr-2 h-4 w-4' />
-                    Profile
+                    Профіль
                   </DropdownMenuItem>
-                  {organization && (
+                  {SHOW_TEMPLATE_DEMOS && organization && (
                     <DropdownMenuItem onClick={() => router.push('/dashboard/billing')}>
                       <Icons.creditCard className='mr-2 h-4 w-4' />
                       Billing
                     </DropdownMenuItem>
                   )}
-                  <DropdownMenuItem onClick={() => router.push('/dashboard/notifications')}>
-                    <Icons.notification className='mr-2 h-4 w-4' />
-                    Notifications
-                  </DropdownMenuItem>
+                  {SHOW_TEMPLATE_DEMOS && (
+                    <DropdownMenuItem onClick={() => router.push('/dashboard/notifications')}>
+                      <Icons.notification className='mr-2 h-4 w-4' />
+                      Notifications
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
                   <DropdownMenuItem onClick={() => signOut({ redirectUrl: '/auth/sign-in' })}>
                     <Icons.logout aria-hidden className='mr-2 h-4 w-4' />
-                    Sign out
+                    Вийти
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
               </DropdownMenuContent>

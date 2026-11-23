@@ -43,6 +43,94 @@ function workflow(id: string, kind: 'request' | 'order', expectedStatus: string)
   };
 }
 
+test('v16 migration maps delivered to ready while preserving history, payments, dates and order numbering', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'crm-three-statuses-'));
+  const filename = join(folder, 'crm.sqlite');
+  let repository: CrmRepository | undefined = new CrmRepository(filename);
+  try {
+    const source = seed(repository);
+    const id = repository.createOrder({
+      ...source,
+      description: 'Ремонт',
+      items: [{ description: 'Капот', quantity: 1, unitPrice: 100 }]
+    });
+    repository.updateWorkflow({
+      ...workflow(id, 'order', 'created'),
+      status: 'ready',
+      actualReadyDate: '2020-01-08'
+    });
+    repository.payments.receive(
+      { orderId: id, amount: '25', operationId: '00000000-0000-4000-8000-000000000001', note: '' },
+      { id: 'admin', name: 'Адміністратор' }
+    );
+    const before = repository.workspace();
+    repository.close();
+    repository = undefined;
+    const legacy = new DatabaseSync(filename);
+    try {
+      const sql = (
+        legacy.prepare("SELECT sql FROM sqlite_master WHERE name='crm_orders'").get()!.sql as string
+      )
+        .replace(
+          "('created','in_progress','ready')",
+          "('created','in_progress','ready','delivered')"
+        )
+        .replace(/CREATE TABLE\s+["`]?crm_orders["`]?/i, 'CREATE TABLE crm_orders_legacy');
+      const columns = legacy
+        .prepare('PRAGMA table_info(crm_orders)')
+        .all()
+        .map((column) => `"${column.name}"`)
+        .join(',');
+      legacy.exec(
+        `PRAGMA foreign_keys=OFF; ${sql}; INSERT INTO crm_orders_legacy (${columns}) SELECT ${columns} FROM crm_orders; DROP TABLE crm_orders; ALTER TABLE crm_orders_legacy RENAME TO crm_orders; PRAGMA user_version=16;`
+      );
+      legacy
+        .prepare(
+          "UPDATE crm_orders SET status='delivered',actualDeliveryDate='2020-01-15' WHERE id=?"
+        )
+        .run(id);
+      legacy.prepare("UPDATE sqlite_sequence SET seq=99 WHERE name='crm_orders'").run();
+    } finally {
+      legacy.close();
+    }
+    repository = new CrmRepository(filename);
+    const after = repository.workspace();
+    assert.deepEqual(after.events, before.events);
+    assert.deepEqual(after.payments, before.payments);
+    assert.deepEqual(after.requests, before.requests);
+    assert.deepEqual(after.orders[0], {
+      ...before.orders[0],
+      status: 'ready',
+      actualDeliveryDate: '2020-01-15'
+    });
+    assert.equal(repository.settlements.postings().length, 0);
+    assert.equal(repository.inventory.movements().length, 0);
+    const next = repository.createOrder({
+      ...source,
+      requestId: '',
+      description: 'Новий ремонт',
+      items: [{ description: 'Двері', quantity: 1, unitPrice: 100 }]
+    });
+    assert.equal(repository.workspace().orders.find((entry) => entry.id === next)!.number, 100);
+    const db = new DatabaseSync(filename);
+    try {
+      assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+      assert.throws(
+        () => db.prepare("UPDATE crm_orders SET status='delivered' WHERE id=?").run(id),
+        /CHECK/
+      );
+    } finally {
+      db.close();
+    }
+    repository.close();
+    repository = new CrmRepository(filename);
+    assert.equal(repository.workspace().orders.find((entry) => entry.id === id)!.status, 'ready');
+  } finally {
+    repository?.close();
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
+
 test('rescheduling needs a reason and retains the previous plan in history', () => {
   const repository = new CrmRepository(':memory:');
   try {
@@ -91,7 +179,7 @@ test('late receipt keeps the original plan; conversion produces a single board c
   }
 });
 
-test('ready and delivered facts are separate from promised dates, with stale updates rejected', () => {
+test('ready is terminal, preserves promised dates and rejects stale updates; rollback requires a reason', () => {
   const repository = new CrmRepository(':memory:');
   try {
     const source = seed(repository);
@@ -108,28 +196,22 @@ test('ready and delivered facts are separate from promised dates, with stale upd
     };
     repository.updateWorkflow(ready);
     assert.throws(() => repository.updateWorkflow(ready), /іншому вікні/);
-    repository.updateWorkflow({
-      ...ready,
-      expectedStatus: 'ready',
-      expectedRevision: 1,
-      status: 'delivered',
-      actualDeliveryDate: '2020-01-15'
-    });
     const order = repository.workspace().orders[0];
     assert.equal(order.plannedDeliveryDate, '2020-01-10');
-    assert.equal(order.actualDeliveryDate, '2020-01-15');
+    assert.equal(order.actualDeliveryDate, null);
+    assert.equal(order.status, 'ready');
     assert.equal(overdueLabel({ kind: 'order', record: order }, '2020-01-16'), null);
     assert.throws(
       () =>
         repository.updateWorkflow({
-          ...workflow(orderId, 'order', 'delivered'),
-          expectedRevision: 2
+          ...workflow(orderId, 'order', 'ready'),
+          expectedRevision: 1
         }),
       /причину/
     );
     repository.updateWorkflow({
-      ...workflow(orderId, 'order', 'delivered'),
-      expectedRevision: 2,
+      ...workflow(orderId, 'order', 'ready'),
+      expectedRevision: 1,
       note: 'Повторна перевірка'
     });
     assert.equal(repository.workspace().orders[0].actualDeliveryDate, null);
@@ -139,8 +221,8 @@ test('ready and delivered facts are separate from promised dates, with stale upd
         .workspace()
         .events[0].actualDateChanges?.some(
           (change) =>
-            change.field === 'actualDeliveryDate' &&
-            change.before === '2020-01-15' &&
+            change.field === 'actualReadyDate' &&
+            change.before === '2020-01-08' &&
             change.after === null
         )
     );
@@ -181,7 +263,7 @@ test('chronology and workflow boundaries are validated', () => {
       workflowSchema.safeParse({ ...consistentFacts, status: 'in_progress' }).success,
       false
     );
-    assert.equal(workflowSchema.safeParse({ ...consistentFacts, status: 'ready' }).success, false);
+    assert.equal(workflowSchema.safeParse({ ...consistentFacts, status: 'ready' }).success, true);
     const target = { kind: 'request' as const, record: repository.workspace().requests[0] };
     assert.equal(transitionKind(target, 'in_progress'), 'convert');
     assert.equal(transitionKind(target, 'delivered'), 'invalid');

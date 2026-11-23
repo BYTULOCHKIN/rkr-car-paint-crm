@@ -58,7 +58,7 @@ test('demo import preserves business data, assigns real members, is atomic and c
     );
     assert.deepEqual(
       new Set(workspace.orders.map((order) => order.status)),
-      new Set(['created', 'in_progress', 'ready', 'delivered'])
+      new Set(['created', 'in_progress', 'ready'])
     );
     assert.deepEqual(
       new Set(workspace.requests.map((request) => request.status)),

@@ -1,4 +1,23 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
+
+async function expectInlineIcon(button: Locator): Promise<void> {
+  const layout = await button.evaluate((element) => {
+    const icon = element.querySelector('svg')!.getBoundingClientRect();
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node && !node.textContent?.trim()) node = walker.nextNode();
+    const range = document.createRange();
+    range.selectNodeContents(node!);
+    const label = range.getBoundingClientRect();
+    return {
+      centerDifference: Math.abs(icon.y + icon.height / 2 - label.y - label.height / 2),
+      iconRight: icon.right,
+      labelLeft: label.left
+    };
+  });
+  expect(layout.centerDifference).toBeLessThanOrEqual(2);
+  expect(layout.iconRight).toBeLessThan(layout.labelLeft);
+}
 
 test('admin creates a position and receives fractional stock', async ({ page }) => {
   await page.goto('/dashboard/inventory');
@@ -45,20 +64,21 @@ test('order consumption validates remaining stock and cancellation preserves his
 }, info) => {
   await page.goto('/dashboard/orders');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
+  await page.getByRole('tab', { name: 'Матеріали', exact: true }).click();
   const materials = page.getByRole('region', { name: 'Матеріали замовлення' });
   await materials.getByRole('button', { name: 'Додати списання' }).click();
   await materials.getByRole('combobox', { name: 'Матеріал' }).click();
   await page.getByRole('option', { name: /Фарба/ }).click();
   await materials.getByRole('textbox', { name: 'Кількість' }).fill('2');
-  await materials.getByRole('button', { name: 'Списати матеріал' }).click();
+  await page.getByRole('button', { name: 'Списати матеріали' }).click();
   await expect(materials.getByRole('alert')).toContainText('Недостатньо');
   await materials.getByRole('textbox', { name: 'Кількість' }).fill('0,250');
-  await materials.getByRole('button', { name: 'Списати матеріал' }).click();
+  await page.getByRole('button', { name: 'Списати матеріали' }).click();
   await expect(materials.getByText('Фарба — 0,25 л', { exact: true })).toBeVisible();
   await expect(materials).toContainText('Собівартість матеріалів: 250,00');
   await materials.getByRole('button', { name: 'Скасувати списання' }).click();
   await materials.getByRole('textbox', { name: 'Причина скасування' }).fill('Помилковий матеріал');
-  await materials.getByRole('button', { name: 'Підтвердити скасування' }).click();
+  await page.getByRole('button', { name: 'Підтвердити скасування' }).click();
   await expect(materials.getByText('Скасовано', { exact: true })).toBeVisible();
   await expect(materials.getByText('Фарба — 0,25 л', { exact: true })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('order-materials.png'), animations: 'disabled' });
@@ -86,6 +106,45 @@ test('legacy balance is valued explicitly with an audit entry', async ({ page })
   );
 });
 
+test('admin searches materials, saves multiple rows together and reuses recent materials', async ({
+  page
+}) => {
+  await page.goto('/dashboard/orders');
+  await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
+  await page.getByRole('tab', { name: 'Матеріали', exact: true }).click();
+  const materials = page.getByRole('region', { name: 'Матеріали замовлення' });
+  await materials.getByRole('button', { name: 'Додати списання' }).click();
+  const form = materials.getByRole('form', { name: 'Списання матеріалів' });
+  await form.getByRole('combobox', { name: 'Матеріал' }).click();
+  await page.getByRole('combobox', { name: 'Пошук: Матеріал' }).fill('фар');
+  await page.getByRole('option', { name: /Фарба/ }).click();
+  await form.getByRole('textbox', { name: 'Кількість' }).fill('0,2');
+  await form.getByRole('button', { name: 'Ще матеріал' }).click();
+  await expectInlineIcon(form.getByRole('button', { name: 'Ще матеріал' }));
+  await expectInlineIcon(form.getByRole('button', { name: 'Прибрати матеріал 2' }));
+  await form.getByRole('combobox', { name: 'Матеріал' }).nth(1).click();
+  await page.getByRole('option', { name: /Фарба/ }).click();
+  await form.getByRole('textbox', { name: 'Кількість' }).nth(1).fill('0,3');
+  await form.getByRole('combobox', { name: 'Для робіт' }).nth(1).click();
+  await page.getByRole('option', { name: 'Полірування', exact: true }).click();
+  await page.getByRole('button', { name: 'Списати матеріали', exact: true }).click();
+  await expect(form).toBeHidden();
+  await expect(materials.getByText('Фарба — 0,5 л', { exact: true })).toBeVisible();
+  await expect(materials).toContainText('Собівартість матеріалів: 500,00');
+  await expect(materials).toContainText('Малярні роботи: 200,00');
+  await expect(materials).toContainText('Полірування: 300,00');
+  await materials.getByRole('button', { name: 'Додати списання' }).click();
+  await form.getByRole('combobox', { name: 'Матеріал' }).click();
+  await expect(page.getByText('Останні використані', { exact: true })).toBeVisible();
+  await page.getByRole('option', { name: /Фарба/ }).click();
+  await form.getByRole('button', { name: 'Ще матеріал' }).click();
+  await form.getByRole('button', { name: 'Прибрати матеріал 2' }).click();
+  await expect(form.getByRole('combobox', { name: 'Матеріал' })).toHaveCount(1);
+  expect(await form.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
+    true
+  );
+});
+
 test('worker can inspect stock with no write controls', async ({ page }) => {
   await page.goto('/dashboard/inventory?role=worker');
   await expect(page.getByRole('row').filter({ hasText: 'Фарба' })).toBeVisible();
@@ -93,6 +152,7 @@ test('worker can inspect stock with no write controls', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Надходження', exact: true })).toHaveCount(0);
   await page.goto('/dashboard/orders?role=worker');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
+  await page.getByRole('tab', { name: 'Матеріали', exact: true }).click();
   const materials = page.getByRole('region', { name: 'Матеріали замовлення' });
   await expect(materials).toBeVisible();
   await expect(materials.getByRole('button')).toHaveCount(0);

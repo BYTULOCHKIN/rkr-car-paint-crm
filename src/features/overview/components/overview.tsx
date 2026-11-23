@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import Link from 'next/link';
+import { SHOW_LEGACY_REQUEST_FLOW } from '@/config/product';
 import { SummaryCardLink } from '@/components/summary-card-link';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import { Icons } from '@/components/icons';
@@ -56,16 +57,12 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
   const trends = useMemo(() => overviewTrends(data, today, metrics), [data, today, metrics]);
   const cards = [
     {
-      title: 'Активні заявки',
-      trendKey: 'activeRequests' as TrendKey,
-      value: String(metrics.activeRequests),
-      description:
-        'Backlog: ' +
-        compactNumber(metrics.backlog) +
-        ' · Заплановано: ' +
-        compactNumber(metrics.scheduled),
-      href: '/dashboard/requests',
-      icon: Icons.requests
+      title: 'Створені замовлення',
+      trendKey: 'createdOrders' as TrendKey,
+      value: String(metrics.createdOrders),
+      description: 'Очікують початку робіт',
+      href: '/dashboard/orders?orderStatus=created',
+      icon: Icons.orders
     },
     {
       title: 'Замовлення в роботі',
@@ -80,7 +77,7 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
       icon: Icons.orders
     },
     {
-      title: 'Готові до видачі',
+      title: 'Готові замовлення',
       trendKey: 'ready' as TrendKey,
       value: String(metrics.ready),
       description: 'Прострочених прийомів і видач: ' + compactNumber(metrics.overdue),
@@ -88,7 +85,7 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
       icon: Icons.check
     },
     {
-      title: 'Видано цього місяця',
+      title: 'Завершено цього місяця',
       trendKey: 'deliveredThisMonth' as TrendKey,
       value: String(metrics.deliveredThisMonth),
       description: 'Вартість замовлень: ' + compactMoney(metrics.deliveredValueCents),
@@ -105,17 +102,17 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
       icon: Icons.billing
     },
     {
-      title: 'Заборгованість за виданими авто',
+      title: 'Заборгованість за готовими авто',
       trendKey: 'debtCents' as TrendKey,
       value: metrics.debtCents,
-      description: 'Неоплачених виданих замовлень: ' + compactNumber(metrics.debtOrderCount),
+      description: 'Неоплачених готових замовлень: ' + compactNumber(metrics.debtOrderCount),
       icon: Icons.warning
     },
     {
-      title: 'До сплати за невиданими авто',
+      title: 'До сплати за відкритими авто',
       trendKey: 'pendingPaymentCents' as TrendKey,
       value: metrics.pendingPaymentCents,
-      description: 'Залишок за створеними замовленнями, авто в роботі та готовими.',
+      description: 'Залишок за створеними замовленнями та авто в роботі.',
       icon: Icons.orders
     }
   ];
@@ -126,12 +123,14 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
       <div className='flex flex-wrap items-center justify-between gap-3'>
         <p className='text-sm text-muted-foreground'>Стан на {displayDate(today)} · Київ</p>
         <div className='flex flex-wrap gap-2'>
-          <Button size='sm' onClick={() => setEditor({ type: 'request' })}>
-            <span className='inline-flex items-center gap-1.5 whitespace-nowrap'>
-              <Icons.add aria-hidden data-icon='inline-start' />
-              <span>Нова заявка</span>
-            </span>
-          </Button>
+          {SHOW_LEGACY_REQUEST_FLOW && (
+            <Button size='sm' onClick={() => setEditor({ type: 'request' })}>
+              <span className='inline-flex items-center gap-1.5 whitespace-nowrap'>
+                <Icons.add aria-hidden data-icon='inline-start' />
+                <span>Нова заявка</span>
+              </span>
+            </Button>
+          )}
           <Button size='sm' variant='outline' onClick={() => setEditor({ type: 'order' })}>
             <span className='inline-flex items-center gap-1.5 whitespace-nowrap'>
               <Icons.orders aria-hidden data-icon='inline-start' />
@@ -194,7 +193,9 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
         </Link>
         <span>Суми — вартість робіт за позиціями.</span>
         {metrics.undatedDelivered > 0 && (
-          <span>Без дати видачі: {metrics.undatedDelivered}; у підсумок місяця не включені.</span>
+          <span>
+            Без дати готовності: {metrics.undatedDelivered}; у підсумок місяця не включені.
+          </span>
         )}
       </div>
       <section aria-label='Фінанси автомалярки' className='grid min-w-0 gap-4 md:grid-cols-3'>
@@ -228,8 +229,8 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
           <EmptyHeader>
             <EmptyTitle>Почнімо роботу з CRM</EmptyTitle>
             <EmptyDescription>
-              Додайте клієнта, закріпіть його автомобіль і створіть першу заявку. Дані автоматично
-              з’являться в огляді.
+              Додайте клієнта, закріпіть його автомобіль і створіть перше замовлення. Дані
+              автоматично з’являться в огляді.
             </EmptyDescription>
           </EmptyHeader>
           <Button onClick={() => setEditor({ type: 'customer' })}>Створити першого клієнта</Button>
@@ -238,7 +239,7 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
       <div className='grid min-w-0 gap-4 lg:grid-cols-2'>
         <WorkQueue
           title='Потребують уваги'
-          description='Прострочені прийоми й видачі та готові автомобілі'
+          description='Прострочені прийоми й завершення робіт'
           entries={metrics.attention.map((target) => ({
             target,
             date:
@@ -251,7 +252,7 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
           today={today}
           onOpen={(target) => setEditor({ type: 'workflow', target })}
           emptyTitle='Усе під контролем'
-          emptyDescription='Прострочень і автомобілів, що очікують видачі, немає.'
+          emptyDescription='Прострочених робіт немає.'
         />
         <WorkQueue
           title='Найближчі 7 днів'

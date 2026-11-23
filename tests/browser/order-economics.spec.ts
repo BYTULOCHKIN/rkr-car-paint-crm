@@ -5,6 +5,7 @@ test('admin classifies a check with internal polishing and multiple roles withou
 }, info) => {
   await page.goto('/dashboard/orders?economicsDemo');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
+  await page.getByRole('tab', { name: 'Роботи', exact: true }).click();
   await page.getByRole('button', { name: 'Деталізувати чек', exact: true }).click();
   const form = page.getByRole('form', { name: 'Редагування деталізованого чека' });
   await form.getByRole('combobox', { name: 'Маляр', exact: true }).click();
@@ -49,12 +50,13 @@ test('admin classifies a check with internal polishing and multiple roles withou
       );
   }
   await expect(form).toContainText('Чек клієнта: 22\u00a0500,00');
-  await form.getByRole('button', { name: 'Зберегти деталізований чек' }).click();
-  await expect(page.getByRole('dialog')).toBeHidden();
-  await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
+  await page.getByRole('button', { name: 'Зберегти деталізований чек' }).click();
+  await expect(form).toBeHidden();
+  const check = page.getByRole('region', { name: 'Деталізований чек', exact: true });
+  await expect(check).toContainText('Маляр Андрій');
+  await expect(check).toContainText('Олена Адміністратор');
+  await page.getByRole('tab', { name: 'Економіка', exact: true }).click();
   const economics = page.getByRole('region', { name: 'Економіка замовлення' });
-  await expect(economics).toContainText('Маляр: Маляр Андрій');
-  await expect(economics).toContainText('Полірувальник: Олена Адміністратор');
   await expect(economics.getByText('10\u00a0200,00 грн', { exact: true })).toBeVisible();
   await expect(economics.getByText('7\u00a0600,00 грн', { exact: true })).toBeVisible();
   await economics.scrollIntoViewIfNeeded();
