@@ -118,6 +118,14 @@ export function historyOrderChanges(event: WorkflowEvent): HistoryContentChange[
       after: summary(after.economics)
     });
   }
+  if (before.employeeShareBps !== after.employeeShareBps)
+    changes.push({
+      label: 'Частка відповідального',
+      before:
+        before.employeeShareBps === undefined ? 'Не вказано' : `${before.employeeShareBps / 100}%`,
+      after:
+        after.employeeShareBps === undefined ? 'Не вказано' : `${after.employeeShareBps / 100}%`
+    });
   if (before.assigneeId !== after.assigneeId)
     changes.push({
       label: 'Відповідальний',

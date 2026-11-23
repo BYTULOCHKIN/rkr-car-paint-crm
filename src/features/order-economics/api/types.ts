@@ -105,6 +105,8 @@ export interface PayeeAccrual {
   amountCents: number;
 }
 export interface EconomicsPosting {
+  model?: 'order_net';
+  expenses?: import('@/features/order-expenses/api/types').OrderExpense[];
   id: string;
   operationId: string;
   orderId: string;

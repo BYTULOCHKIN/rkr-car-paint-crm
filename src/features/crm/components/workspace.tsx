@@ -312,7 +312,7 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
               onClick: () => setEditor({ type: 'order', order: row.original })
             },
             {
-              label: 'Матеріали',
+              label: 'Матеріали і витрати',
               icon: 'inventory',
               onClick: () => setEditor({ type: 'order', order: row.original, tab: 'materials' })
             },
@@ -320,11 +320,6 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
               label: 'Оплати клієнта',
               icon: 'billing',
               onClick: () => setEditor({ type: 'order', order: row.original, tab: 'payments' })
-            },
-            {
-              label: 'Економіка й виплати',
-              icon: 'trendingUp',
-              onClick: () => setEditor({ type: 'order', order: row.original, tab: 'economics' })
             },
             {
               label: data.access?.role === 'worker' ? 'Оновити статус' : 'Статус і дати',

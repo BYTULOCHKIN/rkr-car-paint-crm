@@ -66,102 +66,25 @@ test('worker sees and exports own settlements without administrative data', asyn
   expect(csv).not.toContain('Рух клієнтських коштів');
 });
 
-test('workshop process from EUR receipt through readiness and payout to correction reconciles with the period report', async ({
+test('new readiness snapshots reconcile payroll and workshop income without a paid check', async ({
   page
 }) => {
-  test.setTimeout(60_000);
-  await page.goto('/dashboard/inventory?flowDemo');
-  const stock = page.getByRole('row').filter({ hasText: 'Фарба' });
-  await stock.getByRole('button', { name: 'Дії з позицією Фарба', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Надходження', exact: true }).click();
-  const dialog = page.getByRole('dialog');
-  await dialog.getByRole('textbox', { name: 'Кількість', exact: false }).fill('1');
-  await dialog.getByRole('textbox', { name: 'Загальна вартість надходження' }).fill('20');
-  await dialog.getByRole('combobox', { name: 'Валюта' }).click();
-  await page.getByRole('option', { name: 'Євро (EUR)', exact: true }).click();
-  await dialog.getByRole('textbox', { name: 'Курс закупівлі, грн за 1 €' }).fill('50');
-  await dialog.getByRole('button', { name: 'Додати надходження' }).click();
-  await expect(dialog).toBeHidden();
   await page.goto('/dashboard/orders?flowDemo&economicsDemo');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
-  await page.getByRole('tab', { name: 'Роботи', exact: true }).click();
-  await page.getByRole('button', { name: 'Деталізувати чек', exact: true }).click();
-  const form = page.getByRole('form', { name: 'Редагування деталізованого чека' });
-  for (const [role, name] of [
-    ['Маляр', 'Маляр Андрій'],
-    ['Полірувальник', 'Олена Адміністратор']
-  ] as const) {
-    await form.getByRole('combobox', { name: role, exact: true }).click();
-    const chooser = page.getByRole('dialog', { name: role, exact: true });
-    await chooser.getByRole('option', { name, exact: true }).click();
-    await expect(chooser).toBeHidden();
-  }
-  await form.getByRole('combobox', { name: 'Вид роботи 1' }).click();
-  await page.getByRole('option', { name: 'Фарбування деталі', exact: true }).click();
-  await expect(page.getByRole('option', { name: 'Фарбування деталі', exact: true })).toBeHidden();
-  await form.getByRole('textbox', { name: 'З цієї суми полірування, грн' }).fill('1000');
-  await page.getByRole('button', { name: 'Зберегти деталізований чек' }).click();
-  await expect(form).toBeHidden();
-  await page.getByRole('tab', { name: 'Матеріали', exact: true }).click();
-  const materials = page.getByRole('region', { name: 'Матеріали замовлення' });
-  await materials.getByRole('button', { name: 'Додати списання' }).click();
-  await materials.getByRole('combobox', { name: 'Матеріал' }).click();
-  await page.getByRole('option', { name: /^Фарба/ }).click();
-  await materials.getByRole('textbox', { name: 'Кількість', exact: false }).fill('0.8');
-  await page.getByRole('button', { name: 'Списати матеріали' }).click();
-  await expect(materials).toContainText('Собівартість матеріалів: 800,00');
-  async function payout(amount: string) {
-    await page.getByRole('tab', { name: 'Економіка', exact: true }).click();
-    const payroll = page.getByRole('region', { name: 'Нарахування та виплати' });
-    await payroll.getByRole('button', { name: 'Записати виплату / аванс', exact: true }).click();
-    await payroll.getByRole('combobox', { name: 'Одержувач' }).click();
-    await page.getByRole('option', { name: 'Маляр Андрій · Працівник', exact: true }).click();
-    await payroll.getByRole('textbox', { name: 'Сума виплати / авансу, грн' }).fill(amount);
-    await page.getByRole('button', { name: 'Зберегти фінансову операцію' }).click();
-    await expect(
-      payroll.getByRole('button', { name: 'Записати виплату / аванс', exact: true })
-    ).toBeVisible();
-  }
-  await payout('1000');
+  await page.getByRole('combobox', { name: 'Відповідальний', exact: false }).click();
+  await page.getByRole('option', { name: /Маляр Андрій/ }).click();
+  await page.getByRole('button', { name: 'Зберегти замовлення', exact: true }).click();
   await page.goto('/dashboard/orders?flowDemo&role=worker');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Позначити готовим', exact: true }).click();
-  await expect(dialog.getByText('Замовлення готове.', { exact: true })).toBeVisible();
-  await page.goto('/dashboard/orders?flowDemo');
-  await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
-  await page.getByRole('tab', { name: 'Економіка', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Нарахування та виплати' })).toContainText(
-    'Нараховано: 9\u00a0720,00'
-  );
-  await payout('2000');
-  await page.getByRole('button', { name: 'Фінансове коригування', exact: true }).click();
-  await page
-    .getByRole('textbox', { name: 'Причина фінансового коригування' })
-    .fill('Додатково 0.2 л фарби');
-  await page.getByRole('button', { name: 'Додати матеріал до коригування' }).click();
-  await page.getByRole('combobox', { name: 'Матеріал 1' }).click();
-  await page.getByRole('option', { name: /^Фарба ·/ }).click();
-  await page.getByRole('textbox', { name: 'Кількість матеріалу 1' }).fill('0.2');
-  await page.getByRole('button', { name: 'Переглянути коригування' }).click();
-  await expect(
-    page.getByRole('region', { name: 'Перегляд фінансового коригування' })
-  ).toContainText('Маляр Андрій: -120,00');
-  await page.getByRole('button', { name: 'Провести коригування', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Перегляд фінансового коригування' })).toBeHidden();
+  await page.getByRole('button', { name: 'Позначити готовим', exact: true }).click();
+  await expect(page.getByText('Замовлення готове.', { exact: true })).toBeVisible();
   await page.goto('/dashboard/reports?flowDemo');
-  await expect(page.getByRole('region', { name: 'Підсумок проведень за період' })).toContainText(
-    '10\u00a0200,00'
-  );
+  const metrics = page.getByRole('region', { name: 'Підсумок проведень за період' });
+  await expect(metrics).toContainText('18\u00a0000,00');
+  await expect(metrics).toContainText('10\u00a0800,00');
+  await expect(metrics).toContainText('7\u00a0200,00');
   await page.getByRole('tab', { name: 'Розрахунки', exact: true }).click();
-  const painter =
-    page.viewportSize()!.width < 768
-      ? page.getByRole('article', { name: 'Розрахунки: Маляр Андрій', exact: true })
-      : page
-          .getByRole('table', { name: 'Підсумок по одержувачах' })
-          .getByRole('row')
-          .filter({ hasText: 'Маляр Андрій' });
-  await expect(painter).toContainText('6\u00a0600,00');
-  await expect(painter).toContainText('3\u00a0000,00');
-  await page.getByRole('tab', { name: 'Матеріали', exact: true }).click();
-  await expect(page.getByRole('table', { name: 'Матеріали × авто' })).toContainText('1 л');
+  await expect(
+    page.getByRole('button', { name: 'Деталі розрахунків: Маляр Андрій', exact: true })
+  ).toBeVisible();
 });

@@ -97,20 +97,34 @@ export async function consumeStock(
   orgId: string,
   input: ConsumptionInput
 ): Promise<ActionResult<void>> {
-  return write(orgId, (context) => context.repository.inventory.consume(input, actor(context)));
+  return write(orgId, (context) =>
+    context.repository.mutateOrderCosts(input.orderId, actor(context), () =>
+      context.repository.inventory.consume(input, actor(context))
+    )
+  );
 }
 export async function reverseConsumption(
   orgId: string,
   input: ReversalInput
 ): Promise<ActionResult<void>> {
-  return write(orgId, (context) => context.repository.inventory.reverse(input, actor(context)));
+  return write(orgId, (context) => {
+    const movement = context.repository.inventory
+      .movements()
+      .find((entry) => entry.id === input.movementId);
+    if (!movement?.orderId) throw new InventoryError('Списання не знайдено');
+    context.repository.mutateOrderCosts(movement.orderId, actor(context), () =>
+      context.repository.inventory.reverse(input, actor(context))
+    );
+  });
 }
 export async function consumeStockBatch(
   orgId: string,
   input: BatchConsumptionInput
 ): Promise<ActionResult<void>> {
   return write(orgId, (context) =>
-    context.repository.inventory.consumeBatch(input, actor(context))
+    context.repository.mutateOrderCosts(input.orderId, actor(context), () =>
+      context.repository.inventory.consumeBatch(input, actor(context))
+    )
   );
 }
 export async function valueStockBalance(

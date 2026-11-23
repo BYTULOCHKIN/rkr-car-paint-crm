@@ -116,37 +116,19 @@ test('member modal preserves drafts when cancelling closure and is read-only for
   await expect(dialog.getByRole('checkbox', { name: 'Маляр', exact: true })).not.toBeChecked();
 });
 
-test('work assignment suggests specialists and allows an explicit all-team replacement', async ({
+test('order responsible can be any active team member irrespective of specialty', async ({
   page
 }) => {
-  await page.goto('/dashboard/team');
-  await page
-    .getByRole('button', { name: 'Налаштувати учасника Маляр Андрій', exact: true })
-    .click();
-  const memberDialog = page.getByRole('dialog', {
-    name: 'Учасник команди — Маляр Андрій',
-    exact: true
-  });
-  await memberDialog.getByRole('checkbox', { name: 'Маляр', exact: true }).check();
-  await memberDialog.getByRole('button', { name: 'Зберегти налаштування', exact: true }).click();
-  await expect(memberDialog).toBeHidden();
   await page.goto('/dashboard/orders?economicsDemo');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
-  await page.getByRole('tab', { name: 'Роботи', exact: true }).click();
-  await page.getByRole('button', { name: 'Деталізувати чек', exact: true }).click();
-  const form = page.getByRole('form', { name: 'Редагування деталізованого чека' });
-  await form.getByRole('combobox', { name: 'Маляр', exact: true }).click();
-  const choices = page.getByRole('dialog', { name: 'Маляр', exact: true });
-  await expect(choices.getByRole('option', { name: 'Маляр Андрій', exact: true })).toBeVisible();
-  await expect(
-    choices.getByRole('option', { name: 'Олена Адміністратор', exact: true })
-  ).toHaveCount(0);
-  await page.keyboard.press('Escape');
-  await form.getByRole('button', { name: 'Показати всіх працівників', exact: true }).click();
-  await form.getByRole('combobox', { name: 'Маляр', exact: true }).click();
-  await choices.getByRole('option', { name: 'Олена Адміністратор', exact: true }).click();
-  await form.getByRole('button', { name: 'Лише за спеціалізацією', exact: true }).click();
-  await expect(form.getByRole('combobox', { name: 'Маляр', exact: true })).toContainText(
+  await page.getByRole('combobox', { name: 'Відповідальний', exact: false }).click();
+  await expect(page.getByRole('option', { name: /Маляр Андрій/ })).toBeVisible();
+  await page.getByRole('option', { name: /Олена Адміністратор/ }).click();
+  await page.getByRole('spinbutton', { name: 'Частка відповідального, %' }).fill('70');
+  await page.getByRole('button', { name: 'Зберегти замовлення', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Відповідальний', exact: false })).toContainText(
     'Олена Адміністратор'
   );
+  await page.getByRole('tab', { name: 'Роботи', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Деталізувати чек', exact: true })).toHaveCount(0);
 });

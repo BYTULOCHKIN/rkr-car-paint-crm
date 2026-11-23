@@ -1,3 +1,4 @@
+import { netSalarySnapshot } from '@/features/order-expenses/lib/snapshot';
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import type { HistoryActor, RepairOrder } from '@/features/crm/api/types';
@@ -178,6 +179,55 @@ export class SettlementRepository {
         `posting:${id}`
       );
     return this.latest(order.id)!;
+  }
+  /** Immutable snapshots and signed deltas preserve earlier accruals and payouts. */
+  syncNet(order: RepairOrder, costs: OrderMaterialCosts, actor: HistoryActor, note: string): void {
+    if (!this.db.isTransaction)
+      throw new EconomicsError('Нарахування потребує транзакції замовлення');
+    const snapshot = netSalarySnapshot(order, costs);
+    const allocations = snapshot.allocations;
+    const previous = this.latest(order.id);
+    if (
+      previous?.model === 'order_net' &&
+      JSON.stringify({
+        model: previous.model,
+        expenses: previous.expenses,
+        details: previous.details,
+        costs: previous.costs,
+        result: previous.result,
+        allocations: previous.allocations
+      }) === JSON.stringify(snapshot)
+    )
+      return;
+    const id = randomUUID();
+    const kind = previous ? 'correction' : 'initial';
+    this.db
+      .prepare('INSERT INTO crm_economics_postings VALUES (?,?,?,?,?,?,?,?,?,?)')
+      .run(
+        id,
+        `auto:${id}`,
+        order.id,
+        (previous?.revision ?? 0) + 1,
+        kind,
+        JSON.stringify(snapshot),
+        note,
+        JSON.stringify(actor),
+        new Date().toISOString(),
+        `auto:${id}`
+      );
+    for (const delta of accrualDeltas(previous?.allocations ?? [], allocations))
+      this.insertEvent(
+        randomUUID(),
+        order.id,
+        delta.payee,
+        previous ? 'adjustment' : 'accrual',
+        delta.amountCents,
+        id,
+        null,
+        note,
+        actor,
+        `posting:${id}`
+      );
   }
   onReady(order: RepairOrder, costs: OrderMaterialCosts, actor: HistoryActor): void {
     if (!order.economics) return; // Legacy/unclassified checks never receive invented accruals.

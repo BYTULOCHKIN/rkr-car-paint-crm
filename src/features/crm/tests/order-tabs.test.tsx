@@ -1,3 +1,4 @@
+import { saveOrderExpense } from '@/features/order-expenses/api/service';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -109,10 +110,10 @@ beforeEach(() => {
   vi.mocked(updateOrder).mockResolvedValue({ ok: true, data: null });
 });
 
-test('six tabs show one accessible panel, preserve order drafts and keep only the active form actions', async () => {
+test('five tabs show one accessible panel, preserve order drafts and keep only the active form actions', async () => {
   const user = userEvent.setup();
   const { close } = show();
-  expect(screen.getAllByRole('tab')).toHaveLength(6);
+  expect(screen.getAllByRole('tab')).toHaveLength(5);
   expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
   const description = screen.getByRole('textbox', { name: /Опис замовлення/ });
   await user.clear(description);
@@ -167,14 +168,14 @@ test('validation opens the tab containing an invalid field, then saving keeps th
 test('a material draft survives tab switches and a pending batch disables navigation and dismissal', async () => {
   const user = userEvent.setup();
   const { close } = show();
-  await user.click(screen.getByRole('tab', { name: 'Матеріали' }));
+  await user.click(screen.getByRole('tab', { name: 'Матеріали і витрати' }));
   await user.click(await screen.findByRole('button', { name: 'Додати списання' }));
   await user.click(screen.getByRole('combobox', { name: /^Матеріал/ }));
   await user.click(await screen.findByRole('option', { name: /Лак Sprint/ }));
   await user.type(screen.getByRole('textbox', { name: /^Кількість/ }), '0,8');
   await user.click(screen.getByRole('tab', { name: 'Основне' }));
   expect(screen.queryByRole('button', { name: 'Списати матеріали' })).toBeNull();
-  await user.click(screen.getByRole('tab', { name: 'Матеріали' }));
+  await user.click(screen.getByRole('tab', { name: 'Матеріали і витрати' }));
   expect((screen.getByRole('textbox', { name: /^Кількість/ }) as HTMLInputElement).value).toBe(
     '0,8'
   );
@@ -231,4 +232,36 @@ test('a background update preserves the draft and submits its original revision 
   expect(
     await within(screen.getByRole('tabpanel')).findByText('Запис уже змінено в іншому вікні')
   ).toBeDefined();
+});
+
+test('subcontract draft survives tab switches and saves internal costs independently from client work', async () => {
+  const user = userEvent.setup();
+  show();
+  vi.mocked(saveOrderExpense).mockResolvedValue({ ok: true, data: 'expense-id' });
+  await user.click(screen.getByRole('tab', { name: 'Матеріали і витрати' }));
+  await user.click(await screen.findByRole('button', { name: 'Додати витрату' }));
+  await user.type(screen.getByRole('textbox', { name: /Назва витрати/ }), 'Пайка бампера');
+  await user.type(screen.getByRole('textbox', { name: /Субпідрядник/ }), 'Майстер пайки');
+  await user.type(screen.getByRole('textbox', { name: /Вартість субпідряду/ }), '2500');
+  await user.click(screen.getByRole('tab', { name: 'Роботи' }));
+  expect(
+    (screen.getByRole('button', { name: 'Зберегти замовлення' }) as HTMLButtonElement).disabled
+  ).toBe(true);
+  await user.click(screen.getByRole('tab', { name: 'Матеріали і витрати' }));
+  expect((screen.getByRole('textbox', { name: /Назва витрати/ }) as HTMLInputElement).value).toBe(
+    'Пайка бампера'
+  );
+  await user.click(screen.getByRole('button', { name: 'Зберегти витрату' }));
+  await waitFor(() =>
+    expect(saveOrderExpense).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: 'org_A',
+        orderId: order.id,
+        expectedRevision: 3,
+        amount: '2500',
+        contractorName: 'Майстер пайки'
+      })
+    )
+  );
+  expect(updateOrder).not.toHaveBeenCalled();
 });

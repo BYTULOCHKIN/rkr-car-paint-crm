@@ -333,16 +333,23 @@ export class InventoryRepository {
     const value = consumptionSchema.parse(input);
     this.transaction(() => {
       if (this.duplicate(value.operationId, value, actor, 'consumption')) return;
-      const order = this.db.prepare('SELECT status FROM crm_orders WHERE id=?').get(value.orderId);
+      const order = this.db
+        .prepare('SELECT status,salaryModel FROM crm_orders WHERE id=?')
+        .get(value.orderId);
       if (!order) throw new InventoryError('Замовлення не знайдено');
       if (
         !financialCorrection &&
+        order.salaryModel !== 'net' &&
         this.db.prepare('SELECT id FROM crm_economics_postings WHERE orderId=?').get(value.orderId)
       )
         throw new InventoryError(
           'Матеріали проведеного замовлення змінюються через фінансове коригування'
         );
-      if (!financialCorrection && order.status !== 'in_progress')
+      if (
+        !financialCorrection &&
+        order.status !== 'in_progress' &&
+        !(order.salaryModel === 'net' && order.status === 'ready')
+      )
         throw new InventoryError('Списання дозволене лише для замовлення «В роботі»');
       if (this.item(value.itemId).archived)
         throw new InventoryError('Не можна списувати архівну позицію');
@@ -372,7 +379,12 @@ export class InventoryRepository {
       if (!movement || movement.kind !== 'consumption')
         throw new InventoryError('Списання не знайдено');
       if (movement.reversed) throw new InventoryError('Це списання вже скасоване');
-      if (!financialCorrection && movement.financialLocked)
+      if (
+        !financialCorrection &&
+        movement.financialLocked &&
+        this.db.prepare('SELECT salaryModel FROM crm_orders WHERE id=?').get(movement.orderId!)
+          ?.salaryModel !== 'net'
+      )
         throw new InventoryError('Скасування списання потребує фінансового коригування');
       this.insert(
         value.operationId,

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useCallback, useState, type ReactNode } from 'react';
+import { useEffect, useCallback, useState, useId, type ReactNode } from 'react';
 import { primaryContact } from '../lib/customer-contacts';
 import { CrmForm } from './dialog-form';
 import { assigneeLabel } from '../lib/assignee';
@@ -8,7 +8,9 @@ import { VehicleBrandAvatar } from '@/components/vehicle-brand-avatar';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { FieldGroup } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { FieldError, FieldGroup } from '@/components/ui/field';
 import { useAppForm } from '@/lib/form';
 import { crmMutations, crmQueries } from '../api/queries';
 import type { CrmWorkspace, Vehicle, RepairRequest, RepairOrder } from '../api/types';
@@ -202,12 +204,17 @@ interface OrderFormProps extends SaveProps {
   order?: RepairOrder;
 }
 
-function orderFormValues(order?: RepairOrder, request?: RepairRequest): OrderInput {
+function orderFormValues(
+  order?: RepairOrder,
+  request?: RepairRequest,
+  defaultShareBps = 6000
+): OrderInput {
   return {
     customerId: (order ?? request)?.customerId ?? '',
     vehicleId: (order ?? request)?.vehicleId ?? '',
     description: (order ?? request)?.description ?? '',
     requestId: request?.id ?? order?.requestId ?? '',
+    employeeShareBps: order?.defaultEmployeeShareBps ?? defaultShareBps,
     assigneeId: order ? (order.assigneeId ?? undefined) : '',
     plannedIntakeDate: (order ?? request)?.plannedIntakeDate ?? '',
     plannedDeliveryDate: (order ?? request)?.plannedDeliveryDate ?? '',
@@ -234,13 +241,14 @@ export function OrderForm({
   onInvalidSection,
   onCreated
 }: OrderFormProps) {
+  const shareId = useId();
   const client = useQueryClient();
   const feedback = useSaveFeedback(onSaved);
   const create = useMutation({ ...crmMutations.order(), ...feedback });
   const update = useMutation({ ...crmMutations.updateOrder(), ...feedback });
   const initial = order ?? request;
   const [baseline, setBaseline] = useState(() => ({
-    values: orderFormValues(order, request),
+    values: orderFormValues(order, request, data.finance?.defaultShareBps),
     revision: order?.workflowRevision ?? 0
   }));
   const [sourceOrder, setSourceOrder] = useState(order);
@@ -263,6 +271,7 @@ export function OrderForm({
             id: order.id,
             expectedRevision: baseline.revision,
             ...(value.assigneeId ? { assigneeId: value.assigneeId } : {}),
+            employeeShareBps: value.employeeShareBps,
             description: value.description,
             items: value.items,
             paintPlan: value.paintPlan
@@ -274,9 +283,9 @@ export function OrderForm({
                 )
                 ?.orders.find((entry) => entry.id === order.id)
             : undefined;
-          const changed = (['description', 'assigneeId', 'items', 'paintPlan'] as const).some(
-            (key) => JSON.stringify(value[key]) !== JSON.stringify(baseline.values[key])
-          );
+          const changed = (
+            ['description', 'assigneeId', 'employeeShareBps', 'items', 'paintPlan'] as const
+          ).some((key) => JSON.stringify(value[key]) !== JSON.stringify(baseline.values[key]));
           const revision = latest?.workflowRevision ?? baseline.revision + Number(changed);
           const savedValues = latest ? orderFormValues(latest) : value;
           setBaseline({ values: savedValues, revision });
@@ -371,7 +380,7 @@ export function OrderForm({
             description={
               order?.assigneeId && !data.team?.some((member) => member.id === order.assigneeId)
                 ? `Поточний виконавець: ${assigneeLabel(order)}. Якщо учасник уже залишив команду, призначте іншого.`
-                : 'Відповідальний за замовлення. Маляр, полірувальник і розбірник призначаються окремо в деталізованому чеку.'
+                : 'Цьому учаснику нараховується частка від суми замовлення після віднімання матеріалів і субпідряду.'
             }
             options={[
               ...(data.team ?? []).map((member) => ({
@@ -393,6 +402,31 @@ export function OrderForm({
           />
         )}
       </form.AppField>
+      <form.Field name='employeeShareBps'>
+        {(field) => (
+          <div className='grid gap-2'>
+            <Label htmlFor={shareId}>Частка відповідального, %</Label>
+            <Input
+              id={shareId}
+              aria-invalid={field.state.meta.errors.length > 0}
+              aria-describedby={field.state.meta.errors.length ? `${shareId}-error` : undefined}
+              type='number'
+              min={0}
+              max={100}
+              step={0.01}
+              value={(field.state.value ?? 6000) / 100}
+              onBlur={field.handleBlur}
+              onChange={(event) => field.handleChange(Math.round(Number(event.target.value) * 100))}
+            />
+            {field.state.meta.errors.length > 0 && (
+              <FieldError id={`${shareId}-error`} errors={field.state.meta.errors} />
+            )}
+            <p className='text-muted-foreground text-sm'>
+              Нараховується при готовності авто незалежно від оплати клієнтом.
+            </p>
+          </div>
+        )}
+      </form.Field>
       <form.AppField name='description'>
         {(field) => <field.TextareaField label='Опис замовлення' required />}
       </form.AppField>
@@ -443,90 +477,84 @@ export function OrderForm({
           />
         )}
       </form.Field>
-      {order?.economics ? (
-        <p className='text-muted-foreground text-sm'>
-          Позиції, ціни та виконавці — у деталізованому чеку цієї вкладки.
-        </p>
-      ) : (
-        <form.Field name='items' mode='array'>
-          {(array) => (
-            <fieldset className='flex min-w-0 flex-col gap-4'>
-              <legend className='mb-3 text-base font-semibold'>Позиції робіт</legend>
-              <p className='text-muted-foreground text-sm'>
-                Додайте роботи та вартість у гривнях. Позначки на схемі не змінюють суму замовлення.
-              </p>
-              {array.state.value.map((_, index) => (
-                <div
-                  key={index}
-                  className='flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-4'
-                >
-                  <div className='flex items-center justify-between gap-3 text-sm'>
-                    <span className='text-muted-foreground'>Позиція {index + 1}</span>
-                    <strong>
-                      {money(
-                        (Number(array.state.value[index].quantity) || 0) *
-                          Math.round((Number(array.state.value[index].unitPrice) || 0) * 100)
-                      )}
-                    </strong>
-                  </div>
-                  <form.AppField name={`items[${index}].description`}>
+      <form.Field name='items' mode='array'>
+        {(array) => (
+          <fieldset className='flex min-w-0 flex-col gap-4'>
+            <legend className='mb-3 text-base font-semibold'>Позиції робіт</legend>
+            <p className='text-muted-foreground text-sm'>
+              Додайте роботи та вартість у гривнях. Позначки на схемі не змінюють суму замовлення.
+            </p>
+            {array.state.value.map((_, index) => (
+              <div
+                key={index}
+                className='flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-4'
+              >
+                <div className='flex items-center justify-between gap-3 text-sm'>
+                  <span className='text-muted-foreground'>Позиція {index + 1}</span>
+                  <strong>
+                    {money(
+                      (Number(array.state.value[index].quantity) || 0) *
+                        Math.round((Number(array.state.value[index].unitPrice) || 0) * 100)
+                    )}
+                  </strong>
+                </div>
+                <form.AppField name={`items[${index}].description`}>
+                  {(field) => (
+                    <field.TextField
+                      label={`Робота ${index + 1}`}
+                      placeholder='Фарбування переднього бампера'
+                      required
+                    />
+                  )}
+                </form.AppField>
+                <div className='grid grid-cols-2 gap-3'>
+                  <form.AppField name={`items[${index}].quantity`}>
                     {(field) => (
                       <field.TextField
-                        label={`Робота ${index + 1}`}
-                        placeholder='Фарбування переднього бампера'
+                        label='Кількість'
+                        type='number'
+                        min={1}
+                        max={999}
+                        step={1}
                         required
                       />
                     )}
                   </form.AppField>
-                  <div className='grid grid-cols-2 gap-3'>
-                    <form.AppField name={`items[${index}].quantity`}>
-                      {(field) => (
-                        <field.TextField
-                          label='Кількість'
-                          type='number'
-                          min={1}
-                          max={999}
-                          step={1}
-                          required
-                        />
-                      )}
-                    </form.AppField>
-                    <form.AppField name={`items[${index}].unitPrice`}>
-                      {(field) => (
-                        <field.TextField
-                          label='Ціна за одиницю, грн'
-                          type='number'
-                          min={0}
-                          max={1000000}
-                          step='0.01'
-                          required
-                        />
-                      )}
-                    </form.AppField>
-                  </div>
-                  <Button
-                    type='button'
-                    variant='ghost'
-                    disabled={array.state.value.length === 1}
-                    onClick={() => array.removeValue(index)}
-                    aria-label={`Видалити роботу ${index + 1}`}
-                  >
-                    Видалити позицію
-                  </Button>
+                  <form.AppField name={`items[${index}].unitPrice`}>
+                    {(field) => (
+                      <field.TextField
+                        label='Ціна за одиницю, грн'
+                        type='number'
+                        min={0}
+                        max={1000000}
+                        step='0.01'
+                        required
+                      />
+                    )}
+                  </form.AppField>
                 </div>
-              ))}
-              <Button
-                type='button'
-                variant='outline'
-                disabled={array.state.value.length >= 100}
-                onClick={() => array.pushValue({ description: '', quantity: 1, unitPrice: 0 })}
-              >
-                Додати позицію
-              </Button>
-            </fieldset>
-          )}
-        </form.Field>
-      )}
+                <Button
+                  type='button'
+                  variant='ghost'
+                  disabled={array.state.value.length === 1}
+                  onClick={() => array.removeValue(index)}
+                  aria-label={`Видалити роботу ${index + 1}`}
+                >
+                  Видалити позицію
+                </Button>
+              </div>
+            ))}
+            <Button
+              type='button'
+              variant='outline'
+              disabled={array.state.value.length >= 100}
+              onClick={() => array.pushValue({ description: '', quantity: 1, unitPrice: 0 })}
+            >
+              Додати позицію
+            </Button>
+          </fieldset>
+        )}
+      </form.Field>
       <form.Subscribe selector={(state) => state.values.items}>
         {(items) => (
           <p className='text-right text-lg font-semibold' aria-live='polite'>
@@ -572,6 +600,7 @@ export function OrderForm({
           'vehicleId',
           'description',
           'assigneeId',
+          'employeeShareBps',
           'plannedIntakeDate',
           'plannedDeliveryDate',
           'actualIntakeDate'

@@ -49,7 +49,9 @@ export function payrollCsv(
         entry.createdAt,
         entry.order.number,
         entry.order.vehicle,
-        workerSpecialtyOptions.find((option) => option.value === entry.role)!.label,
+        entry.role === 'responsible'
+          ? 'Відповідальний'
+          : workerSpecialtyOptions.find((option) => option.value === entry.role)!.label,
         entry.kind === 'initial' ? 'Нарахування' : 'Коригування',
         entry.before ? amount(entry.before.baseCents) : '',
         entry.before ? amount(entry.before.shareBps) : '',

@@ -11,7 +11,8 @@ import type {
 } from '@/features/inventory/schemas/inventory';
 import { quantityMilli, decimalScaled } from '@/features/inventory/schemas/inventory';
 import { consumeValuedStock, valuePurchase } from '@/features/order-economics/lib/stock-valuation';
-import { getWorkspace } from './service';
+import { getWorkspace, financeFixtureData, persistFlowFixture } from './service';
+import { syncNetFixture } from './net-salary';
 
 const initial: InventoryData = {
   access: { userId: 'user_worker', orgId: 'org_test', role: 'admin' },
@@ -205,7 +206,14 @@ export async function adjustStock(_org: string, input: AdjustmentInput) {
   return move(input, 'adjustment');
 }
 export async function consumeStock(_org: string, input: ConsumptionInput) {
-  return move(input, 'consumption', input.orderId);
+  const result = await move(input, 'consumption', input.orderId);
+  const order = financeFixtureData().orders.find((entry) => entry.id === input.orderId);
+  if (order) {
+    order.workflowRevision = (order.workflowRevision ?? 0) + 1;
+    await syncNetFixture(order);
+    persistFlowFixture();
+  }
+  return result;
 }
 export async function consumeStockBatch(orgId: string, input: BatchConsumptionInput) {
   const before = data();

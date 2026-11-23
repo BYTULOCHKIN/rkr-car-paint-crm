@@ -22,14 +22,12 @@ function costLabel(amount: number | null): string {
 function Materials({
   order,
   access,
-  locked = false,
   onPendingChange,
   onStateChange,
   disabled = false
 }: {
   order: RepairOrder;
   access: CrmAccess;
-  locked?: boolean;
   onPendingChange?: (pending: boolean) => void;
   onStateChange?: (state: FormState) => void;
   disabled?: boolean;
@@ -46,9 +44,11 @@ function Materials({
     return () => onPendingChange?.(false);
   }, [pending, onPendingChange]);
   const [reversing, setReversing] = useState<StockMovement | null>(null);
-  const movements = data.movements.filter((movement) => movement.orderId === order.id);
+  const movements = data.movements
+    .filter((movement) => movement.orderId === order.id)
+    .map((movement) => ({ ...movement, financialLocked: false }));
   const admin = access.role === 'admin' && data.access.role === 'admin';
-  const financialLocked = locked || movements.some((movement) => movement.financialLocked);
+  const editable = order.status === 'in_progress' || order.status === 'ready';
   const costs = orderMaterialCosts(movements, order.id);
   const totals = new Map<string, { name: string; unit: string; quantity: number }>();
   for (const movement of movements) {
@@ -86,7 +86,7 @@ function Materials({
             {entry.name} — {stockQuantity(entry.quantity)} {entry.unit}
           </p>
         ))}
-      {admin && order.status === 'in_progress' && !financialLocked && !adding && !reversing && (
+      {admin && editable && !adding && !reversing && (
         <Button
           type='button'
           variant='outline'
@@ -97,17 +97,12 @@ function Materials({
           Додати списання
         </Button>
       )}
-      {admin && order.status !== 'in_progress' && !financialLocked && (
+      {admin && !editable && (
         <p className='text-muted-foreground text-sm'>
-          Нове списання доступне лише в статусі «В роботі».
+          Списання доступне в статусах «В роботі» та «Готово».
         </p>
       )}
-      {financialLocked && (
-        <p className='text-muted-foreground text-sm'>
-          Після нарахування змінюйте матеріали через фінансове коригування.
-        </p>
-      )}
-      {adding && order.status === 'in_progress' && !financialLocked && (
+      {adding && editable && (
         <div className='flex flex-col gap-3'>
           <BatchConsumptionForm
             orgId={access.orgId}
@@ -154,7 +149,6 @@ function Materials({
 export function OrderMaterials(props: {
   order: RepairOrder;
   access: CrmAccess;
-  locked?: boolean;
   onPendingChange?: (pending: boolean) => void;
   onStateChange?: (state: FormState) => void;
   disabled?: boolean;

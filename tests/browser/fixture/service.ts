@@ -6,7 +6,7 @@ import { detailedCheckItems } from '@/features/order-economics/lib/details';
 import { previewDetailedEconomics } from '@/features/order-economics/lib/details';
 import { paymentDelta } from '@/features/crm/lib/payment-balance';
 export { refundPayment } from './finance-service';
-import { postReadyFixture } from './finance-service';
+import { syncNetFixture } from './net-salary';
 import type { CrmWorkspace, TeamMember, Vehicle } from '@/features/crm/api/types';
 import {
   updateTeamMemberSchema,
@@ -492,6 +492,8 @@ export async function createOrder(input: OrderInput) {
     actualIntakeDate: input.actualIntakeDate || null,
     actualReadyDate: null,
     actualDeliveryDate: null,
+    salaryModel: 'net',
+    defaultEmployeeShareBps: input.employeeShareBps ?? 6000,
     paintPlan: input.paintPlan ?? [],
     items,
     totalCents: items.reduce((total, item) => total + item.quantity * item.unitPriceCents, 0)
@@ -526,7 +528,10 @@ export async function updateOrder(input: UpdateOrderInput) {
     order.assigneeId = input.assigneeId;
     order.assigneeName = workspace.team?.find((entry) => entry.id === input.assigneeId)?.name;
   }
+  order.defaultEmployeeShareBps = input.employeeShareBps ?? order.defaultEmployeeShareBps ?? 6000;
+  order.salaryModel = 'net';
   order.workflowRevision = (order.workflowRevision ?? 0) + 1;
+  await syncNetFixture(order);
   persistFlowFixture();
   return { ok: true as const, data: null };
 }
@@ -567,10 +572,6 @@ export async function advanceOrder(input: AdvanceOrderInput) {
   if (!order) return { ok: false as const, error: 'Замовлення не знайдено' };
   const next = executorTransition(order, input);
   if (!next.ok) return next;
-  if (next.data.status === 'ready' && data.finance && order.economics) {
-    const posted = await postReadyFixture(order);
-    if (!posted.ok) return posted;
-  }
   Object.assign(order, {
     status: next.data.status,
     actualIntakeDate: next.data.actualIntakeDate || null,
@@ -578,6 +579,8 @@ export async function advanceOrder(input: AdvanceOrderInput) {
     actualDeliveryDate: next.data.actualDeliveryDate || null,
     workflowRevision: (order.workflowRevision ?? 0) + 1
   });
+  order.salaryModel = 'net';
+  await syncNetFixture(order);
   persistFlowFixture();
   return { ok: true as const, data: null };
 }

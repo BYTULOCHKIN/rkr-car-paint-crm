@@ -1,3 +1,5 @@
+import { migrateOrderExpenses } from '@/features/order-expenses/server/migration';
+import { OrderExpenseRepository } from '@/features/order-expenses/server/repository';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
@@ -76,6 +78,7 @@ export class CrmRepository {
   readonly inventory: InventoryRepository;
   readonly payments: PaymentRepository;
   readonly settlements: SettlementRepository;
+  readonly expenses: OrderExpenseRepository;
 
   constructor(filename: string) {
     if (filename !== ':memory:') mkdirSync(dirname(resolve(filename)), { recursive: true });
@@ -243,6 +246,11 @@ export class CrmRepository {
       this.transaction(() => this.db.exec(`${consumptionBatchTable} PRAGMA user_version=16;`));
     if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 17)
       migrateThreeStatuses(this.db);
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 18)
+      this.transaction(() => migrateOrderExpenses(this.db));
+    this.expenses = new OrderExpenseRepository(this.db, (id, actor, note) =>
+      this.costsChanged(id, actor, note)
+    );
     this.payments = new PaymentRepository(this.db);
     this.inventory = new InventoryRepository(this.db);
     this.settlements = new SettlementRepository(this.db);
@@ -459,11 +467,18 @@ export class CrmRepository {
           JSON.parse(row.details as string) as OrderEconomicsDetails
         ])
     );
+    const expensesByOrder = new Map<string, ReturnType<OrderExpenseRepository['list']>>();
+    for (const expense of this.expenses.list()) {
+      const list = expensesByOrder.get(expense.orderId) ?? [];
+      list.push(expense);
+      expensesByOrder.set(expense.orderId, list);
+    }
     const orders = rows.map((row) => {
       const orderItems = byOrder.get(row.id) ?? [];
       return {
         ...row,
         ...(economics.has(row.id) ? { economics: economics.get(row.id) } : {}),
+        expenses: expensesByOrder.get(row.id) ?? [],
         items: orderItems,
         paintPlan: paintPlanSchema.parse(JSON.parse(row.paintPlan)),
         totalCents: orderItems.reduce((sum, item) => sum + item.quantity * item.unitPriceCents, 0)
@@ -826,6 +841,69 @@ export class CrmRepository {
     });
   }
 
+  createClientOrder(input: OrderInput, name: string, actor: HistoryActor): string {
+    return this.transaction(() => {
+      const id = this.createOrder(input, name, actor);
+      this.db
+        .prepare("UPDATE crm_orders SET salaryModel='net',defaultEmployeeShareBps=? WHERE id=?")
+        .run(input.employeeShareBps ?? this.financeWorkspace().defaultShareBps, id);
+      return id;
+    });
+  }
+
+  updateClientOrder(input: UpdateOrderInput, name?: string, actor?: HistoryActor): void {
+    this.transaction(() => {
+      this.updateOrder(input, name, actor, undefined, true);
+      this.db.prepare("UPDATE crm_orders SET salaryModel='net' WHERE id=?").run(input.id);
+      this.syncSalary(input.id, actor, 'Збереження замовлення: автоматичний перерахунок');
+    });
+  }
+
+  private syncSalary(id: string, actor: HistoryActor | undefined, note: string): void {
+    const order = this.workspace().orders.find((entry) => entry.id === id);
+    if (order?.status === 'ready' && order.salaryModel === 'net')
+      this.settlements.syncNet(
+        order,
+        orderMaterialCosts(this.inventory.movements(), id),
+        actor ?? { id: 'system', name: 'Система' },
+        note
+      );
+  }
+
+  private costsChanged(id: string, actor: HistoryActor, note: string): void {
+    const order = this.workspace().orders.find((entry) => entry.id === id)!;
+    this.syncSalary(id, actor, note);
+    this.logEvent({
+      actor,
+      kind: 'order',
+      recordId: id,
+      fromStatus: order.status,
+      toStatus: order.status,
+      previousIntakeDate: order.plannedIntakeDate,
+      previousDeliveryDate: order.plannedDeliveryDate,
+      plannedIntakeDate: order.plannedIntakeDate,
+      plannedDeliveryDate: order.plannedDeliveryDate,
+      note
+    });
+  }
+
+  mutateOrderCosts<T>(id: string, actor: HistoryActor, operation: () => T): T {
+    return this.transaction(() => {
+      if (!this.db.prepare('SELECT id FROM crm_orders WHERE id=?').get(id))
+        throw new CrmError('Замовлення не знайдено');
+      const before = this.inventory.movements().length;
+      this.db.prepare("UPDATE crm_orders SET salaryModel='net' WHERE id=?").run(id);
+      const result = operation();
+      if (this.inventory.movements().length !== before) {
+        this.db
+          .prepare('UPDATE crm_orders SET workflowRevision=workflowRevision+1 WHERE id=?')
+          .run(id);
+        this.costsChanged(id, actor, 'Змінено списання матеріалів: автоматичний перерахунок');
+      }
+      return result;
+    });
+  }
+
   updateOrder(
     input: UpdateOrderInput,
     assigneeName?: string,
@@ -834,7 +912,8 @@ export class CrmRepository {
       details: SaveEconomicsInput['details'];
       workerNames: Record<string, string>;
       financialCorrection?: true;
-    }
+    },
+    clientOnly = false
   ): void {
     this.transaction(() => {
       const current = this.db
@@ -893,12 +972,18 @@ export class CrmRepository {
         (sum, item) => sum + item.quantity * item.unitPriceCents,
         0
       );
-      if (newTotal < paid && newTotal < currentTotal && !economicsUpdate?.financialCorrection)
+      if (
+        newTotal < paid &&
+        newTotal < currentTotal &&
+        !economicsUpdate?.financialCorrection &&
+        !clientOnly
+      )
         throw new CrmError(
           'Вартість не може бути меншою за отриману оплату. Спочатку скасуйте помилковий платіж.'
         );
       const before: OrderSnapshot = {
         ...(priorEconomics ? { economics: priorEconomics } : {}),
+        ...(clientOnly ? { employeeShareBps: current.defaultEmployeeShareBps } : {}),
         assigneeId: current.assigneeId ?? null,
         assigneeName: current.assigneeName ?? null,
         description: current.description,
@@ -914,6 +999,7 @@ export class CrmRepository {
       if (
         priorEconomics &&
         !economicsUpdate &&
+        !clientOnly &&
         JSON.stringify(items) !== JSON.stringify(afterItems)
       )
         throw new CrmError(
@@ -952,6 +1038,9 @@ export class CrmRepository {
       }
       const after: OrderSnapshot = {
         ...(nextEconomics ? { economics: nextEconomics } : {}),
+        ...(clientOnly
+          ? { employeeShareBps: input.employeeShareBps ?? current.defaultEmployeeShareBps }
+          : {}),
         assigneeId: input.assigneeId ?? before.assigneeId,
         assigneeName:
           input.assigneeId === undefined
@@ -973,6 +1062,10 @@ export class CrmRepository {
         this.db
           .prepare('UPDATE crm_orders SET assigneeId = ?, assigneeName = ? WHERE id = ?')
           .run(input.assigneeId, assigneeName ?? null, input.id);
+      if (clientOnly)
+        this.db
+          .prepare('UPDATE crm_orders SET defaultEmployeeShareBps=? WHERE id=?')
+          .run(input.employeeShareBps ?? current.defaultEmployeeShareBps ?? 6000, input.id);
       this.db.prepare('DELETE FROM crm_order_items WHERE orderId = ?').run(input.id);
       this.writeItems(input.id, input.items);
       if (nextEconomics)
@@ -1107,7 +1200,7 @@ export class CrmRepository {
     });
   }
 
-  updateWorkflow(input: WorkflowInput, actor?: HistoryActor): void {
+  updateWorkflow(input: WorkflowInput, actor?: HistoryActor, options?: { netSalary: true }): void {
     const value = workflowSchema.parse(input);
     this.transaction(() => {
       const table = value.kind === 'request' ? 'crm_requests' : 'crm_orders';
@@ -1167,11 +1260,20 @@ export class CrmRepository {
         return;
       if (value.kind === 'order' && value.status === 'ready' && currentStatus !== value.status) {
         const order = this.workspace().orders.find((order) => order.id === value.id)!;
-        this.settlements.onReady(
-          order,
-          orderMaterialCosts(this.inventory.movements(), order.id),
-          actor ?? { id: 'system', name: 'Система' }
-        );
+        if (options?.netSalary || order.salaryModel === 'net') {
+          this.db.prepare("UPDATE crm_orders SET salaryModel='net' WHERE id=?").run(order.id);
+          this.settlements.syncNet(
+            order,
+            orderMaterialCosts(this.inventory.movements(), order.id),
+            actor ?? { id: 'system', name: 'Система' },
+            'Готовність авто: нарахування відповідальному'
+          );
+        } else
+          this.settlements.onReady(
+            order,
+            orderMaterialCosts(this.inventory.movements(), order.id),
+            actor ?? { id: 'system', name: 'Система' }
+          );
       }
       if (value.kind === 'request')
         this.db
@@ -1217,12 +1319,12 @@ const globalDb = globalThis as typeof globalThis & {
 export function getCrmRepository(): CrmRepository {
   if (
     globalDb.crmRepository &&
-    (globalDb.crmSchemaVersion !== 17 || !(globalDb.crmRepository instanceof CrmRepository))
+    (globalDb.crmSchemaVersion !== 18 || !(globalDb.crmRepository instanceof CrmRepository))
   ) {
     globalDb.crmRepository.close();
     globalDb.crmRepository = undefined;
   }
-  globalDb.crmSchemaVersion = 17;
+  globalDb.crmSchemaVersion = 18;
   return (globalDb.crmRepository ??= new CrmRepository(
     process.env.CRM_DATABASE_PATH || resolve('data/crm.sqlite')
   ));
@@ -1279,7 +1381,7 @@ export function getOrganizationRepository(
   const cached = orgRegistry.crmOrganizations;
   if (
     !cached ||
-    cached.schemaVersion !== 17 ||
+    cached.schemaVersion !== 18 ||
     cached.filename !== filename ||
     cached.configuredAdmin !== configuredAdmin ||
     !(cached.repositories instanceof OrganizationRepositories)
@@ -1288,7 +1390,7 @@ export function getOrganizationRepository(
     orgRegistry.crmOrganizations = {
       filename,
       configuredAdmin,
-      schemaVersion: 17,
+      schemaVersion: 18,
       repositories: new OrganizationRepositories(filename, configuredAdmin)
     };
   }

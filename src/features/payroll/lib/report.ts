@@ -29,7 +29,7 @@ function contributions(posting: EconomicsPosting | undefined): Map<string, Contr
     result.set(`${workerId}:${role}`, {
       workerId,
       name: posting.details[`${role}Name`] || 'Працівник',
-      role,
+      role: posting.model === 'order_net' ? 'responsible' : role,
       baseCents: posting.result[`${role}BaseCents`],
       shareBps: posting.details.employeeShareBps,
       amountCents: posting.result[`${role}AccrualCents`]
@@ -45,6 +45,12 @@ function calculation(value: Contribution | undefined): PayrollCalculation | null
 }
 
 function coloristCost(posting: EconomicsPosting | undefined): number {
+  if (posting?.model === 'order_net')
+    return sumIntegers(
+      (posting.expenses ?? [])
+        .filter((expense) => expense.kind === 'color_matching')
+        .map((expense) => expense.amountCents)
+    );
   return sumIntegers(
     (posting?.details.lines ?? [])
       .filter((line) => line.kind === 'color_matching')
@@ -153,7 +159,8 @@ export function buildPayrollReport(
       const person = (current ?? old)!;
       if (!visible(person.workerId)) continue;
       const amountCents = sumIntegers([current?.amountCents ?? 0, -(old?.amountCents ?? 0)]);
-      if (!amountCents) continue;
+      if (!amountCents && !(posting.model === 'order_net' && posting.kind === 'initial' && current))
+        continue;
       worker(person.workerId, person.name).entries.push({
         id: `${posting.id}:${key}`,
         workerId: person.workerId,

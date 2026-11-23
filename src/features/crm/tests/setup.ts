@@ -23,3 +23,7 @@ Element.prototype.scrollIntoView = vi.fn();
 Element.prototype.hasPointerCapture = () => false;
 Element.prototype.setPointerCapture = vi.fn();
 Element.prototype.releasePointerCapture = vi.fn();
+vi.mock('@/features/order-expenses/api/service', () => ({
+  saveOrderExpense: vi.fn(),
+  removeOrderExpense: vi.fn()
+}));

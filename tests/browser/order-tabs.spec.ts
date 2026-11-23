@@ -15,7 +15,7 @@ test('order tabs retain drafts, save in place, and keep summary and actions stat
   await openOrder(page);
   const dialog = page.getByRole('dialog', { name: 'Замовлення №1', exact: true });
   const tabs = dialog.getByRole('tablist', { name: 'Розділи замовлення' });
-  await expect(tabs.getByRole('tab')).toHaveCount(6);
+  await expect(tabs.getByRole('tab')).toHaveCount(5);
   await expect(dialog.getByRole('tabpanel')).toHaveCount(1);
   await dialog.getByRole('textbox', { name: 'Опис замовлення' }).fill('Чернетка фарбування капота');
   await tabs.getByRole('tab', { name: 'Роботи', exact: true }).click();
@@ -43,7 +43,7 @@ test('order tabs retain drafts, save in place, and keep summary and actions stat
   await dialog.getByRole('button', { name: 'Зберегти замовлення', exact: true }).click();
   await expect(dialog).toBeVisible();
   await expect(tabs.locator('[data-dirty]')).toHaveCount(0);
-  await tabs.getByRole('tab', { name: 'Матеріали', exact: true }).click();
+  await tabs.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
   await dialog.getByRole('button', { name: 'Додати списання', exact: true }).click();
   await dialog.getByRole('combobox', { name: 'Матеріал', exact: false }).click();
   await page.getByRole('option', { name: /^Фарба/ }).click();
@@ -52,7 +52,7 @@ test('order tabs retain drafts, save in place, and keep summary and actions stat
   await expect(dialog.getByRole('button', { name: 'Списати матеріали', exact: true })).toHaveCount(
     0
   );
-  await tabs.getByRole('tab', { name: 'Матеріали', exact: true }).click();
+  await tabs.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
   await expect(dialog.getByRole('textbox', { name: 'Кількість', exact: false })).toHaveValue(
     '0,25'
   );
@@ -102,10 +102,9 @@ test('new order validates across tabs and opens all sections after creation', as
   await page.goto('/dashboard/orders');
   await page.getByRole('button', { name: 'Нове замовлення', exact: true }).click();
   let dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('tab', { name: 'Матеріали', exact: true })).toHaveAttribute(
-    'aria-disabled',
-    'true'
-  );
+  await expect(
+    dialog.getByRole('tab', { name: 'Матеріали і витрати', exact: true })
+  ).toHaveAttribute('aria-disabled', 'true');
   await dialog.getByRole('combobox', { name: 'Клієнт', exact: false }).click();
   await page.getByRole('option').first().click();
   await dialog.getByRole('combobox', { name: 'Автомобіль', exact: false }).click();
@@ -128,10 +127,9 @@ test('new order validates across tabs and opens all sections after creation', as
   await expect(dialog.getByRole('region', { name: 'Зведення замовлення' })).toContainText(
     '9\u00a0000,00'
   );
-  await expect(dialog.getByRole('tab', { name: 'Матеріали', exact: true })).toHaveAttribute(
-    'aria-disabled',
-    'false'
-  );
+  await expect(
+    dialog.getByRole('tab', { name: 'Матеріали і витрати', exact: true })
+  ).toHaveAttribute('aria-disabled', 'false');
 });
 
 test('row actions open the relevant order tab directly', async ({ page }, info) => {

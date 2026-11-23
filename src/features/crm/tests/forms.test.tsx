@@ -320,6 +320,7 @@ test('body diagram saves paint selections alongside unchanged work items and pri
   expect(updateOrder).toHaveBeenCalledWith({
     id: first,
     expectedRevision: 0,
+    employeeShareBps: 6000,
     description: order.description,
     items: [{ description: 'Підготовка', quantity: 1, unitPrice: 500 }],
     paintPlan: [{ partId: 'hood', mode: 'both_sides' }]

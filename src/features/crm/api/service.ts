@@ -161,7 +161,9 @@ export async function assignVehicle(input: {
 
 export async function updateWorkflow(input: WorkflowInput): Promise<ActionResult<null>> {
   return write((repository, context) => {
-    repository.updateWorkflow(workflowSchema.parse(input), historyActor(context));
+    repository.updateWorkflow(workflowSchema.parse(input), historyActor(context), {
+      netSalary: true
+    });
     return null;
   });
 }
@@ -173,7 +175,7 @@ export async function advanceOrder(input: AdvanceOrderInput): Promise<ActionResu
     if (!order) throw new CrmError('Замовлення не знайдено');
     const transition = executorTransition(order, value);
     if (!transition.ok) throw new CrmError(transition.error);
-    repository.updateWorkflow(transition.data, historyActor(context));
+    repository.updateWorkflow(transition.data, historyActor(context), { netSalary: true });
     return null;
   }, 'read');
 }
@@ -220,7 +222,7 @@ export async function createOrder(input: OrderInput): Promise<ActionResult<strin
     const value = orderSchema.parse(input);
     const assignee = context.team.find((member) => member.id === value.assigneeId);
     if (!assignee) throw new CrmError('Виберіть активного учасника цієї автомалярки як виконавця');
-    return repository.createOrder(value, assignee.name, historyActor(context));
+    return repository.createClientOrder(value, assignee.name, historyActor(context));
   });
 }
 
@@ -230,12 +232,16 @@ export async function updateOrder(input: UpdateOrderInput): Promise<ActionResult
     const current = repository.workspace().orders.find((order) => order.id === value.id);
     if (!current) throw new CrmError('Замовлення не знайдено');
     if (value.assigneeId === undefined || value.assigneeId === current.assigneeId) {
-      repository.updateOrder({ ...value, assigneeId: undefined }, undefined, historyActor(context));
+      repository.updateClientOrder(
+        { ...value, assigneeId: undefined },
+        undefined,
+        historyActor(context)
+      );
     } else {
       const assignee = context.team.find((member) => member.id === value.assigneeId);
       if (!assignee)
         throw new CrmError('Виберіть активного учасника цієї автомалярки як виконавця');
-      repository.updateOrder(value, assignee.name, historyActor(context));
+      repository.updateClientOrder(value, assignee.name, historyActor(context));
     }
     return null;
   });
@@ -258,7 +264,13 @@ export async function getOrderDocument(id: string): Promise<OrderDocument | null
   if (!order) return null;
   const customer = workspace.customers.find((customer) => customer.id === order.customerId);
   const vehicle = workspace.vehicles.find((vehicle) => vehicle.id === order.vehicleId);
-  const { economics: _economics, defaultEmployeeShareBps: _share, ...clientOrder } = order;
+  const {
+    economics: _economics,
+    defaultEmployeeShareBps: _share,
+    expenses: _expenses,
+    salaryModel: _model,
+    ...clientOrder
+  } = order;
   return customer && vehicle ? { order: clientOrder, customer, vehicle } : null;
 }
 

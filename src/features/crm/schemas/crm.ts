@@ -149,6 +149,7 @@ export const orderSchema = requestFields
   .extend({
     requestId: z.union([id, z.literal('')]),
     assigneeId: z.string().min(1, 'Виберіть виконавця').max(255).optional(),
+    employeeShareBps: z.number().int().min(0).max(10000).optional(),
     paintPlan: paintPlanSchema.optional(),
     items: z.array(itemSchema).min(1, 'Додайте хоча б одну роботу').max(100),
     actualIntakeDate: optionalDate.optional()
@@ -167,6 +168,7 @@ export const updateOrderSchema = z.object({
   id,
   expectedRevision: z.number().int().nonnegative().optional(),
   assigneeId: z.string().min(1, 'Виберіть виконавця').max(255).optional(),
+  employeeShareBps: z.number().int().min(0).max(10000).optional(),
   description: text('Опис робіт', 4000),
   items: orderSchema.shape.items,
   paintPlan: paintPlanSchema.optional()

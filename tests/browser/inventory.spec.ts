@@ -64,7 +64,7 @@ test('order consumption validates remaining stock and cancellation preserves his
 }, info) => {
   await page.goto('/dashboard/orders');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
-  await page.getByRole('tab', { name: 'Матеріали', exact: true }).click();
+  await page.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
   const materials = page.getByRole('region', { name: 'Матеріали замовлення' });
   await materials.getByRole('button', { name: 'Додати списання' }).click();
   await materials.getByRole('combobox', { name: 'Матеріал' }).click();
@@ -111,7 +111,7 @@ test('admin searches materials, saves multiple rows together and reuses recent m
 }) => {
   await page.goto('/dashboard/orders');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
-  await page.getByRole('tab', { name: 'Матеріали', exact: true }).click();
+  await page.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
   const materials = page.getByRole('region', { name: 'Матеріали замовлення' });
   await materials.getByRole('button', { name: 'Додати списання' }).click();
   const form = materials.getByRole('form', { name: 'Списання матеріалів' });
@@ -152,7 +152,7 @@ test('worker can inspect stock with no write controls', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Надходження', exact: true })).toHaveCount(0);
   await page.goto('/dashboard/orders?role=worker');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
-  await page.getByRole('tab', { name: 'Матеріали', exact: true }).click();
+  await page.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
   const materials = page.getByRole('region', { name: 'Матеріали замовлення' });
   await expect(materials).toBeVisible();
   await expect(materials.getByRole('button')).toHaveCount(0);

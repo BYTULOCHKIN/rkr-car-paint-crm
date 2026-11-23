@@ -1,6 +1,7 @@
 import type { PaintSelection } from '../constants/paint-plan';
 import type { OrderEconomicsDetails } from '@/features/order-economics/api/types';
 import type { FinanceWorkspace } from '@/features/order-economics/api/types';
+import type { OrderExpense } from '@/features/order-expenses/api/types';
 
 export type { VehicleModelInput } from '../schemas/vehicle-model';
 
@@ -51,6 +52,8 @@ export interface OrderItem {
 }
 
 export interface RepairOrder {
+  salaryModel?: 'legacy' | 'net';
+  expenses?: OrderExpense[];
   defaultEmployeeShareBps?: number;
   economics?: OrderEconomicsDetails;
   assigneeId?: string | null;
@@ -93,6 +96,7 @@ export interface ActualDateChange {
 }
 
 export interface OrderSnapshot {
+  employeeShareBps?: number;
   economics?: OrderEconomicsDetails;
   assigneeId?: string | null;
   assigneeName?: string | null;

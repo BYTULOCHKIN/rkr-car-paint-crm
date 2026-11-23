@@ -253,7 +253,11 @@ test('v14 finance migration preserves detailed checks, cash and stock without in
     }
     repository = new CrmRepository(path);
     const after = repository.workspace();
-    assert.deepEqual(after.orders, before.orders);
+    assert.deepEqual(
+      after.orders.map(({ expenses: _expenses, ...order }) => order),
+      before.orders.map(({ expenses: _expenses, ...order }) => order)
+    );
+    assert.equal(after.orders[0].expenses!.length, 2);
     assert.deepEqual(after.customers, before.customers);
     assert.deepEqual(after.vehicles, before.vehicles);
     assert.deepEqual(after.events, before.events);
@@ -267,7 +271,7 @@ test('v14 finance migration preserves detailed checks, cash and stock without in
     );
     const verification = new DatabaseSync(path);
     try {
-      assert.equal(verification.prepare('PRAGMA user_version').get()!.user_version, 17);
+      assert.equal(verification.prepare('PRAGMA user_version').get()!.user_version, 18);
       assert.deepEqual(verification.prepare('PRAGMA foreign_key_check').all(), []);
     } finally {
       verification.close();

@@ -16,8 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { buttonVariants } from '@/components/ui/button';
 import { OrderMaterials } from '@/features/inventory/components/order-materials';
-import { OrderEconomicsPanel } from '@/features/order-economics/components/economics-panel';
-import { OrderWorkDetails } from '@/features/order-economics/components/order-work-details';
+import { OrderExpenses } from '@/features/order-expenses/components/order-expenses';
 import type { CrmWorkspace, RepairOrder, RepairRequest } from '../api/types';
 import { ORDER_TABS, type OrderTab } from '../lib/order-tabs';
 import { paymentBalance } from '../lib/payment-balance';
@@ -34,15 +33,7 @@ import { Button } from './action-button';
 import type { FormState } from './form-status';
 
 const EMPTY_STATE: FormState = { dirty: false, pending: false };
-const DRAFT_PARTS = [
-  'main',
-  'works',
-  'workflow',
-  'details',
-  'materials',
-  'payments',
-  'economics'
-] as const;
+const DRAFT_PARTS = ['main', 'works', 'workflow', 'expenses', 'materials', 'payments'] as const;
 type DraftPart = (typeof DRAFT_PARTS)[number];
 
 function OrderFormScope({ active, children }: { active: boolean; children: ReactNode }) {
@@ -154,7 +145,7 @@ export function OrderWorkspace({
     tab !== 'history' &&
     (drafts[tab].dirty ||
       (tab === 'main' && drafts.workflow.dirty) ||
-      (tab === 'works' && drafts.details.dirty));
+      (tab === 'materials' && drafts.expenses.dirty));
   const blocked = (...except: DraftPart[]) =>
     DRAFT_PARTS.some(
       (part) => !except.includes(part) && (drafts[part].dirty || drafts[part].pending)
@@ -277,39 +268,36 @@ export function OrderWorkspace({
           {worker && order ? (
             <OrderReadView order={order} data={data} section='works' />
           ) : (
-            <div hidden={drafts.details.dirty} inert={drafts.details.dirty}>
-              {scope('works', sections?.works, !drafts.details.dirty)}
-            </div>
+            scope('works', sections?.works)
           )}
-          {order &&
-            data.access &&
-            scope(
-              'works',
-              <OrderWorkDetails
-                order={order}
-                data={data}
-                disabled={blocked('details')}
-                onStateChange={callbacks.details}
-                onFinancialCorrection={() => changeTab('economics')}
-              />
-            )}
         </>
       )}
       {order && data.access && (
         <>
           {panel(
             'materials',
-            visited.has('materials') &&
-              scope(
-                'materials',
-                <OrderMaterials
-                  order={order}
-                  access={data.access}
-                  disabled={blocked('materials')}
-                  locked={data.finance?.postings.some((entry) => entry.orderId === order.id)}
-                  onStateChange={callbacks.materials}
-                />
-              )
+            visited.has('materials') && (
+              <>
+                {scope(
+                  'materials',
+                  <OrderMaterials
+                    order={order}
+                    access={data.access}
+                    disabled={blocked('materials')}
+                    onStateChange={callbacks.materials}
+                  />
+                )}
+                {scope(
+                  'materials',
+                  <OrderExpenses
+                    order={order}
+                    data={data}
+                    disabled={blocked('expenses')}
+                    onStateChange={callbacks.expenses}
+                  />
+                )}
+              </>
+            )
           )}
           {panel(
             'payments',
@@ -321,20 +309,6 @@ export function OrderWorkspace({
                   data={data}
                   disabled={blocked('payments')}
                   onStateChange={callbacks.payments}
-                />
-              )
-          )}
-          {panel(
-            'economics',
-            visited.has('economics') &&
-              scope(
-                'economics',
-                <OrderEconomicsPanel
-                  order={order}
-                  data={data}
-                  disabled={blocked('economics')}
-                  onSaved={saved}
-                  onStateChange={callbacks.economics}
                 />
               )
           )}
@@ -461,7 +435,7 @@ export function OrderWorkspace({
               {ORDER_TABS.filter((tab) => tab.value !== 'history' && tabDirty(tab.value))
                 .map((tab) => tab.label)
                 .join(', ')}
-              . Суми в шапці та економіка показані за збереженими даними.
+              . Суми в шапці показані за збереженими даними.
             </AlertDescription>
           </Alert>
         )}

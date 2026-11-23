@@ -1,9 +1,9 @@
+vi.mock('../api/service', () => ({ getWorkspace: vi.fn() }));
 vi.mock('@/features/inventory/api/service', () => import('./inventory-stub'));
 import { expect, test, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { OrderEconomicsPanel } from '@/features/order-economics/components/economics-panel';
-import { OrderWorkDetails } from '@/features/order-economics/components/order-work-details';
+import { OrderExpenses } from '@/features/order-expenses/components/order-expenses';
 import { OrderDocument } from '../components/order-document';
 import type { RepairOrder, CrmWorkspace } from '../api/types';
 
@@ -44,7 +44,7 @@ const order: RepairOrder = {
     ]
   }
 };
-test('worker sees internal economics without editing controls', async () => {
+test('worker sees subcontract expenses without editing controls', () => {
   const data: CrmWorkspace = {
     customers: [],
     vehicles: [],
@@ -55,19 +55,28 @@ test('worker sees internal economics without editing controls', async () => {
   };
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <OrderWorkDetails
-        order={order}
+      <OrderExpenses
+        order={{
+          ...order,
+          expenses: [
+            {
+              id: 'e',
+              orderId: order.id,
+              kind: 'color_matching',
+              description: 'Підбір фарби',
+              contractorId: 'c',
+              contractorName: 'Колорист',
+              amountCents: 250000
+            }
+          ]
+        }}
         data={data}
         onStateChange={vi.fn()}
-        onFinancialCorrection={vi.fn()}
       />
-      <OrderEconomicsPanel order={order} data={data} onSaved={vi.fn()} />
     </QueryClientProvider>
   );
-  expect(await screen.findByText('Ім’я маляра')).toBeDefined();
-  expect(await screen.findByText(/Попередній розрахунок/)).toBeDefined();
-  expect(screen.getByText('Маляру (попередньо)')).toBeDefined();
-  expect(screen.queryByRole('button', { name: /чек/ })).toBeNull();
+  expect(screen.getByText('Колорист · Підбір фарби')).toBeDefined();
+  expect(screen.queryByRole('button')).toBeNull();
 });
 test('printed customer check contains client positions without internal portions, identities or wages', () => {
   const { container } = render(

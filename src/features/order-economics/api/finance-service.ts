@@ -10,7 +10,6 @@ import { EconomicsError } from '../lib/integers';
 import {
   cashSettlementSchema,
   reverseSettlementSchema,
-  correctionSchema,
   financeSettingsSchema,
   type CashSettlementInput,
   type ReverseSettlementInput,
@@ -43,27 +42,6 @@ function actor(context: Context) {
     id: context.access.userId,
     name: context.team.find((member) => member.id === context.access.userId)!.name
   };
-}
-function correctionNames(context: Context, value: CorrectionInput): Record<string, string> {
-  const workspace = context.repository.workspace();
-  const order = workspace.orders.find((entry) => entry.id === value.orderId);
-  if (!order) throw new EconomicsError('Замовлення не знайдено');
-  const names: Record<string, string> = {};
-  for (const role of ['painter', 'polisher', 'assembler'] as const) {
-    const id = value.details[`${role}Id`];
-    if (!id) continue;
-    const member = context.team.find((member) => member.id === id);
-    const historical = workspace.finance?.postings
-      .filter((posting) => posting.orderId === order.id)
-      .flatMap((posting) => posting.allocations)
-      .find((entry) => entry.payee.kind === 'worker' && entry.payee.id === id);
-    if (member) names[id] = member.name;
-    else if (order.economics?.[`${role}Id`] === id)
-      names[id] = order.economics[`${role}Name`] || 'Колишній учасник';
-    else if (historical) names[id] = historical.payee.name;
-    else throw new EconomicsError('Виберіть виконавця з команди автомалярки');
-  }
-  return names;
 }
 export async function recordSettlement(input: CashSettlementInput): Promise<ActionResult<void>> {
   return write(input.orgId, (context) => {
@@ -107,32 +85,20 @@ export async function reverseSettlement(
   );
 }
 export async function previewFinancialCorrection(
-  input: CorrectionInput
+  _input: CorrectionInput
 ): Promise<ActionResult<CorrectionPreview>> {
-  return write(input.orgId, (context) => {
-    const value = correctionSchema.parse(input);
-    const result = context.repository.correctOrderEconomics(
-      value,
-      correctionNames(context, value),
-      actor(context),
-      true
-    );
-    if (!('after' in result))
-      throw new EconomicsError('Це коригування вже проведено. Оновіть замовлення.');
-    return result;
-  });
+  return {
+    ok: false,
+    error: 'Розрахунок оновлюється автоматично після збереження робіт або витрат.'
+  };
 }
 export async function applyFinancialCorrection(
-  input: CorrectionInput
+  _input: CorrectionInput
 ): Promise<ActionResult<EconomicsPosting>> {
-  return write(input.orgId, (context) => {
-    const value = correctionSchema.parse(input);
-    return context.repository.correctOrderEconomics(
-      value,
-      correctionNames(context, value),
-      actor(context)
-    ) as EconomicsPosting;
-  });
+  return {
+    ok: false,
+    error: 'Розрахунок оновлюється автоматично після збереження робіт або витрат.'
+  };
 }
 export async function updateDefaultShare(
   input: z.infer<typeof financeSettingsSchema>

@@ -66,7 +66,7 @@ function PayrollSummary({ totals }: { totals: PayrollTotals }) {
           description: 'При готовності авто'
         },
         {
-          label: 'Коригування',
+          label: 'Перерахунки',
           value: money(totals.adjustmentCents),
           description: 'Зміни нарахувань за період'
         },
@@ -96,6 +96,8 @@ function PayrollSummary({ totals }: { totals: PayrollTotals }) {
 }
 
 function calculationText(value: PayrollCalculation | null): string {
+  if (value && value.baseCents < 0)
+    return `Збиток ${money(-value.baseCents)} → зарплата ${money(value.amountCents)}`;
   return value
     ? `${money(value.baseCents)} × ${value.shareBps / 100}% = ${money(value.amountCents)}`
     : 'Не призначено';
@@ -116,14 +118,17 @@ const detailColumns: ReportColumn<PayrollEntry>[] = [
   {
     id: 'role',
     title: 'Робота',
-    cell: (entry) => workerSpecialtyOptions.find((option) => option.value === entry.role)!.label
+    cell: (entry) =>
+      entry.role === 'responsible'
+        ? 'Відповідальний'
+        : workerSpecialtyOptions.find((option) => option.value === entry.role)!.label
   },
   {
     id: 'calculation',
     title: 'Розрахунок',
     cell: (entry) => (
       <div className='flex max-w-80 flex-col gap-1 whitespace-normal'>
-        <Badge variant='outline'>{entry.kind === 'initial' ? 'Нарахування' : 'Коригування'}</Badge>
+        <Badge variant='outline'>{entry.kind === 'initial' ? 'Нарахування' : 'Перерахунки'}</Badge>
         {entry.kind === 'correction' && <span>Було: {calculationText(entry.before)}</span>}
         <span>
           {entry.kind === 'correction' ? 'Стало: ' : ''}
@@ -170,7 +175,7 @@ function WorkerDetails({ worker, filters }: { worker: PayrollWorker; filters: Pa
           >
             {[
               ['Нараховано', money(worker.accrualCents)],
-              ['Коригування', money(worker.adjustmentCents)],
+              ['Перерахунки', money(worker.adjustmentCents)],
               ['Зароблено разом', money(worker.totalCents)],
               ['Автомобілів', String(worker.orderCount)]
             ].map(([label, value]) => (
@@ -227,7 +232,7 @@ function payrollWorkerColumns(filters: PayrollFilters): ReportColumn<PayrollWork
     },
     { id: 'orders', title: 'Авто', cell: (worker) => worker.orderCount },
     { id: 'accrual', title: 'Нараховано', cell: (worker) => money(worker.accrualCents) },
-    { id: 'adjustment', title: 'Коригування', cell: (worker) => money(worker.adjustmentCents) },
+    { id: 'adjustment', title: 'Перерахунки', cell: (worker) => money(worker.adjustmentCents) },
     {
       id: 'total',
       title: 'Зароблено разом',
@@ -264,7 +269,7 @@ function PayrollContent({
   return (
     <div className='flex min-w-0 flex-col gap-4'>
       <p className='text-sm text-muted-foreground'>
-        Період включно: {filters.from} — {filters.to} · часовий пояс Києва. Коригування враховуються
+        Період включно: {filters.from} — {filters.to} · часовий пояс Києва. Перерахунки враховуються
         датою їх проведення.
       </p>
       {workerView && (
@@ -283,7 +288,8 @@ function PayrollContent({
         <Alert>
           <AlertDescription>
             Готових авто без проведеного розрахунку: {report.warnings.unpostedOrders.length}. Вони
-            ще не включені до зарплат. Перевірте деталізацію чека й економіку замовлень:{' '}
+            ще не включені до зарплат. Для застосування нової формули відкрийте й явно збережіть
+            роботи або витрати замовлення:{' '}
             {report.warnings.unpostedOrders
               .slice(0, 10)
               .map((order) => `№${order.number}`)

@@ -1,3 +1,4 @@
+import { saveOrderExpense, removeOrderExpense } from '@/features/order-expenses/api/service';
 import { advanceOrder, updateWorkflow } from '../api/service';
 import { saveOrderEconomics } from '@/features/order-economics/api/service';
 import { getPeriodReport } from '@/features/workshop-reports/api/service';
@@ -50,6 +51,7 @@ import {
   valueStockBalance
 } from '@/features/inventory/api/service';
 
+vi.unmock('@/features/order-expenses/api/service');
 vi.mock('server-only', () => ({}));
 vi.mock('@clerk/nextjs/server', () => ({ auth: vi.fn(), clerkClient: vi.fn() }));
 vi.mock('../server/repository', () => ({
@@ -66,6 +68,7 @@ const workspace: CrmWorkspace = {
   events: []
 };
 const repository = {
+  expenses: { save: vi.fn(() => 'expense-created') },
   payments: {
     receive: vi.fn(() => 'payment-created'),
     reverse: vi.fn(() => 'payment-reversed'),
@@ -96,8 +99,8 @@ const repository = {
   ]),
   createCustomer: vi.fn(),
   updateCustomer: vi.fn(),
-  createOrder: vi.fn(() => 'order-created'),
-  updateOrder: vi.fn(),
+  createClientOrder: vi.fn(() => 'order-created'),
+  updateClientOrder: vi.fn(),
   updateWorkflow: vi.fn()
 };
 
@@ -277,9 +280,9 @@ test('creating an order validates a mandatory active member of the current organ
   };
   expect((await createOrder(input)).ok).toBe(false);
   expect((await createOrder({ ...input, assigneeId: 'user_foreign' })).ok).toBe(false);
-  expect(repository.createOrder).not.toHaveBeenCalled();
+  expect(repository.createClientOrder).not.toHaveBeenCalled();
   expect((await createOrder({ ...input, assigneeId: 'user_admin' })).ok).toBe(true);
-  expect(repository.createOrder).toHaveBeenCalledWith(
+  expect(repository.createClientOrder).toHaveBeenCalledWith(
     expect.objectContaining({ assigneeId: 'user_admin' }),
     'Олена',
     { id: 'user_admin', name: 'Олена' }
@@ -313,7 +316,7 @@ test('reassignment validates the new member, preserves inactive historical assig
     items: [{ description: 'Робота', quantity: 1, unitPrice: 100 }]
   };
   expect((await updateOrder({ ...input, assigneeId: 'user_removed' })).ok).toBe(true);
-  expect(repository.updateOrder).toHaveBeenLastCalledWith(
+  expect(repository.updateClientOrder).toHaveBeenLastCalledWith(
     expect.objectContaining({ assigneeId: undefined }),
     undefined,
     { id: 'user_admin', name: 'Олена' }
@@ -321,7 +324,7 @@ test('reassignment validates the new member, preserves inactive historical assig
   expect((await updateOrder({ ...input, assigneeId: 'user_other_org' })).ok).toBe(false);
   const forged = { ...input, assigneeId: 'user_admin', actor: { id: 'forged', name: 'Підробка' } };
   expect((await updateOrder(forged)).ok).toBe(true);
-  expect(repository.updateOrder).toHaveBeenLastCalledWith(
+  expect(repository.updateClientOrder).toHaveBeenLastCalledWith(
     expect.objectContaining({ assigneeId: 'user_admin' }),
     'Олена',
     { id: 'user_admin', name: 'Олена' }
@@ -367,7 +370,8 @@ test('worker advances any shop order through a dedicated strict endpoint but can
       plannedDeliveryDate: '2020-01-10',
       actualIntakeDate: '2020-01-02'
     }),
-    { id: 'user_admin', name: 'worker@example.com' }
+    { id: 'user_admin', name: 'worker@example.com' },
+    { netSalary: true }
   );
   repository.updateWorkflow.mockClear();
   const forged = { ...input, actualReadyDate: '1999-01-01', status: 'delivered', unitPrice: 1 };
@@ -510,62 +514,9 @@ test('customer editing requires admin, the current shop and valid contact values
   expect(repository.updateCustomer).not.toHaveBeenCalled();
 });
 
-test('detailed check validates shop, role and live membership; stored worker names cannot be forged', async () => {
-  const id = '00000000-0000-4000-8000-000000000001';
-  const current = { id, description: 'Робота', workflowRevision: 0 } as RepairOrder;
-  repository.workspace.mockReturnValue({ ...workspace, orders: [current] });
-  const input = {
-    orgId: 'org_A',
-    orderId: id,
-    expectedRevision: 0,
-    details: {
-      employeeShareBps: 6000,
-      painterId: 'user_admin',
-      polisherId: '',
-      assemblerId: '',
-      lines: [
-        {
-          id: '00000000-0000-4000-8000-000000000002',
-          kind: 'painting' as const,
-          description: 'Бампер',
-          quantity: 1,
-          unitPriceCents: 100000,
-          polishingCents: 0,
-          subcontractCostCents: 0,
-          contractorName: ''
-        }
-      ]
-    }
-  };
-  expect((await saveOrderEconomics({ ...input, orgId: 'org_B' })).ok).toBe(false);
-  expect(
-    (
-      await saveOrderEconomics({
-        ...input,
-        details: { ...input.details, painterId: 'user_outside' }
-      })
-    ).ok
-  ).toBe(false);
-  expect(repository.updateOrder).not.toHaveBeenCalled();
-  expect((await saveOrderEconomics(input)).ok).toBe(true);
-  expect(repository.updateOrder).toHaveBeenCalledWith(
-    expect.objectContaining({ id, expectedRevision: 0 }),
-    undefined,
-    { id: 'user_admin', name: 'Олена' },
-    { details: input.details, workerNames: { user_admin: 'Олена' } }
-  );
-  repository.updateOrder.mockClear();
-  memberships.mockResolvedValue({
-    totalCount: 1,
-    data: [
-      {
-        role: 'org:member',
-        publicUserData: { userId: 'user_admin', identifier: 'worker@example.com' }
-      }
-    ]
-  });
-  expect((await saveOrderEconomics(input)).ok).toBe(false);
-  expect(repository.updateOrder).not.toHaveBeenCalled();
+test('obsolete detailed-check endpoint cannot write even for an admin', async () => {
+  expect((await saveOrderEconomics({} as Parameters<typeof saveOrderEconomics>[0])).ok).toBe(false);
+  expect(repository.updateClientOrder).not.toHaveBeenCalled();
 });
 
 test('client document service removes the internal economics payload', async () => {
@@ -667,71 +618,8 @@ test('financial endpoints verify organization, administrator and recipient; acto
   expect(repository.payments.refund).not.toHaveBeenCalled();
 });
 
-test('correction preview and posting reject outsiders and preserve verified historical worker identity', async () => {
-  const orderId = '00000000-0000-4000-8000-000000000001';
-  const details = {
-    employeeShareBps: 6000,
-    painterId: 'former_worker',
-    polisherId: '',
-    assemblerId: '',
-    painterName: 'Колишній маляр',
-    lines: [
-      {
-        id: '00000000-0000-4000-8000-000000000002',
-        kind: 'painting' as const,
-        description: 'Бампер',
-        quantity: 1,
-        unitPriceCents: 100000,
-        polishingCents: 0,
-        subcontractCostCents: 0,
-        contractorName: ''
-      }
-    ]
-  };
-  repository.workspace.mockReturnValue({
-    ...workspace,
-    orders: [{ id: orderId, economics: details } as RepairOrder]
-  });
-  const { painterName: _name, ...inputDetails } = details;
-  const input = {
-    orgId: 'org_A',
-    orderId,
-    operationId: details.lines[0].id,
-    expectedRevision: 1,
-    expectedPostingRevision: 1,
-    expectedInventoryRevision: '0'.repeat(64),
-    details: inputDetails,
-    materials: [],
-    note: 'Уточнення'
-  };
-  expect((await previewFinancialCorrection({ ...input, orgId: 'org_B' })).ok).toBe(false);
-  expect(
-    (
-      await applyFinancialCorrection({
-        ...input,
-        details: { ...inputDetails, painterId: 'foreign_user' }
-      })
-    ).ok
-  ).toBe(false);
-  expect(repository.correctOrderEconomics).not.toHaveBeenCalled();
-  expect((await previewFinancialCorrection(input)).ok).toBe(true);
-  expect(repository.correctOrderEconomics).toHaveBeenLastCalledWith(
-    input,
-    { former_worker: 'Колишній маляр' },
-    { id: 'user_admin', name: 'Олена' },
-    true
-  );
-  expect((await applyFinancialCorrection(input)).ok).toBe(true);
-  expect(repository.correctOrderEconomics).toHaveBeenLastCalledWith(
-    input,
-    { former_worker: 'Колишній маляр' },
-    { id: 'user_admin', name: 'Олена' }
-  );
-  repository.correctOrderEconomics.mockClear();
-  memberships.mockResolvedValue({
-    totalCount: 1,
-    data: [{ role: 'org:member', publicUserData: { userId: 'user_admin' } }]
-  });
+test('obsolete manual correction endpoints cannot mutate stored history', async () => {
+  const input = {} as Parameters<typeof previewFinancialCorrection>[0];
   expect((await previewFinancialCorrection(input)).ok).toBe(false);
   expect((await applyFinancialCorrection(input)).ok).toBe(false);
   expect(repository.correctOrderEconomics).not.toHaveBeenCalled();
@@ -890,4 +778,43 @@ test('payroll rejects a stale organization and invalid filters, and workers rece
   expect(payrollQueries.period('p', 'org_A', filters).queryKey).not.toEqual(
     payrollQueries.period('p', 'org_B', filters).queryKey
   );
+});
+
+test('subcontract writes require the active org and admin and use the verified actor', async () => {
+  const input = {
+    orgId: 'org_A',
+    orderId: '00000000-0000-4000-8000-000000000001',
+    expectedRevision: 0,
+    operationId: '00000000-0000-4000-8000-000000000002',
+    kind: 'soldering' as const,
+    description: 'Пайка',
+    contractorName: 'Майстер',
+    amount: '2500'
+  };
+  expect((await saveOrderExpense({ ...input, orgId: 'org_B' })).ok).toBe(false);
+  expect(repository.expenses.save).not.toHaveBeenCalled();
+  expect((await saveOrderExpense(input)).ok).toBe(true);
+  expect(repository.expenses.save).toHaveBeenCalledWith(
+    input,
+    { id: 'user_admin', name: 'Олена' },
+    false
+  );
+  repository.expenses.save.mockClear();
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [{ role: 'org:member', publicUserData: { userId: 'user_admin' } }]
+  });
+  expect((await saveOrderExpense(input)).ok).toBe(false);
+  expect(
+    (
+      await removeOrderExpense({
+        orgId: input.orgId,
+        orderId: input.orderId,
+        expectedRevision: 0,
+        operationId: input.operationId,
+        id: 'expense'
+      })
+    ).ok
+  ).toBe(false);
+  expect(repository.expenses.save).not.toHaveBeenCalled();
 });
