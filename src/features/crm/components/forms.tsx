@@ -3,6 +3,7 @@ import { useEffect, useCallback, useState, useId, type ReactNode } from 'react';
 import { primaryContact } from '../lib/customer-contacts';
 import { CrmForm } from './dialog-form';
 import { assigneeLabel } from '../lib/assignee';
+import { teamMemberChoices } from '../lib/team-specialties';
 import { CustomerSelect } from './customer-select';
 import { VehicleBrandAvatar } from '@/components/vehicle-brand-avatar';
 
@@ -372,30 +373,18 @@ export function OrderForm({
             required={!order}
             clearable={false}
             placeholder='Виберіть учасника команди'
-            searchPlaceholder='Ім’я відповідального…'
+            searchPlaceholder='Ім’я або спеціалізація…'
             emptyMessage='Немає активних учасників. Запросіть команду в розділі «Команда».'
             description={
               order?.assigneeId && !data.team?.some((member) => member.id === order.assigneeId)
                 ? `Поточний виконавець: ${assigneeLabel(order)}. Якщо учасник уже залишив команду, призначте іншого.`
                 : 'Цьому учаснику нараховується частка від суми замовлення після віднімання матеріалів і субпідряду.'
             }
-            options={[
-              ...(data.team ?? []).map((member) => ({
-                value: member.id,
-                label: member.name,
-                description: member.role === 'admin' ? 'Адміністратор' : 'Виконавець'
-              })),
-              ...(order?.assigneeId && !data.team?.some((member) => member.id === order.assigneeId)
-                ? [
-                    {
-                      value: order.assigneeId,
-                      label: assigneeLabel(order),
-                      description: 'Більше не в команді',
-                      disabled: true
-                    }
-                  ]
-                : [])
-            ]}
+            options={teamMemberChoices(
+              data.team ?? [],
+              order?.assigneeId ?? undefined,
+              order ? assigneeLabel(order) : undefined
+            )}
           />
         )}
       </form.AppField>

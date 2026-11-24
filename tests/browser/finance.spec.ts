@@ -14,7 +14,7 @@ test('unpaid readiness and later cost edits appear in payroll with automatic his
   await dialog.getByRole('combobox', { name: 'Назва витрати', exact: false }).click();
   await page.getByRole('option', { name: 'Пайка', exact: true }).click();
   await dialog.getByRole('combobox', { name: 'Субпідрядник', exact: false }).click();
-  await page.getByRole('option', { name: 'Олена Адміністратор', exact: true }).click();
+  await page.getByRole('option', { name: /^Олена Адміністратор/ }).click();
   await dialog.getByRole('textbox', { name: 'Примітка', exact: true }).fill('Пайка бампера');
   await dialog
     .getByRole('textbox', { name: 'Вартість субпідряду, грн', exact: false })

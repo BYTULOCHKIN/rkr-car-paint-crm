@@ -105,12 +105,14 @@ test('phone country updates immediately, invalid numbers cannot save and interna
   await expect(phone).toHaveAttribute('aria-invalid', 'true');
   await expect(dialog.getByText(/Вкажіть коректний номер/).first()).toBeVisible();
   await phone.fill('0501234567');
+  await expect(phone).toHaveValue('050 123 4567');
   await phone.blur();
   await expect(phone).toHaveValue('+380 50 123 4567');
   await expect(phone).toHaveAttribute('aria-invalid', 'false');
   await dialog.getByRole('button', { name: 'Додати телефон', exact: true }).click();
   const other = dialog.getByRole('textbox', { name: 'Телефон 2 *' });
   await other.fill('0048600123456');
+  await expect(other).toHaveValue('00 48 600 123 456');
   await expect(dialog.getByText('Польща · +48', { exact: true })).toBeVisible();
   await other.blur();
   await expect(other).toHaveValue('+48 600 123 456');
@@ -126,4 +128,43 @@ test('phone country updates immediately, invalid numbers cannot save and interna
   const edit = page.getByRole('dialog', { name: 'Редагування клієнта', exact: true });
   await expect(edit.getByRole('textbox', { name: 'Телефон 1 *' })).toHaveValue('+380 50 123 4567');
   await expect(edit.getByRole('textbox', { name: 'Телефон 2 *' })).toHaveValue('+48 600 123 456');
+});
+
+test('phone accepts numeric typing, sanitizes pasted text, and keeps the caret when editing separators', async ({
+  page
+}) => {
+  await page.goto('/dashboard/clients');
+  await page.getByRole('button', { name: 'Додати клієнта', exact: true }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Новий клієнт', exact: true });
+  const phone = dialog.getByRole('textbox', { name: 'Телефон 1 *' });
+  await phone.pressSequentially('lettersабв!()');
+  await expect(phone).toHaveValue('');
+  await phone.pressSequentially('+380501234567');
+  await expect(phone).toHaveValue('+380 50 123 4567');
+  await phone.pressSequentially('abc!+');
+  await expect(phone).toHaveValue('+380 50 123 4567');
+  await phone.fill('');
+  await page.keyboard.insertText('tel: +48 (600) 123-456');
+  await expect(phone).toHaveValue('+48 600 123 456');
+  await phone.fill('0501234567');
+  await phone.evaluate((input: HTMLInputElement) => input.setSelectionRange(6, 6));
+  await phone.press('9');
+  await expect(phone).toHaveValue('05012934567');
+  expect(await phone.evaluate((input: HTMLInputElement) => input.selectionStart)).toBe(6);
+  await phone.press('Backspace');
+  await expect(phone).toHaveValue('050 123 4567');
+  expect(await phone.evaluate((input: HTMLInputElement) => input.selectionStart)).toBe(6);
+  await phone.evaluate((input: HTMLInputElement) => input.setSelectionRange(8, 8));
+  await phone.press('Backspace');
+  expect((await phone.inputValue()).replace(/\D/g, '')).toBe('050124567');
+  await phone.fill('0501234567');
+  await phone.evaluate((input: HTMLInputElement) => input.setSelectionRange(7, 7));
+  await phone.press('Delete');
+  expect((await phone.inputValue()).replace(/\D/g, '')).toBe('050123567');
+  await phone.fill('0501234567');
+  await phone.evaluate((input: HTMLInputElement) => input.setSelectionRange(4, 7));
+  await phone.pressSequentially('789');
+  await expect(phone).toHaveValue('050 789 4567');
+  await phone.fill('');
+  await expect(phone).toHaveValue('');
 });

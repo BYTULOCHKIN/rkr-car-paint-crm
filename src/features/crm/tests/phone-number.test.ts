@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { phoneCountryInfo, phoneNumberError, formatCustomerPhone } from '@/lib/phone-number';
+import {
+  phoneCountryInfo,
+  phoneNumberError,
+  formatCustomerPhone,
+  formatPhoneInputEdit
+} from '@/lib/phone-number';
 import { customerSchema } from '../schemas/crm';
 import { normalizeContact } from '../lib/customer-contacts';
 import { CrmRepository } from '../server/repository';
@@ -8,6 +13,43 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+
+test('live phone formatting keeps only digits and a leading plus and follows each country format', () => {
+  for (const [input, expected] of [
+    ['+380501234567', '+380 50 123 4567'],
+    ['0501234567', '050 123 4567'],
+    ['+48600123456', '+48 600 123 456'],
+    ['+14165550123', '+1 416 555 0123'],
+    ['0048600123456', '00 48 600 123 456'],
+    ['abc+380 (50) 123-45-67!', '+380 50 123 4567'],
+    ['+380+++50', '+380 50'],
+    ['+٣٨٠５０１２３４５６７', '+380 50 123 4567'],
+    ['letters only', ''],
+    ['+', '+'],
+    ['', '']
+  ]) {
+    const edit = formatPhoneInputEdit(input, input.length);
+    assert.equal(edit.value, expected, input);
+    assert.equal(edit.caret, expected.length, input);
+  }
+});
+
+test('live formatting preserves middle edits and deletes digits next to generated separators', () => {
+  const previous = '050 123 4567';
+  const inserted = formatPhoneInputEdit('050 1293 4567', 7, previous, 'insertText');
+  assert.equal(inserted.value.replace(/\D/g, ''), '05012934567');
+  assert.equal(inserted.value.slice(0, inserted.caret).replace(/\D/g, ''), '050129');
+  const backward = formatPhoneInputEdit('050 1234567', 7, previous, 'deleteContentBackward');
+  assert.equal(backward.value.replace(/\D/g, ''), '050124567');
+  assert.equal(backward.value.slice(0, backward.caret).replace(/\D/g, ''), '05012');
+  const forward = formatPhoneInputEdit('050 1234567', 7, previous, 'deleteContentForward');
+  assert.equal(forward.value.replace(/\D/g, ''), '050123567');
+  assert.equal(forward.value.slice(0, forward.caret).replace(/\D/g, ''), '050123');
+  assert.equal(
+    formatPhoneInputEdit('+380 50 123 456', 15, '+380 50 123 4567', 'deleteContentBackward').value,
+    '+380 50 123 456'
+  );
+});
 
 test('phone country detection works before a complete number and avoids guessing shared codes', () => {
   assert.equal(phoneCountryInfo('+380').country, 'UA');

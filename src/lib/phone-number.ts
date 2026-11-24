@@ -2,6 +2,7 @@ import {
   AsYouType,
   getCountries,
   getCountryCallingCode,
+  parseIncompletePhoneNumber,
   parsePhoneNumberFromString,
   type CountryCode,
   type PhoneNumber
@@ -29,6 +30,53 @@ export function phoneNumberError(value: string): string | undefined {
 export function formatCustomerPhone(value: string): string {
   const number = parseCustomerPhone(value);
   return number?.isValid() ? number.formatInternational() : value;
+}
+
+export interface PhoneInputEdit {
+  value: string;
+  caret: number;
+}
+
+/** Keep the caret beside the same phone digit when the formatter inserts separators. */
+export function formatPhoneInputEdit(
+  input: string,
+  caret: number,
+  previous = '',
+  inputType = ''
+): PhoneInputEdit {
+  let raw = input;
+  let position = caret;
+  // Deleting a generated separator should delete the adjacent digit, rather than
+  // making Backspace/Delete appear to do nothing when the separator reappears.
+  if (
+    (inputType === 'deleteContentBackward' || inputType === 'deleteContentForward') &&
+    parseIncompletePhoneNumber(raw) === parseIncompletePhoneNumber(previous)
+  ) {
+    const backward = inputType === 'deleteContentBackward';
+    let index = backward ? position - 1 : position;
+    while (index >= 0 && index < raw.length && !/[+\d]/.test(raw[index]))
+      index += backward ? -1 : 1;
+    if (index >= 0 && index < raw.length) {
+      raw = raw.slice(0, index) + raw.slice(index + 1);
+      if (backward) position = index;
+    }
+  }
+  const chars = parseIncompletePhoneNumber(raw);
+  const value = new AsYouType('UA').input(chars);
+  const prefixLength = parseIncompletePhoneNumber(raw.slice(0, position)).length;
+  if (prefixLength === 0) return { value, caret: 0 };
+  if (prefixLength >= chars.length) return { value, caret: value.length };
+  let seen = 0;
+  let nextCaret = 0;
+  for (; nextCaret < value.length; nextCaret++) {
+    if (/[+\d]/.test(value[nextCaret])) seen++;
+    if (seen === prefixLength) {
+      nextCaret++;
+      break;
+    }
+  }
+  while (nextCaret < value.length && !/[+\d]/.test(value[nextCaret])) nextCaret++;
+  return { value, caret: nextCaret };
 }
 
 export interface PhoneCountryInfo {

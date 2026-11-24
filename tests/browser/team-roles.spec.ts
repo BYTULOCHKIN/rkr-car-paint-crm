@@ -4,7 +4,9 @@ test('admin can select either active role as executor when creating an order', a
   await page.goto('/dashboard/orders');
   await page.getByRole('button', { name: 'Нове замовлення', exact: true }).first().click();
   await page.getByRole('combobox', { name: 'Відповідальний *', exact: true }).click();
-  await expect(page.getByRole('option', { name: /Олена Адміністратор/ })).toBeVisible();
+  await expect(page.getByRole('option', { name: /Олена Адміністратор/ })).toContainText(
+    'Спеціалізацію не вказано'
+  );
   await page.getByRole('option', { name: /Маляр Андрій/ }).click();
   await expect(page.getByRole('combobox', { name: 'Відповідальний *', exact: true })).toContainText(
     'Маляр Андрій'
@@ -76,6 +78,31 @@ test('member specialties are configured in a keyboard-accessible modal and persi
   await expect(row.getByText('Маляр', { exact: true })).toBeVisible();
   await expect(row.getByText('Розбірник-збірник', { exact: true })).toBeVisible();
   await page.reload();
+  await page.goto('/dashboard/orders');
+  await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
+  const order = page.getByRole('dialog', { name: 'Замовлення №1', exact: true });
+  const responsible = order.getByRole('combobox', { name: 'Відповідальний', exact: false });
+  await responsible.click();
+  await page
+    .getByRole('combobox', { name: 'Пошук: Відповідальний', exact: true })
+    .fill('розбірник');
+  const specialist = page.getByRole('option', { name: /^Маляр Андрій/ });
+  await expect(specialist).toContainText('Маляр, Розбірник-збірник');
+  await expect(page.getByRole('option')).toHaveCount(1);
+  await specialist.click();
+  await expect(responsible).toContainText('Маляр Андрій · Маляр, Розбірник-збірник');
+  await order.getByRole('button', { name: 'Зберегти замовлення', exact: true }).click();
+  await order.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
+  await order.getByRole('button', { name: 'Додати витрату', exact: true }).click();
+  await order.getByRole('combobox', { name: 'Субпідрядник', exact: false }).click();
+  await page.getByRole('combobox', { name: 'Пошук: Субпідрядник', exact: true }).fill('розбірник');
+  await expect(specialist).toContainText('Маляр, Розбірник-збірник');
+  await expect(page.getByRole('option')).toHaveCount(1);
+  await page.screenshot({
+    path: info.outputPath('specialties-in-worker-pickers.png'),
+    animations: 'disabled'
+  });
+  await page.goto('/dashboard/team');
   await page
     .getByRole('button', { name: 'Налаштувати учасника Маляр Андрій', exact: true })
     .click();

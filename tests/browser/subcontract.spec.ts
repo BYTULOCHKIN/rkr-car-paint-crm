@@ -19,7 +19,7 @@ test('expense names are selectable, new names persist, duplicates are rejected, 
     'Ремонт пластику'
   );
   await dialog.getByRole('combobox', { name: 'Субпідрядник', exact: false }).click();
-  await page.getByRole('option', { name: 'Маляр Андрій', exact: true }).click();
+  await page.getByRole('option', { name: /^Маляр Андрій/ }).click();
   await dialog
     .getByRole('textbox', { name: 'Примітка', exact: true })
     .fill('Додаткове кріплення бампера');
@@ -66,7 +66,7 @@ test('subcontract payroll is off by default and team preference adds its full am
   await dialog.getByRole('combobox', { name: 'Назва витрати', exact: false }).click();
   await page.getByRole('option', { name: 'Пайка', exact: true }).click();
   await dialog.getByRole('combobox', { name: 'Субпідрядник', exact: false }).click();
-  await page.getByRole('option', { name: 'Олена Адміністратор', exact: true }).click();
+  await page.getByRole('option', { name: /^Олена Адміністратор/ }).click();
   await dialog
     .getByRole('textbox', { name: 'Вартість субпідряду, грн', exact: false })
     .fill('3000');

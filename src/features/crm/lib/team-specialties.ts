@@ -28,6 +28,31 @@ export function specialtyLabels(specialties: readonly WorkerSpecialty[] = []): s
     .join(', ');
 }
 
+export function teamMemberChoices(
+  team: TeamMember[],
+  selectedId?: string,
+  historicalName?: string
+): ChoiceOption[] {
+  return [
+    ...team.map((member) => ({
+      value: member.id,
+      label: member.name,
+      description: specialtyLabels(member.specialties) || 'Спеціалізацію не вказано',
+      keywords: [member.role === 'admin' ? 'Адміністратор' : 'Виконавець']
+    })),
+    ...(selectedId && !team.some((member) => member.id === selectedId)
+      ? [
+          {
+            value: selectedId,
+            label: historicalName || 'Колишній учасник',
+            description: 'Більше не в команді',
+            disabled: true
+          }
+        ]
+      : [])
+  ];
+}
+
 export function specialtyWorkerOptions(
   team: TeamMember[],
   specialty: WorkerSpecialty,
@@ -40,12 +65,7 @@ export function specialtyWorkerOptions(
     (member) =>
       showAll || !configured || member.specialties?.includes(specialty) || member.id === selectedId
   );
-  return [
-    ...available.map((member) => ({ value: member.id, label: member.name })),
-    ...(selectedId && !team.some((member) => member.id === selectedId)
-      ? [{ value: selectedId, label: historicalName || 'Колишній учасник', disabled: true }]
-      : [])
-  ];
+  return teamMemberChoices(available, selectedId, historicalName);
 }
 
 export function readSubcontractPayroll(metadata: unknown): boolean {

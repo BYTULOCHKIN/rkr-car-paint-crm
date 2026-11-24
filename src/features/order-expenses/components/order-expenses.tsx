@@ -13,6 +13,7 @@ import { CrmForm } from '@/features/crm/components/dialog-form';
 import { FormStatus, FormActions, type FormState } from '@/features/crm/components/form-status';
 import type { CrmWorkspace, RepairOrder } from '@/features/crm/api/types';
 import { crmQueries } from '@/features/crm/api/queries';
+import { teamMemberChoices } from '@/features/crm/lib/team-specialties';
 import { money } from '@/features/crm/lib/format';
 import { expenseMutations } from '../api/queries';
 import type { OrderExpense } from '../api/types';
@@ -203,13 +204,11 @@ function ExpenseForm({
     }
   }
   const names = data.expenseNames ?? defaultExpenseNames;
-  const members = [
-    ...(data.team ?? []).map((member) => ({ value: member.id, label: member.name })),
-    ...(expense?.contractorUserId &&
-    !data.team?.some((member) => member.id === expense.contractorUserId)
-      ? [{ value: expense.contractorUserId, label: expense.contractorName, disabled: true }]
-      : [])
-  ];
+  const members = teamMemberChoices(
+    data.team ?? [],
+    expense?.contractorUserId ?? undefined,
+    expense?.contractorName
+  );
   return (
     <CrmForm
       onSubmit={(event) => {
@@ -302,7 +301,7 @@ function ExpenseForm({
                 clearable={false}
                 options={members}
                 placeholder='Виберіть учасника команди'
-                searchPlaceholder='Пошук учасника…'
+                searchPlaceholder='Ім’я або спеціалізація…'
                 emptyMessage='Додайте учасника в розділі «Команда».'
                 description='У «Зарплатах» ці суми з’являться лише після ввімкнення відповідного налаштування учасника.'
               />

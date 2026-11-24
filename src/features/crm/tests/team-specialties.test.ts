@@ -65,7 +65,7 @@ test('existing assignments and departed workers remain visible; unconfigured tea
   );
   assert.deepEqual(
     specialtyWorkerOptions(team, 'painter', 'former', 'Колишній маляр', false).at(-1),
-    { value: 'former', label: 'Колишній маляр', disabled: true }
+    { value: 'former', label: 'Колишній маляр', description: 'Більше не в команді', disabled: true }
   );
   const unconfigured = team.map(({ specialties: _specialties, ...member }) => member);
   assert.equal(specialtyWorkerOptions(unconfigured, 'painter', '', undefined, false).length, 3);

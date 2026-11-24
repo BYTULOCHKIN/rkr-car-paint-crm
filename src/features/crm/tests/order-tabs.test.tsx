@@ -253,7 +253,7 @@ test('subcontract draft survives tab switches and saves internal costs independe
   await user.click(screen.getByRole('combobox', { name: /Назва витрати/ }));
   await user.click(await screen.findByRole('option', { name: 'Пайка' }));
   await user.click(screen.getByRole('combobox', { name: /Субпідрядник/ }));
-  await user.click(await screen.findByRole('option', { name: 'Адміністратор' }));
+  await user.click(await screen.findByRole('option', { name: /^Адміністратор/ }));
   await user.type(screen.getByRole('textbox', { name: 'Примітка' }), 'Пайка бампера');
   await user.type(screen.getByRole('textbox', { name: /Вартість субпідряду/ }), '2500');
   await user.click(screen.getByRole('tab', { name: 'Роботи' }));

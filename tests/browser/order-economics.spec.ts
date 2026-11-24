@@ -21,7 +21,7 @@ test('client works remain editable while subcontract costs are independent and p
   await dialog.getByRole('combobox', { name: 'Назва витрати', exact: false }).click();
   await page.getByRole('option', { name: 'Підбір фарби', exact: true }).click();
   await dialog.getByRole('combobox', { name: 'Субпідрядник', exact: false }).click();
-  await page.getByRole('option', { name: 'Маляр Андрій', exact: true }).click();
+  await page.getByRole('option', { name: /^Маляр Андрій/ }).click();
   await dialog.getByRole('textbox', { name: 'Примітка', exact: true }).fill('Підбір кольору');
   await dialog
     .getByRole('textbox', { name: 'Вартість субпідряду, грн', exact: false })
