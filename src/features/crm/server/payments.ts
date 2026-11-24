@@ -65,7 +65,11 @@ export class PaymentRepository {
           throw new PaymentError('Ідентифікатор операції вже використано');
         return prior.id;
       }
-      if (!this.db.prepare('SELECT id FROM crm_orders WHERE id=?').get(value.orderId))
+      if (
+        !this.db
+          .prepare('SELECT id FROM crm_orders WHERE id=? AND deletedAt IS NULL')
+          .get(value.orderId)
+      )
         throw new PaymentError('Замовлення не знайдено');
       const total = this.db
         .prepare(
@@ -152,7 +156,11 @@ export class PaymentRepository {
           throw new PaymentError('Ідентифікатор операції вже використано');
         return prior.id;
       }
-      if (!this.db.prepare('SELECT id FROM crm_orders WHERE id=?').get(value.orderId))
+      if (
+        !this.db
+          .prepare('SELECT id FROM crm_orders WHERE id=? AND deletedAt IS NULL')
+          .get(value.orderId)
+      )
         throw new PaymentError('Замовлення не знайдено');
       const total = this.db
         .prepare(

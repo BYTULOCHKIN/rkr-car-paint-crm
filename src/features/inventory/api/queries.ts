@@ -1,4 +1,6 @@
-import { queryOptions, mutationOptions } from '@tanstack/react-query';
+import { queryOptions, mutationOptions, keepPreviousData } from '@tanstack/react-query';
+import { getInventoryItems } from './search-service';
+import type { InventoryFilters } from './types';
 import type { ActionResult } from '@/features/crm/api/types';
 import {
   getInventory,
@@ -20,6 +22,18 @@ function unwrap<T>(result: ActionResult<T>): T {
 
 export const inventoryQueries = {
   all: () => ['inventory'] as const,
+  items: (userId: string, orgId: string, filters: InventoryFilters) =>
+    queryOptions({
+      queryKey: [...inventoryQueries.all(), userId, orgId, 'items', filters] as const,
+      queryFn: ({ signal }) => getInventoryItems(orgId, filters, signal),
+      placeholderData: (previous, query) =>
+        query?.queryKey[1] === userId && query.queryKey[2] === orgId
+          ? keepPreviousData(previous)
+          : undefined,
+      staleTime: 0,
+      refetchInterval: 30_000,
+      retry: false
+    }),
   workspace: (userId: string, orgId: string) =>
     queryOptions({
       queryKey: [...inventoryQueries.all(), userId, orgId] as const,

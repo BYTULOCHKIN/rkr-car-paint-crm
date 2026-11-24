@@ -1,24 +1,20 @@
-import * as React from 'react';
+'use client';
+
+import { useLayoutEffect, useRef } from 'react';
+import { useDebouncedCallback as useHookzDebouncedCallback } from '@react-hookz/web/useDebouncedCallback';
 
 export function useDebouncedCallback<T extends (...args: never[]) => unknown>(
   callback: T,
   delay: number
-) {
-  const callbackRef = React.useRef(callback);
-  // Local patch: write the ref after render, not during it (react/refs)
-  React.useLayoutEffect(() => {
+): (...args: Parameters<T>) => void {
+  const callbackRef = useRef(callback);
+  // Preserve the stable callback API and the latest committed consumer state.
+  useLayoutEffect(() => {
     callbackRef.current = callback;
   });
-
-  const debounceTimerRef = React.useRef(0);
-
-  React.useEffect(() => () => window.clearTimeout(debounceTimerRef.current), []);
-
-  return React.useCallback(
-    (...args: Parameters<T>) => {
-      window.clearTimeout(debounceTimerRef.current);
-      debounceTimerRef.current = window.setTimeout(() => callbackRef.current(...args), delay);
-    },
-    [delay]
+  return useHookzDebouncedCallback(
+    (...args: Parameters<T>) => callbackRef.current(...args),
+    [callbackRef],
+    delay
   );
 }

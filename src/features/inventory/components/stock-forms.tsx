@@ -23,6 +23,8 @@ import { stockQuantity, materialCategoryOptions } from '../lib/format';
 import { FormStatus, type FormState } from '@/features/crm/components/form-status';
 import { DialogActions } from '@/features/crm/components/dialog-form';
 import { stockUnitOptions } from '../constants/units';
+import type { StockTag } from '../constants/tags';
+import { StockTagsField } from './stock-tags-field';
 
 function useFeedback(onSaved: () => void) {
   const client = useQueryClient();
@@ -70,10 +72,16 @@ export function StockItemForm({
   const pending = create.isPending || update.isPending;
   usePending(create.isPending || update.isPending, onPendingChange);
   const form = useAppForm({
-    defaultValues: { name: item?.name ?? '', unit: item?.unit ?? 'шт', notes: item?.notes ?? '' },
+    defaultValues: {
+      name: item?.name ?? '',
+      unit: item?.unit ?? 'шт',
+      notes: item?.notes ?? '',
+      tags: item?.tags ?? (['Розхідник'] as StockTag[])
+    },
     validators: {
       onSubmit: updateItemSchema
         .omit({ id: true })
+        .required({ tags: true })
         .refine((value) => item?.locked || stockUnitSchema.safeParse(value.unit).success, {
           path: ['unit'],
           message: 'Оберіть одиницю: шт, л, кг або м'
@@ -123,6 +131,9 @@ export function StockItemForm({
               Назва й одиниця зафіксовані після першої операції.
             </p>
           )}
+          <form.AppField name='tags' mode='array'>
+            {() => <StockTagsField disabled={pending} />}
+          </form.AppField>
           <form.AppField name='notes'>
             {(field) => <field.TextareaField label='Примітка' />}
           </form.AppField>

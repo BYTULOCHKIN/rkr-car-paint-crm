@@ -61,9 +61,9 @@ function setup(legacy = false) {
     orderId: id,
     expectedRevision: order().workflowRevision ?? 0,
     operationId: randomUUID(),
-    kind,
-    description: kind,
-    contractorName: 'Субпідрядник',
+    expenseNameId: kind,
+    contractorUserId: 'subcontractor',
+    note: '',
     amount,
     ...(expenseId ? { id: expenseId } : {})
   });
@@ -129,8 +129,14 @@ test('unpaid ready car immediately accrues 6000 from 20000 minus 5000 stock and 
       actor
     )
   );
-  repo.expenses.save(expense('2500', 'color_matching'), actor);
-  repo.expenses.save(expense('2500', 'soldering'), actor);
+  repo.expenses.save(expense('2500', 'color_matching'), actor, false, {
+    id: 'subcontractor',
+    name: 'Субпідрядник'
+  });
+  repo.expenses.save(expense('2500', 'soldering'), actor, false, {
+    id: 'subcontractor',
+    name: 'Субпідрядник'
+  });
   assert.equal(repo.settlements.postings().length, 0);
   workflow('ready');
   assert.equal(repo.payments.list().length, 0);
@@ -168,10 +174,16 @@ test('edits after readiness recalculate automatically, preserve payouts and do n
     { kind: 'worker', id: 'painter', name: 'Маляр' }
   );
   const input = expense();
-  const expenseId = repo.expenses.save(input, actor);
+  const expenseId = repo.expenses.save(input, actor, false, {
+    id: 'subcontractor',
+    name: 'Субпідрядник'
+  });
   assert.equal(repo.settlements.latest(id)!.result.employeeAccrualsCents, 1050000);
   const count = repo.settlements.postings().length;
-  assert.equal(repo.expenses.save(input, actor), expenseId);
+  assert.equal(
+    repo.expenses.save(input, actor, false, { id: 'subcontractor', name: 'Субпідрядник' }),
+    expenseId
+  );
   save();
   save();
   assert.equal(repo.settlements.postings().length, count);
@@ -273,7 +285,7 @@ test('ready stock edits and reversals recalculate atomically; bad stock batches 
 test('concurrent expenses and invalid rates reject without partial writes', () => {
   const { repo, id, order, workflow, expense, save } = setup();
   const stale = expense();
-  repo.expenses.save(expense(), actor);
+  repo.expenses.save(expense(), actor, false, { id: 'subcontractor', name: 'Субпідрядник' });
   const before = JSON.stringify(repo.reportSnapshot());
   assert.throws(() => repo.expenses.save(stale, actor), /змінилося/);
   assert.equal(JSON.stringify(repo.reportSnapshot()), before);
@@ -289,7 +301,7 @@ test('concurrent expenses and invalid rates reject without partial writes', () =
 test('loss pays zero, records the workshop loss, and later repricing restores positive wages', () => {
   const { repo, id, workflow, expense, save } = setup();
   workflow('in_progress');
-  repo.expenses.save(expense('25000'), actor);
+  repo.expenses.save(expense('25000'), actor, false, { id: 'subcontractor', name: 'Субпідрядник' });
   workflow('ready');
   assert.equal(repo.settlements.latest(id)!.result.employeeAccrualsCents, 0);
   assert.equal(repo.settlements.latest(id)!.result.workshopRemainderCents, -500000);

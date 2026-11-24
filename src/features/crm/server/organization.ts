@@ -4,7 +4,7 @@ import { cache } from 'react';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 import type { TeamMember, CrmAccess } from '../api/types';
 import { CrmError, getOrganizationRepository } from './repository';
-import { readWorkerSpecialties } from '../lib/team-specialties';
+import { readWorkerSpecialties, readSubcontractPayroll } from '../lib/team-specialties';
 
 /** Memberships come from Clerk on every request, so removals/role changes apply immediately. */
 export const getOrganizationContext = cache(async () => {
@@ -32,6 +32,9 @@ export const getOrganizationContext = cache(async () => {
           user.userId,
         identifier: user.identifier,
         role: membership.role === 'org:admin' ? 'admin' : 'worker',
+        ...(readSubcontractPayroll(membership.publicMetadata)
+          ? { includeSubcontractInPayroll: true }
+          : {}),
         specialties: readWorkerSpecialties(membership.publicMetadata)
       });
     }

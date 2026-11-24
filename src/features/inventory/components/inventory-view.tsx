@@ -2,12 +2,20 @@
 import { OverflowText } from '@/components/data-table/table-cell-preview';
 import { RowActions } from '@/features/crm/components/row-actions';
 
-import { useState } from 'react';
-import { useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { parseAsBoolean, parseAsString, useQueryState } from 'nuqs';
+import { startTransition, useCallback, useMemo, useState } from 'react';
+import { useQuery, useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  parseAsBoolean,
+  parseAsString,
+  parseAsStringLiteral,
+  parseAsArrayOf,
+  useQueryState
+} from 'nuqs';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { InventorySearch } from './inventory-search';
+import { StockItemTags } from './stock-item-tags';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   Dialog,
   DialogContent,
@@ -36,6 +44,13 @@ import {
   StockValuationForm
 } from './stock-forms';
 import { MovementHistory } from './movement-history';
+import { StockTagFilterControl } from './tag-filter';
+import { stockTags } from '../constants/tags';
+import { InventoryExportButton } from './inventory-export-button';
+
+const tagParser = parseAsArrayOf(parseAsStringLiteral(stockTags))
+  .withDefault([])
+  .withOptions({ shallow: true });
 
 type Editor =
   | { kind: 'create' }
@@ -45,9 +60,23 @@ type Editor =
 export function InventoryView({ userId, orgId }: { userId: string; orgId: string }) {
   const { data } = useSuspenseQuery(inventoryQueries.workspace(userId, orgId));
   const admin = data.access.role === 'admin';
+  const [tab, setTab] = useQueryState(
+    'stockTab',
+    parseAsStringLiteral(['materials', 'operations'])
+      .withDefault('materials')
+      .withOptions({ shallow: true })
+  );
+  const [tagValues, setTag] = useQueryState('stockTag', tagParser);
+  const tags = useMemo(() => [...new Set(tagValues)], [tagValues]);
   const [search, setSearch] = useQueryState(
     'stockSearch',
     parseAsString.withDefault('').withOptions({ shallow: true })
+  );
+  const [typing, setTyping] = useState(false);
+  const [searchReset, setSearchReset] = useState(0);
+  const onSearchPending = useCallback(
+    (value: boolean) => startTransition(() => setTyping(value)),
+    []
   );
   const [archived, setArchived] = useQueryState(
     'stockArchived',
@@ -62,146 +91,212 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
     onError: (error) => toast.error(error.message),
     onSettled: () => client.invalidateQueries({ queryKey: inventoryQueries.all() })
   });
-  const items = data.items.filter(
-    (item) =>
-      item.archived === archived &&
-      item.name.toLocaleLowerCase('uk-UA').includes(search.toLocaleLowerCase('uk-UA'))
-  );
+  const result = useQuery({
+    ...inventoryQueries.items(userId, orgId, { search, tags, archived }),
+    enabled: tab === 'materials'
+  });
+  const items = result.data?.items ?? [];
+  const searchPending = typing || result.isFetching;
+  const filtered = typing || search.trim() !== '' || tags.length > 0;
   return (
     <div className='flex min-w-0 flex-col gap-5'>
-      <div className='flex flex-wrap items-center gap-2'>
-        <Input
-          aria-label='Пошук складських позицій'
-          placeholder='Знайти позицію…'
-          value={search}
-          onChange={(event) => void setSearch(event.target.value)}
-          className='w-full sm:max-w-sm'
-        />
-        <Button variant='outline' onClick={() => void setArchived(!archived)}>
-          {archived ? 'Показати активні' : 'Показати архів'}
-        </Button>
-        {admin && <Button onClick={() => setEditor({ kind: 'create' })}>Нова позиція</Button>}
-      </div>
-      {!admin && (
-        <p className='text-muted-foreground text-sm'>
-          Склад доступний для перегляду. Операції проводить адміністратор.
-        </p>
-      )}
-      {items.length ? (
-        <Table className='[&_td]:py-1.5'>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Позиція</TableHead>
-              <TableHead>Залишок</TableHead>
-              <TableHead>Вартість залишку</TableHead>
-              <TableHead>Середня за одиницю</TableHead>
-              <TableHead>Дії</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.map((item) => (
-              <TableRow key={item.id}>
-                <TableCell>
-                  <OverflowText text={item.name} className='max-w-xs font-medium' />
-                  {item.notes && (
-                    <OverflowText
-                      text={item.notes}
-                      className='text-muted-foreground max-w-xs text-xs'
-                    />
-                  )}
-                </TableCell>
-                <TableCell className='tabular-nums'>
-                  {stockQuantity(item.balanceMilli)} {item.unit}
-                </TableCell>
-                <TableCell className='tabular-nums'>
-                  {item.totalCostCents === null ? 'Не визначена' : money(item.totalCostCents)}
-                </TableCell>
-                <TableCell className='tabular-nums'>
-                  {item.totalCostCents === null
-                    ? 'Не визначена'
-                    : item.balanceMilli === 0
-                      ? '—'
-                      : `${money(roundedRatio(BigInt(item.totalCostCents) * BigInt(1000), BigInt(item.balanceMilli)))} / ${item.unit}`}
-                </TableCell>
-                <TableCell>
-                  <RowActions
-                    label={`Дії з позицією ${item.name}`}
-                    actions={[
-                      {
-                        label: 'Історія',
-                        icon: 'clock',
-                        onClick: () => setEditor({ kind: 'history', item })
-                      },
-                      ...(admin
-                        ? [
-                            ...(!item.archived
-                              ? [
-                                  ...(item.totalCostCents === null && item.balanceMilli > 0
-                                    ? [
-                                        {
-                                          label: 'Оцінити залишок',
-                                          icon: 'edit' as const,
-                                          onClick: () => setEditor({ kind: 'valuation', item })
-                                        }
-                                      ]
-                                    : []),
-                                  {
-                                    label: 'Надходження',
-                                    icon: 'add' as const,
-                                    onClick: () => setEditor({ kind: 'receipt', item })
-                                  },
-                                  {
-                                    label: 'Коригувати',
-                                    icon: 'adjustments' as const,
-                                    onClick: () => setEditor({ kind: 'adjustment', item })
-                                  }
-                                ]
-                              : []),
-                            {
-                              label: 'Редагувати',
-                              icon: 'edit' as const,
-                              onClick: () => setEditor({ kind: 'edit', item })
-                            },
-                            {
-                              label: item.archived ? 'Відновити' : 'В архів',
-                              icon: 'inventory' as const,
-                              disabled: archive.isPending,
-                              onClick: () =>
-                                archive.mutate({ id: item.id, archived: !item.archived })
-                            }
-                          ]
-                        : [])
-                    ]}
-                  />
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      ) : (
-        <Empty>
-          <EmptyHeader>
-            <EmptyTitle>Позицій не знайдено</EmptyTitle>
-            <EmptyDescription>
-              {archived
-                ? 'В архіві немає відповідних позицій.'
-                : 'Створіть позицію, потім додайте перше надходження.'}
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      )}
-      <section className='flex flex-col gap-3'>
-        <h2 className='text-lg font-semibold'>Останні операції</h2>
-        <MovementHistory
-          movements={data.movements.slice(0, 50)}
-          onReverse={admin ? (movement) => setEditor({ kind: 'reversal', movement }) : undefined}
-        />
-        {data.movements.length > 50 && (
-          <p className='text-muted-foreground text-sm'>
-            Показано останні 50 операцій. Повна історія доступна в кожній позиції.
-          </p>
-        )}
-      </section>
+      <Tabs
+        value={tab}
+        onValueChange={(value) => void setTab(value as typeof tab)}
+        className='min-w-0 gap-5'
+      >
+        <TabsList aria-label='Розділи складу' className='w-full sm:w-fit'>
+          <TabsTrigger value='materials'>Матеріали</TabsTrigger>
+          <TabsTrigger value='operations'>Останні операції</TabsTrigger>
+        </TabsList>
+        <TabsContent
+          value='materials'
+          className='min-w-0 space-y-4 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-200'
+        >
+          <div className='flex flex-wrap items-center gap-2'>
+            <InventorySearch
+              key={`${orgId}:${searchReset}`}
+              search={search}
+              fetching={result.isFetching}
+              onSearch={(value) => void setSearch(value)}
+              onPendingChange={onSearchPending}
+            />
+            <StockTagFilterControl value={tags} onChange={(value) => void setTag(value)} />
+            <Button variant='outline' onClick={() => void setArchived(!archived)}>
+              {archived ? 'Показати активні' : 'Показати архів'}
+            </Button>
+            {admin && <Button onClick={() => setEditor({ kind: 'create' })}>Нова позиція</Button>}
+            <InventoryExportButton
+              items={items}
+              archived={archived}
+              disabled={searchPending || result.isError}
+            />
+          </div>
+          <div className='flex flex-wrap items-center gap-3 text-sm'>
+            <p className='text-muted-foreground' role='status'>
+              {searchPending ? 'Пошук…' : `Знайдено позицій: ${items.length}`}
+            </p>
+            {filtered && (
+              <Button
+                variant='ghost'
+                size='sm'
+                onClick={() => {
+                  void setSearch('');
+                  void setTag([]);
+                  setTyping(false);
+                  setSearchReset((value) => value + 1);
+                }}
+              >
+                Скинути пошук і теги
+              </Button>
+            )}
+          </div>
+          {!admin && (
+            <p className='text-muted-foreground text-sm'>
+              Склад доступний для перегляду. Операції проводить адміністратор.
+            </p>
+          )}
+          {result.isError ? (
+            <div role='alert' className='flex items-center gap-2 text-sm'>
+              Не вдалося завантажити матеріали.
+              <Button variant='outline' size='sm' onClick={() => void result.refetch()}>
+                Повторити
+              </Button>
+            </div>
+          ) : result.isPending ? (
+            <p role='status' className='text-muted-foreground text-sm'>
+              Завантажуємо матеріали…
+            </p>
+          ) : items.length ? (
+            <Table className='[&_td]:py-1.5'>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Позиція</TableHead>
+                  <TableHead>Теги</TableHead>
+                  <TableHead>Залишок</TableHead>
+                  <TableHead>Вартість залишку</TableHead>
+                  <TableHead>Середня за одиницю</TableHead>
+                  <TableHead>Дії</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell>
+                      <OverflowText text={item.name} className='max-w-xs font-medium' />
+                      {item.notes && (
+                        <OverflowText
+                          text={item.notes}
+                          className='text-muted-foreground max-w-xs text-xs'
+                        />
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <StockItemTags tags={item.tags} itemName={item.name} />
+                    </TableCell>
+                    <TableCell className='tabular-nums'>
+                      {stockQuantity(item.balanceMilli)} {item.unit}
+                    </TableCell>
+                    <TableCell className='tabular-nums'>
+                      {item.totalCostCents === null ? 'Не визначена' : money(item.totalCostCents)}
+                    </TableCell>
+                    <TableCell className='tabular-nums'>
+                      {item.totalCostCents === null
+                        ? 'Не визначена'
+                        : item.balanceMilli === 0
+                          ? '—'
+                          : `${money(roundedRatio(BigInt(item.totalCostCents) * BigInt(1000), BigInt(item.balanceMilli)))} / ${item.unit}`}
+                    </TableCell>
+                    <TableCell>
+                      <RowActions
+                        label={`Дії з позицією ${item.name}`}
+                        actions={[
+                          {
+                            label: 'Історія',
+                            icon: 'clock',
+                            onClick: () => setEditor({ kind: 'history', item })
+                          },
+                          ...(admin
+                            ? [
+                                ...(!item.archived
+                                  ? [
+                                      ...(item.totalCostCents === null && item.balanceMilli > 0
+                                        ? [
+                                            {
+                                              label: 'Оцінити залишок',
+                                              icon: 'edit' as const,
+                                              onClick: () => setEditor({ kind: 'valuation', item })
+                                            }
+                                          ]
+                                        : []),
+                                      {
+                                        label: 'Надходження',
+                                        icon: 'add' as const,
+                                        onClick: () => setEditor({ kind: 'receipt', item })
+                                      },
+                                      {
+                                        label: 'Коригувати',
+                                        icon: 'adjustments' as const,
+                                        onClick: () => setEditor({ kind: 'adjustment', item })
+                                      }
+                                    ]
+                                  : []),
+                                {
+                                  label: 'Редагувати',
+                                  icon: 'edit' as const,
+                                  onClick: () => setEditor({ kind: 'edit', item })
+                                },
+                                {
+                                  label: item.archived ? 'Відновити' : 'В архів',
+                                  icon: 'inventory' as const,
+                                  disabled: archive.isPending,
+                                  onClick: () =>
+                                    archive.mutate({ id: item.id, archived: !item.archived })
+                                }
+                              ]
+                            : [])
+                        ]}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <Empty>
+              <EmptyHeader>
+                <EmptyTitle>Позицій не знайдено</EmptyTitle>
+                <EmptyDescription>
+                  {filtered
+                    ? 'Змініть пошуковий запит або тег, щоб знайти потрібний матеріал.'
+                    : archived
+                      ? 'В архіві немає відповідних позицій.'
+                      : 'Створіть позицію, потім додайте перше надходження.'}
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )}
+        </TabsContent>
+        <TabsContent
+          value='operations'
+          className='min-w-0 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-200'
+        >
+          <section className='flex flex-col gap-3'>
+            <h2 className='text-lg font-semibold'>Останні операції</h2>
+            <MovementHistory
+              movements={data.movements.slice(0, 50)}
+              onReverse={
+                admin ? (movement) => setEditor({ kind: 'reversal', movement }) : undefined
+              }
+            />
+            {data.movements.length > 50 && (
+              <p className='text-muted-foreground text-sm'>
+                Показано останні 50 операцій. Повна історія доступна в кожній позиції.
+              </p>
+            )}
+          </section>
+        </TabsContent>
+      </Tabs>
       <Dialog
         open={!!editor}
         onOpenChange={(open) => {

@@ -22,7 +22,13 @@ function team(role: CrmRole) {
   };
   vi.mocked(getTeam).mockResolvedValue(data);
   vi.mocked(updateTeamMember).mockImplementation(async (input) => {
-    data.team.find((member) => member.id === input.userId)!.specialties = input.specialties;
+    Object.assign(
+      data.team.find((member) => member.id === input.userId)!,
+      {
+        specialties: input.specialties,
+        includeSubcontractInPayroll: input.includeSubcontractInPayroll ?? false
+      }
+    );
     return { ok: true, data: input.specialties };
   });
   client.setQueryData(crmQueries.team('user_me', 'org_A').queryKey, data);
@@ -54,7 +60,8 @@ test('admin edits several specialties in a member dialog and refreshed team show
   expect(updateTeamMember).toHaveBeenCalledWith({
     orgId: 'org_A',
     userId: 'user_worker',
-    specialties: ['painter', 'polisher']
+    specialties: ['painter', 'polisher'],
+    includeSubcontractInPayroll: false
   });
   expect(screen.getByText('Маляр', { exact: true })).toBeDefined();
   expect(screen.getByText('Полірувальник', { exact: true })).toBeDefined();
@@ -102,4 +109,24 @@ test('worker sees the team without administrative invitation controls', () => {
   expect(
     screen.getByText('Запрошувати учасників і змінювати ролі може адміністратор.')
   ).toBeDefined();
+});
+
+test('subcontract payroll switch defaults off, saves only for an admin and remains enabled when reopened', async () => {
+  team('admin');
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Налаштувати учасника Андрій' }));
+  const toggle = screen.getByRole('switch', { name: 'Показувати субпідряд у зарплатах' });
+  expect(toggle.getAttribute('aria-checked')).toBe('false');
+  await user.click(toggle);
+  await user.click(screen.getByRole('button', { name: 'Зберегти налаштування' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(updateTeamMember).toHaveBeenCalledWith(
+    expect.objectContaining({ userId: 'user_worker', includeSubcontractInPayroll: true })
+  );
+  await user.click(screen.getByRole('button', { name: 'Налаштувати учасника Андрій' }));
+  expect(
+    screen
+      .getByRole('switch', { name: 'Показувати субпідряд у зарплатах' })
+      .getAttribute('aria-checked')
+  ).toBe('true');
 });

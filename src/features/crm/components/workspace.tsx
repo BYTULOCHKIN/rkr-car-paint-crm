@@ -16,7 +16,7 @@ import { assigneeLabel } from '../lib/assignee';
 import { PersonAvatar } from '@/components/person-avatar';
 import { VehicleBrandAvatar } from '@/components/vehicle-brand-avatar';
 
-import { useMemo, useState } from 'react';
+import { Suspense, useMemo, useState } from 'react';
 import { useSuspenseQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { parseAsInteger, parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs';
@@ -39,6 +39,8 @@ import { primaryContact, contactSearchValues } from '../lib/customer-contacts';
 import { CustomerContactsPreview } from './customer-contacts';
 import { RowActions } from './row-actions';
 import { OverflowText } from '@/components/data-table/table-cell-preview';
+import { OrderTrashList } from './order-trash';
+import { Skeleton } from '@/components/ui/skeleton';
 import { OrderWorkPreview, CustomerCarsPreview } from './table-previews';
 
 const date = new Intl.DateTimeFormat('uk-UA', { dateStyle: 'short' });
@@ -326,7 +328,16 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
               icon: 'clock',
               onClick: () =>
                 setEditor({ type: 'workflow', target: { kind: 'order', record: row.original } })
-            }
+            },
+            ...(data.access?.role === 'admin'
+              ? [
+                  {
+                    label: 'Перемістити в кошик',
+                    icon: 'trash' as const,
+                    onClick: () => setEditor({ type: 'trashOrder', order: row.original })
+                  }
+                ]
+              : [])
           ]}
         />
       )
@@ -384,6 +395,7 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [params, setParams] = useQueryStates(
     {
+      ordersScope: parseAsStringLiteral(['active', 'trash']).withDefault('active'),
       q: parseAsString.withDefault(''),
       page: parseAsInteger.withDefault(1),
       customerOrder: parseAsStringLiteral(['newest', 'oldest']).withDefault('newest'),
@@ -395,6 +407,8 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
     },
     { shallow: true }
   );
+  const trashView =
+    view === 'orders' && data.access?.role === 'admin' && params.ordersScope === 'trash';
   const search = params.q.toLocaleLowerCase('uk-UA').trim();
   const close = () => setEditor(null);
 
@@ -520,7 +534,11 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
             )}
         </div>
       )}
-      {empty ? (
+      {trashView && data.access ? (
+        <Suspense fallback={<Skeleton className='h-48 w-full' />}>
+          <OrderTrashList access={data.access} search={search} />
+        </Suspense>
+      ) : empty ? (
         <Empty className='min-h-64 rounded-xl border'>
           <EmptyHeader>
             <EmptyTitle>
@@ -585,42 +603,64 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
   if (view === 'orders')
     return (
       <PageContainer
-        pageTitle='Замовлення'
+        pageTitle={trashView ? 'Кошик замовлень' : 'Замовлення'}
         pageHeaderLayout='responsive'
-        pageDescription='Автомобілі в роботі, перелік робіт і вартість за позиціями.'
+        pageDescription={
+          trashView
+            ? 'Переміщені замовлення та їх відновлення.'
+            : 'Автомобілі в роботі, перелік робіт і вартість за позиціями.'
+        }
         pageHeaderAction={
           <div className='flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto'>
             {searchControl}
-            {data.access?.role !== 'worker' && data.requests.length > 0 && (
+            {!trashView && data.access?.role !== 'worker' && data.requests.length > 0 && (
               <Link href='/dashboard/requests' className={buttonVariants({ variant: 'ghost' })}>
                 Архів заявок
               </Link>
             )}
-            <DropdownMenu open={statusMenuOpen} onOpenChange={setStatusMenuOpen}>
-              <DropdownMenuTrigger
-                render={<HeaderButton variant='outline' aria-label='Фільтр статусу замовлень' />}
+            {!trashView && (
+              <DropdownMenu open={statusMenuOpen} onOpenChange={setStatusMenuOpen}>
+                <DropdownMenuTrigger
+                  render={<HeaderButton variant='outline' aria-label='Фільтр статусу замовлень' />}
+                >
+                  <Icons.adjustments aria-hidden />
+                  {params.orderStatus === 'all' ? 'Усі статуси' : statusLabel(params.orderStatus)}
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align='end' className='w-max min-w-48 whitespace-nowrap'>
+                  <DropdownMenuRadioGroup value={params.orderStatus}>
+                    {(['all', 'created', 'in_progress', 'ready'] as const).map((status) => (
+                      <DropdownMenuRadioItem
+                        key={status}
+                        value={status}
+                        onClick={() => {
+                          void setParams({ orderStatus: status, page: 1 });
+                          setStatusMenuOpen(false);
+                        }}
+                      >
+                        {status === 'all' ? 'Усі статуси' : statusLabel(status)}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            {data.access?.role === 'admin' && (
+              <HeaderButton
+                variant='outline'
+                onClick={() =>
+                  void setParams({
+                    ordersScope: trashView ? 'active' : 'trash',
+                    page: 1,
+                    q: '',
+                    sort: null
+                  })
+                }
               >
-                <Icons.adjustments aria-hidden />
-                {params.orderStatus === 'all' ? 'Усі статуси' : statusLabel(params.orderStatus)}
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align='end' className='w-max min-w-48 whitespace-nowrap'>
-                <DropdownMenuRadioGroup value={params.orderStatus}>
-                  {(['all', 'created', 'in_progress', 'ready'] as const).map((status) => (
-                    <DropdownMenuRadioItem
-                      key={status}
-                      value={status}
-                      onClick={() => {
-                        void setParams({ orderStatus: status, page: 1 });
-                        setStatusMenuOpen(false);
-                      }}
-                    >
-                      {status === 'all' ? 'Усі статуси' : statusLabel(status)}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            {data.access?.role !== 'worker' && (
+                <Icons.trash aria-hidden />
+                {trashView ? 'До замовлень' : 'Кошик'}
+              </HeaderButton>
+            )}
+            {!trashView && data.access?.role !== 'worker' && (
               <HeaderButton onClick={create} className='shrink-0'>
                 <Icons.add aria-hidden />
                 Нове замовлення

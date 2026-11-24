@@ -1,5 +1,7 @@
 import { mutationOptions, queryOptions } from '@tanstack/react-query';
 import {
+  getOrderTrash,
+  changeOrderTrash,
   createCustomer,
   updateCustomer,
   receivePayment,
@@ -30,6 +32,12 @@ function unwrap<T>(result: ActionResult<T>): T {
 }
 
 export const crmQueries = {
+  trash: (userId: string, orgId: string) =>
+    queryOptions({
+      queryKey: ['crm', userId, orgId, 'trash'] as const,
+      queryFn: () => getOrderTrash(orgId),
+      staleTime: 0
+    }),
   catalog: (make: string, orgId?: string) =>
     queryOptions({
       queryKey: ['vehicle-catalog', orgId ?? 'legacy', make],
@@ -59,6 +67,11 @@ export const crmQueries = {
 };
 
 export const crmMutations = {
+  trash: () =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof changeOrderTrash>[0]) =>
+        unwrap(await changeOrderTrash(input))
+    }),
   updateTeamMember: () =>
     mutationOptions({
       mutationFn: async (input: Parameters<typeof updateTeamMember>[0]) =>

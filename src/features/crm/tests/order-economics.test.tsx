@@ -75,7 +75,7 @@ test('worker sees subcontract expenses without editing controls', () => {
       />
     </QueryClientProvider>
   );
-  expect(screen.getByText('Колорист · Підбір фарби')).toBeDefined();
+  expect(screen.getByText('Колорист')).toBeDefined();
   expect(screen.queryByRole('button')).toBeNull();
 });
 test('printed customer check contains client positions without internal portions, identities or wages', () => {

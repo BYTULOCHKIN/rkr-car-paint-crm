@@ -1,5 +1,6 @@
 'use server';
 
+import { orderTrashSchema, type OrderTrashInput } from '../schemas/order-trash';
 import { getOrganizationContext } from '../server/organization';
 import { clerkClient } from '@clerk/nextjs/server';
 import { z } from 'zod';
@@ -269,6 +270,9 @@ export async function getOrderDocument(id: string): Promise<OrderDocument | null
     defaultEmployeeShareBps: _share,
     expenses: _expenses,
     salaryModel: _model,
+    deletedAt: _deletedAt,
+    deletedBy: _deletedBy,
+    trashBlockedReason: _trashReason,
     ...clientOrder
   } = order;
   return customer && vehicle ? { order: clientOrder, customer, vehicle } : null;
@@ -297,7 +301,14 @@ export async function updateTeamMember(
     await client.organizations.updateOrganizationMembershipMetadata({
       organizationId: access.orgId,
       userId: value.userId,
-      publicMetadata: { crm: { specialties: value.specialties } }
+      publicMetadata: {
+        crm: {
+          specialties: value.specialties,
+          ...(value.includeSubcontractInPayroll !== undefined
+            ? { includeSubcontractInPayroll: value.includeSubcontractInPayroll }
+            : {})
+        }
+      }
     });
     return { ok: true, data: value.specialties };
   } catch (error) {
@@ -346,6 +357,32 @@ export async function updateCustomer(
     if (input.orgId !== context.access.orgId)
       throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
     repository.updateCustomer(updateCustomerSchema.parse(input));
+    return null;
+  });
+}
+
+export async function getOrderTrash(orgId: string): Promise<CrmWorkspace> {
+  const { repository, access, team } = await getOrganizationContext();
+  if (access.orgId !== orgId) throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
+  if (access.role !== 'admin') throw new CrmError('Кошик доступний лише адміністратору.');
+  const workspace = repository.workspace(true);
+  return {
+    customers: workspace.customers,
+    vehicles: workspace.vehicles,
+    requests: [],
+    events: [],
+    orders: workspace.orders.filter((order) => !!order.deletedAt),
+    access,
+    team
+  };
+}
+
+export async function changeOrderTrash(input: OrderTrashInput): Promise<ActionResult<null>> {
+  return write((repository, context) => {
+    const value = orderTrashSchema.parse(input);
+    if (value.orgId !== context.access.orgId)
+      throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
+    repository.changeOrderTrash(value, historyActor(context));
     return null;
   });
 }

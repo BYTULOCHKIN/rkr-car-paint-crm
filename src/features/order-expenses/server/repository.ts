@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import type { HistoryActor } from '@/features/crm/api/types';
 import { EconomicsError } from '@/features/order-economics/lib/integers';
 import { decimalScaled } from '@/features/inventory/schemas/inventory';
+import { expenseNameKey, normalizeExpenseName } from '../lib/names';
+import type { OrderExpenseName } from '../api/types';
 import type { OrderExpense } from '../api/types';
 import {
   orderExpenseSchema,
@@ -20,16 +22,45 @@ export class OrderExpenseRepository {
   list(orderId?: string): OrderExpense[] {
     return this.db
       .prepare(
-        `SELECT id,orderId,kind,description,contractorId,contractorName,amountCents FROM crm_order_expenses WHERE archived=0${orderId ? ' AND orderId=?' : ''} ORDER BY createdAt,id`
+        `SELECT id,orderId,kind,description,contractorId,contractorName,amountCents,expenseNameId,description AS expenseName,contractorUserId,note FROM crm_order_expenses WHERE archived=0${orderId ? ' AND orderId=?' : ''} ORDER BY createdAt,id`
       )
       .all(...(orderId ? [orderId] : []))
       .map((row) => ({ ...row })) as unknown as OrderExpense[];
   }
 
+  names(): OrderExpenseName[] {
+    return this.db
+      .prepare('SELECT id,name,kind FROM crm_expense_names ORDER BY nameKey')
+      .all()
+      .map((row) => ({ ...row })) as unknown as OrderExpenseName[];
+  }
+  createName(value: string): OrderExpenseName {
+    const name = normalizeExpenseName(value);
+    if (!name || name.length > 120)
+      throw new EconomicsError('Назва витрати має містити від 1 до 120 символів.');
+    const nameKey = expenseNameKey(name);
+    const existing = () =>
+      this.db.prepare('SELECT id FROM crm_expense_names WHERE nameKey=?').get(nameKey);
+    if (existing())
+      throw new EconomicsError('Така назва витрати вже існує. Виберіть її зі списку.');
+    const id = randomUUID();
+    try {
+      this.db
+        .prepare('INSERT INTO crm_expense_names VALUES (?,?,?,?,?)')
+        .run(id, name, nameKey, 'other', new Date().toISOString());
+    } catch (error) {
+      if (existing())
+        throw new EconomicsError('Така назва витрати вже існує. Виберіть її зі списку.');
+      throw error;
+    }
+    return { id, name, kind: 'other' };
+  }
+
   save(
     input: OrderExpenseInput | RemoveOrderExpenseInput,
     actor: HistoryActor,
-    remove = false
+    remove = false,
+    member?: { id: string; name: string }
   ): string {
     const value = remove ? removeOrderExpenseSchema.parse(input) : orderExpenseSchema.parse(input);
     const fingerprint = JSON.stringify({ value, actorId: actor.id, remove });
@@ -47,7 +78,7 @@ export class OrderExpenseRepository {
         return duplicate.expenseId as string;
       }
       const order = this.db
-        .prepare('SELECT workflowRevision FROM crm_orders WHERE id=?')
+        .prepare('SELECT workflowRevision FROM crm_orders WHERE id=? AND deletedAt IS NULL')
         .get(value.orderId);
       if (!order) throw new EconomicsError('Замовлення не знайдено.');
       if (order.workflowRevision !== value.expectedRevision)
@@ -63,31 +94,39 @@ export class OrderExpenseRepository {
       if (remove) this.db.prepare('UPDATE crm_order_expenses SET archived=1 WHERE id=?').run(id);
       else {
         const expense = orderExpenseSchema.parse(value);
-        const name = expense.contractorName.replace(/\s+/g, ' ');
-        const nameKey = name.toLocaleLowerCase('uk-UA');
+        const expenseName = this.names().find((entry) => entry.id === expense.expenseNameId);
+        if (!expenseName) throw new EconomicsError('Назву витрати не знайдено. Оновіть список.');
+        if (!member || member.id !== expense.contractorUserId)
+          throw new EconomicsError('Виберіть субпідрядника з команди.');
+        const name = member.name;
+        const nameKey = `clerk-user:${member.id}`;
         let contractor = this.db
-          .prepare('SELECT id,name FROM crm_contractors WHERE nameKey=?')
-          .get(nameKey);
+          .prepare('SELECT id,name FROM crm_contractors WHERE teamUserId=?')
+          .get(member.id);
         if (!contractor) {
           const contractorId = randomUUID();
           this.db
-            .prepare('INSERT INTO crm_contractors VALUES (?,?,?)')
-            .run(contractorId, name, nameKey);
+            .prepare('INSERT INTO crm_contractors(id,name,nameKey,teamUserId) VALUES (?,?,?,?)')
+            .run(contractorId, name, nameKey, member.id);
           contractor = { id: contractorId, name };
-        }
+        } else
+          this.db.prepare('UPDATE crm_contractors SET name=? WHERE id=?').run(name, contractor.id!);
         this.db
           .prepare(
-            `INSERT INTO crm_order_expenses(id,orderId,kind,description,contractorId,contractorName,amountCents,createdAt) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,description=excluded.description,contractorId=excluded.contractorId,contractorName=excluded.contractorName,amountCents=excluded.amountCents`
+            `INSERT INTO crm_order_expenses(id,orderId,kind,description,contractorId,contractorName,amountCents,createdAt,expenseNameId,contractorUserId,note) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,description=excluded.description,contractorId=excluded.contractorId,contractorName=excluded.contractorName,amountCents=excluded.amountCents,expenseNameId=excluded.expenseNameId,contractorUserId=excluded.contractorUserId,note=excluded.note`
           )
           .run(
             id,
             value.orderId,
-            expense.kind,
-            expense.description,
+            expenseName.kind,
+            expenseName.name,
             contractor.id as string,
-            contractor.name as string,
+            name,
             decimalScaled(expense.amount, 2),
-            new Date().toISOString()
+            new Date().toISOString(),
+            expenseName.id,
+            member.id,
+            expense.note
           );
       }
       const after = this.db.prepare('SELECT * FROM crm_order_expenses WHERE id=?').get(id);

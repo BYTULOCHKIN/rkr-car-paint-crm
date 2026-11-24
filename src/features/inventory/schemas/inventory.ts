@@ -1,5 +1,12 @@
 import { z } from 'zod';
 import { stockUnits } from '../constants/units';
+import { stockTags } from '../constants/tags';
+
+export const stockTagsSchema = z
+  .array(z.enum(stockTags, { error: 'Оберіть тег зі списку' }))
+  .min(1, 'Оберіть хоча б один тег')
+  .max(stockTags.length)
+  .refine((tags) => new Set(tags).size === tags.length, 'Теги не можуть повторюватися');
 
 export const stockUnitSchema = z.enum(stockUnits, { error: 'Оберіть одиницю: шт, л, кг або м' });
 
@@ -7,7 +14,9 @@ export const itemSchema = z
   .object({
     name: z.string().trim().min(1, 'Вкажіть назву').max(120),
     unit: stockUnitSchema,
-    notes: z.string().trim().max(1000)
+    notes: z.string().trim().max(1000),
+    // Older clients omit tags: create defaults to Розхідник; edits preserve the saved tags.
+    tags: stockTagsSchema.optional()
   })
   .strict();
 

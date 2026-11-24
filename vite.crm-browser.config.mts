@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { readFileSync, readdirSync } from 'node:fs';
+import { filterStockItems } from './src/features/inventory/lib/search';
+import { inventoryFiltersSchema } from './src/features/inventory/schemas/filters';
+import type { StockItem } from './src/features/inventory/api/types';
 const root = fileURLToPath(new URL('.', import.meta.url));
 function productionCss(): string {
   const folder = `${root}/.next/static/chunks`;
@@ -35,6 +38,27 @@ export default defineConfig({
       configureServer(server) {
         // Use the actual Next.js production stylesheet rather than a second Tailwind build.
         server.middlewares.use((req, res, next) => {
+          if (req.url?.startsWith('/api/inventory/items?')) {
+            const params = new URL(req.url, 'http://localhost').searchParams;
+            const snapshot = req.headers.cookie
+              ?.split('; ')
+              .find((cookie) => cookie.startsWith('stock-items-fixture='))
+              ?.slice('stock-items-fixture='.length);
+            const filters = inventoryFiltersSchema.parse({
+              search: params.get('search') ?? '',
+              tags: params.getAll('tag'),
+              archived: params.get('archived') === 'true'
+            });
+            const items: StockItem[] = snapshot ? JSON.parse(decodeURIComponent(snapshot)) : [];
+            res.setHeader('Content-Type', 'application/json');
+            res.setHeader('Cache-Control', 'no-store');
+            res.end(
+              JSON.stringify({
+                items: filterStockItems(items, filters.search, filters.tags, filters.archived)
+              })
+            );
+            return;
+          }
           const font = req.url?.match(/^\/media\/([a-zA-Z0-9_.-]+\.woff2?)$/)?.[1];
           if (font) {
             res.setHeader('Content-Type', 'font/woff2');

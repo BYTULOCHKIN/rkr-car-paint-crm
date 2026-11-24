@@ -11,8 +11,11 @@ test('unpaid readiness and later cost edits appear in payroll with automatic his
   await dialog.getByRole('button', { name: 'Зберегти замовлення', exact: true }).click();
   await dialog.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
   await dialog.getByRole('button', { name: 'Додати витрату', exact: true }).click();
-  await dialog.getByRole('textbox', { name: 'Назва витрати', exact: false }).fill('Пайка бампера');
-  await dialog.getByRole('textbox', { name: 'Субпідрядник', exact: false }).fill('Майстер пайки');
+  await dialog.getByRole('combobox', { name: 'Назва витрати', exact: false }).click();
+  await page.getByRole('option', { name: 'Пайка', exact: true }).click();
+  await dialog.getByRole('combobox', { name: 'Субпідрядник', exact: false }).click();
+  await page.getByRole('option', { name: 'Олена Адміністратор', exact: true }).click();
+  await dialog.getByRole('textbox', { name: 'Примітка', exact: true }).fill('Пайка бампера');
   await dialog
     .getByRole('textbox', { name: 'Вартість субпідряду, грн', exact: false })
     .fill('3000');
@@ -32,9 +35,7 @@ test('unpaid readiness and later cost edits appear in payroll with automatic his
     'Оплачено0,00'
   );
   await dialog.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
-  await dialog
-    .getByRole('button', { name: 'Редагувати витрату: Пайка бампера', exact: true })
-    .click();
+  await dialog.getByRole('button', { name: 'Редагувати витрату: Пайка', exact: true }).click();
   await dialog
     .getByRole('textbox', { name: 'Вартість субпідряду, грн', exact: false })
     .fill('4000');

@@ -1,5 +1,5 @@
 import { mutationOptions } from '@tanstack/react-query';
-import { saveOrderExpense, removeOrderExpense } from './service';
+import { createExpenseName, saveOrderExpense, removeOrderExpense } from './service';
 import type { OrderExpenseInput, RemoveOrderExpenseInput } from '../schemas/expenses';
 
 async function unwrap<T>(result: { ok: true; data: T } | { ok: false; error: string }): Promise<T> {
@@ -7,6 +7,11 @@ async function unwrap<T>(result: { ok: true; data: T } | { ok: false; error: str
   return result.data;
 }
 export const expenseMutations = {
+  createName: () =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof createExpenseName>[0]) =>
+        unwrap(await createExpenseName(input))
+    }),
   save: () =>
     mutationOptions({
       mutationFn: async (input: OrderExpenseInput) => unwrap(await saveOrderExpense(input))

@@ -1,6 +1,16 @@
 export type OrderExpenseKind = 'color_matching' | 'soldering' | 'other';
 
+export interface OrderExpenseName {
+  id: string;
+  name: string;
+  kind: OrderExpenseKind;
+}
+
 export interface OrderExpense {
+  expenseNameId?: string;
+  expenseName?: string;
+  contractorUserId?: string | null;
+  note?: string;
   id: string;
   orderId: string;
   kind: OrderExpenseKind;

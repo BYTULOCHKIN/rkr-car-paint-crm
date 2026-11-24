@@ -1,3 +1,6 @@
+import { createExpenseName } from '@/features/order-expenses/api/service';
+import { changeOrderTrash, getOrderTrash } from '../api/service';
+import { orderTrashSchema } from '../schemas/order-trash';
 import { saveOrderExpense, removeOrderExpense } from '@/features/order-expenses/api/service';
 import { advanceOrder, updateWorkflow } from '../api/service';
 import { saveOrderEconomics } from '@/features/order-economics/api/service';
@@ -68,7 +71,12 @@ const workspace: CrmWorkspace = {
   events: []
 };
 const repository = {
-  expenses: { save: vi.fn(() => 'expense-created') },
+  changeOrderTrash: vi.fn(),
+  expenses: {
+    save: vi.fn(() => 'expense-created'),
+    list: vi.fn(() => []),
+    createName: vi.fn((name: string) => ({ id: 'new-name', name, kind: 'other' }))
+  },
   payments: {
     receive: vi.fn(() => 'payment-created'),
     reverse: vi.fn(() => 'payment-reversed'),
@@ -786,9 +794,9 @@ test('subcontract writes require the active org and admin and use the verified a
     orderId: '00000000-0000-4000-8000-000000000001',
     expectedRevision: 0,
     operationId: '00000000-0000-4000-8000-000000000002',
-    kind: 'soldering' as const,
-    description: 'Пайка',
-    contractorName: 'Майстер',
+    expenseNameId: 'soldering',
+    contractorUserId: 'user_admin',
+    note: '',
     amount: '2500'
   };
   expect((await saveOrderExpense({ ...input, orgId: 'org_B' })).ok).toBe(false);
@@ -797,7 +805,8 @@ test('subcontract writes require the active org and admin and use the verified a
   expect(repository.expenses.save).toHaveBeenCalledWith(
     input,
     { id: 'user_admin', name: 'Олена' },
-    false
+    false,
+    { id: 'user_admin', name: 'Олена' }
   );
   repository.expenses.save.mockClear();
   memberships.mockResolvedValue({
@@ -817,4 +826,70 @@ test('subcontract writes require the active org and admin and use the verified a
     ).ok
   ).toBe(false);
   expect(repository.expenses.save).not.toHaveBeenCalled();
+});
+
+test('trash and recovery require the active org and admin; actors cannot be forged and worker trash reads fail', async () => {
+  const input = {
+    orgId: 'org_A',
+    orderId: '00000000-0000-4000-8000-000000000001',
+    expectedRevision: 0,
+    action: 'trash' as const
+  };
+  expect((await changeOrderTrash({ ...input, orgId: 'org_B' })).ok).toBe(false);
+  expect(repository.changeOrderTrash).not.toHaveBeenCalled();
+  expect(orderTrashSchema.safeParse({ ...input, actor: { id: 'forged' } }).success).toBe(false);
+  expect((await changeOrderTrash(input)).ok).toBe(true);
+  expect(repository.changeOrderTrash).toHaveBeenCalledWith(input, {
+    id: 'user_admin',
+    name: 'Олена'
+  });
+  await expect(getOrderTrash('org_B')).rejects.toThrow('Автомалярку змінено');
+  repository.changeOrderTrash.mockClear();
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [{ role: 'org:member', publicUserData: { userId: 'user_admin' } }]
+  });
+  expect((await changeOrderTrash(input)).ok).toBe(false);
+  expect((await changeOrderTrash({ ...input, action: 'restore' })).ok).toBe(false);
+  expect(repository.changeOrderTrash).not.toHaveBeenCalled();
+  await expect(getOrderTrash('org_A')).rejects.toThrow('лише адміністратору');
+});
+
+test('expense catalog creation and team payroll preference require current organization and verified admin', async () => {
+  expect((await createExpenseName({ orgId: 'org_B', name: 'Ремонт' })).ok).toBe(false);
+  expect(repository.expenses.createName).not.toHaveBeenCalled();
+  expect((await createExpenseName({ orgId: 'org_A', name: 'Ремонт' })).ok).toBe(true);
+  expect(repository.expenses.createName).toHaveBeenCalledWith('Ремонт');
+  expect(
+    (
+      await updateTeamMember({
+        orgId: 'org_A',
+        userId: 'user_admin',
+        specialties: [],
+        includeSubcontractInPayroll: true
+      })
+    ).ok
+  ).toBe(true);
+  expect(updateMembershipMetadata).toHaveBeenLastCalledWith({
+    organizationId: 'org_A',
+    userId: 'user_admin',
+    publicMetadata: { crm: { specialties: [], includeSubcontractInPayroll: true } }
+  });
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [{ role: 'org:member', publicUserData: { userId: 'user_admin' } }]
+  });
+  repository.expenses.createName.mockClear();
+  expect((await createExpenseName({ orgId: 'org_A', name: 'Ремонт' })).ok).toBe(false);
+  expect(
+    (
+      await updateTeamMember({
+        orgId: 'org_A',
+        userId: 'user_admin',
+        specialties: [],
+        includeSubcontractInPayroll: true
+      })
+    ).ok
+  ).toBe(false);
+  expect(repository.expenses.createName).not.toHaveBeenCalled();
 });

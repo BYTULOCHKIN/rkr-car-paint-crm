@@ -8,7 +8,12 @@ export const workerSpecialtiesSchema = z
     'Спеціалізації не мають повторюватись'
   );
 
-export const teamMemberSettingsSchema = z.object({ specialties: workerSpecialtiesSchema }).strict();
+export const teamMemberSettingsSchema = z
+  .object({
+    specialties: workerSpecialtiesSchema,
+    includeSubcontractInPayroll: z.boolean().optional()
+  })
+  .strict();
 
 export const updateTeamMemberSchema = teamMemberSettingsSchema
   .extend({ orgId: z.string().min(1).max(255), userId: z.string().min(1).max(255) })

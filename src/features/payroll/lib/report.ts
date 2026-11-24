@@ -20,7 +20,10 @@ interface Contribution extends PayrollCalculation {
   role: PayrollRole;
 }
 
-function contributions(posting: EconomicsPosting | undefined): Map<string, Contribution> {
+function contributions(
+  posting: EconomicsPosting | undefined,
+  enabledSubcontractors: ReadonlySet<string>
+): Map<string, Contribution> {
   const result = new Map<string, Contribution>();
   if (!posting) return result;
   for (const role of ['painter', 'polisher', 'assembler'] as const) {
@@ -35,6 +38,20 @@ function contributions(posting: EconomicsPosting | undefined): Map<string, Contr
       amountCents: posting.result[`${role}AccrualCents`]
     });
   }
+  for (const expense of posting.expenses ?? []) {
+    const workerId = expense.contractorUserId;
+    if (!workerId || !enabledSubcontractors.has(workerId)) continue;
+    const key = `${workerId}:subcontract`;
+    const amountCents = sumIntegers([result.get(key)?.amountCents ?? 0, expense.amountCents]);
+    result.set(key, {
+      workerId,
+      name: expense.contractorName,
+      role: 'subcontract',
+      baseCents: amountCents,
+      shareBps: 10000,
+      amountCents
+    });
+  }
   return result;
 }
 
@@ -44,11 +61,18 @@ function calculation(value: Contribution | undefined): PayrollCalculation | null
     : null;
 }
 
-function coloristCost(posting: EconomicsPosting | undefined): number {
+function coloristCost(
+  posting: EconomicsPosting | undefined,
+  enabledSubcontractors: ReadonlySet<string>
+): number {
   if (posting?.model === 'order_net')
     return sumIntegers(
       (posting.expenses ?? [])
-        .filter((expense) => expense.kind === 'color_matching')
+        .filter(
+          (expense) =>
+            expense.kind === 'color_matching' &&
+            (!expense.contractorUserId || !enabledSubcontractors.has(expense.contractorUserId))
+        )
         .map((expense) => expense.amountCents)
     );
   return sumIntegers(
@@ -82,6 +106,9 @@ export function buildPayrollReport(
   generatedAt = new Date().toISOString()
 ): PayrollReport {
   const value = payrollFiltersSchema.parse(filters);
+  const enabledSubcontractors = new Set(
+    team.filter((member) => member.includeSubcontractInPayroll).map((member) => member.id)
+  );
   const admin = access.role === 'admin';
   const visible = (id: string) => admin || id === access.userId;
   const vehicles = new Map(workspace.vehicles.map((vehicle) => [vehicle.id, vehicle]));
@@ -134,8 +161,8 @@ export function buildPayrollReport(
   )) {
     const prior = previous.get(posting.orderId);
     previous.set(posting.orderId, posting);
-    const before = contributions(prior);
-    const after = contributions(posting);
+    const before = contributions(prior, enabledSubcontractors);
+    const after = contributions(posting, enabledSubcontractors);
     const keys = [...new Set([...before.keys(), ...after.keys()])];
     const date = reportDate(posting.createdAt);
     if (!date) {
@@ -150,8 +177,8 @@ export function buildPayrollReport(
     if (admin)
       warnings.coloristSubcontractCents = sumIntegers([
         warnings.coloristSubcontractCents,
-        coloristCost(posting),
-        -coloristCost(prior)
+        coloristCost(posting, enabledSubcontractors),
+        -coloristCost(prior, enabledSubcontractors)
       ]);
     for (const key of keys) {
       const old = before.get(key);

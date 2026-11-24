@@ -1,3 +1,6 @@
+import { defaultExpenseNames } from '@/features/order-expenses/lib/names';
+import { getInventory } from './inventory-service';
+import type { OrderTrashInput } from '@/features/crm/schemas/order-trash';
 import { businessToday } from '@/features/crm/lib/workflow';
 import { executorTransition } from '@/features/crm/lib/executor-workflow';
 import type { AdvanceOrderInput } from '@/features/crm/schemas/crm';
@@ -12,7 +15,7 @@ import {
   updateTeamMemberSchema,
   type UpdateTeamMemberInput
 } from '@/features/crm/schemas/team-member';
-import { readWorkerSpecialties } from '@/features/crm/lib/team-specialties';
+import { readWorkerSpecialties, readSubcontractPayroll } from '@/features/crm/lib/team-specialties';
 import type {
   CustomerInput,
   UpdateCustomerInput,
@@ -261,6 +264,7 @@ export async function getWorkspace() {
   }
   if (new URLSearchParams(location.search).has('empty'))
     return { customers: [], vehicles: [], orders: [], requests: [], events: [] };
+  data.expenseNames ??= structuredClone(defaultExpenseNames);
   const result = structuredClone(data);
   if (new URLSearchParams(location.search).has('trendDemo')) {
     for (const order of result.orders) {
@@ -405,13 +409,28 @@ export async function getWorkspace() {
   >;
   result.team = result.team.map((member) => ({
     ...member,
+    ...(readSubcontractPayroll(memberSettings[member.id])
+      ? { includeSubcontractInPayroll: true }
+      : {}),
     specialties: readWorkerSpecialties(memberSettings[member.id])
   }));
-  result.orders = result.orders.map((order) => ({
-    ...order,
-    assigneeId: order.assigneeId ?? 'user_owner',
-    assigneeName: order.assigneeName ?? 'Олена Адміністратор'
-  }));
+  const movements = (await getInventory()).movements;
+  result.orders = result.orders
+    .filter((order) => !order.deletedAt)
+    .map((order) => ({
+      trashBlockedReason: data.payments?.some((entry) => entry.orderId === order.id)
+        ? 'Є оплати клієнта або їх скасування.'
+        : data.finance?.postings.some((entry) => entry.orderId === order.id)
+          ? 'Є проведений розрахунок зарплати.'
+          : movements.some((entry) => entry.orderId === order.id)
+            ? 'Є складські операції за замовленням.'
+            : order.expenses?.length
+              ? 'Є записи витрат на субпідряд.'
+              : null,
+      ...order,
+      assigneeId: order.assigneeId ?? 'user_owner',
+      assigneeName: order.assigneeName ?? 'Олена Адміністратор'
+    }));
   if (result.finance && result.access.role === 'worker')
     result.finance.events = result.finance.events.filter(
       (entry) => entry.payee.kind === 'worker' && entry.payee.id === result.access!.userId
@@ -563,7 +582,12 @@ export async function updateTeamMember(input: UpdateTeamMemberInput) {
     return { ok: false as const, error: 'Немає доступу' };
   const value = updateTeamMemberSchema.parse(input);
   const settings = JSON.parse(sessionStorage.getItem('team-settings') ?? '{}');
-  settings[value.userId] = { crm: { specialties: value.specialties } };
+  settings[value.userId] = {
+    crm: {
+      specialties: value.specialties,
+      includeSubcontractInPayroll: value.includeSubcontractInPayroll ?? false
+    }
+  };
   sessionStorage.setItem('team-settings', JSON.stringify(settings));
   return { ok: true as const, data: value.specialties };
 }
@@ -646,5 +670,27 @@ export async function updateCustomer(input: UpdateCustomerInput & { orgId: strin
     phone: contacts.find((contact) => contact.type === 'phone')?.value ?? '',
     revision: (customer.revision ?? 0) + 1
   });
+  return { ok: true as const, data: null };
+}
+
+export async function getOrderTrash(_orgId: string) {
+  const workspace = await getWorkspace();
+  return { ...workspace, orders: structuredClone(data.orders.filter((order) => order.deletedAt)) };
+}
+export async function changeOrderTrash(input: OrderTrashInput) {
+  const workspace = await getWorkspace();
+  if (workspace.access?.role !== 'admin' || input.orgId !== workspace.access.orgId)
+    return { ok: false as const, error: 'Немає доступу' };
+  const order = data.orders.find((entry) => entry.id === input.orderId)!;
+  if ((order.workflowRevision ?? 0) !== input.expectedRevision)
+    return { ok: false as const, error: 'Замовлення вже змінено.' };
+  const visible = workspace.orders.find((entry) => entry.id === order.id);
+  if (input.action === 'trash' && visible?.trashBlockedReason)
+    return { ok: false as const, error: visible.trashBlockedReason };
+  order.deletedAt = input.action === 'trash' ? new Date().toISOString() : null;
+  order.deletedBy =
+    input.action === 'trash' ? { id: 'user_owner', name: 'Олена Адміністратор' } : null;
+  order.workflowRevision = (order.workflowRevision ?? 0) + 1;
+  persistFlowFixture();
   return { ok: true as const, data: null };
 }

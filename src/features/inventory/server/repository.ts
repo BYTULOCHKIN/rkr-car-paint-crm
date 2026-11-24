@@ -74,7 +74,7 @@ export class InventoryRepository {
 
   items(): StockItem[] {
     return this.db
-      .prepare(`SELECT i.id, i.name, i.unit, i.notes, i.archived,
+      .prepare(`SELECT i.id, i.name, i.unit, i.notes, i.tags, i.archived,
       v.totalCostCents, v.revision AS valuationRevision,
       EXISTS(SELECT 1 FROM stock_movements WHERE itemId=i.id) AS locked,
       COALESCE((SELECT SUM(deltaMilli) FROM stock_movements WHERE itemId=i.id),0) AS balanceMilli
@@ -82,6 +82,7 @@ export class InventoryRepository {
       .all()
       .map((row) => ({
         ...row,
+        tags: JSON.parse(row.tags as string),
         archived: !!row.archived,
         locked: !!row.locked
       })) as unknown as StockItem[];
@@ -134,8 +135,15 @@ export class InventoryRepository {
       const id = randomUUID();
       const key = this.checkName(value.name);
       this.db
-        .prepare('INSERT INTO stock_items (id,name,nameKey,unit,notes) VALUES (?,?,?,?,?)')
-        .run(id, value.name, key, value.unit, value.notes);
+        .prepare('INSERT INTO stock_items (id,name,nameKey,unit,notes,tags) VALUES (?,?,?,?,?,?)')
+        .run(
+          id,
+          value.name,
+          key,
+          value.unit,
+          value.notes,
+          JSON.stringify(value.tags ?? ['Розхідник'])
+        );
       this.db.prepare('INSERT INTO stock_item_values(itemId,totalCostCents) VALUES (?,0)').run(id);
       return id;
     });
@@ -150,8 +158,15 @@ export class InventoryRepository {
       if (!current.locked) stockUnitSchema.parse(value.unit);
       const key = this.checkName(value.name, value.id);
       this.db
-        .prepare('UPDATE stock_items SET name=?,nameKey=?,unit=?,notes=? WHERE id=?')
-        .run(value.name, key, value.unit, value.notes, value.id);
+        .prepare('UPDATE stock_items SET name=?,nameKey=?,unit=?,notes=?,tags=? WHERE id=?')
+        .run(
+          value.name,
+          key,
+          value.unit,
+          value.notes,
+          JSON.stringify(value.tags ?? current.tags),
+          value.id
+        );
     });
   }
 
@@ -334,7 +349,7 @@ export class InventoryRepository {
     this.transaction(() => {
       if (this.duplicate(value.operationId, value, actor, 'consumption')) return;
       const order = this.db
-        .prepare('SELECT status,salaryModel FROM crm_orders WHERE id=?')
+        .prepare('SELECT status,salaryModel FROM crm_orders WHERE id=? AND deletedAt IS NULL')
         .get(value.orderId);
       if (!order) throw new InventoryError('Замовлення не знайдено');
       if (

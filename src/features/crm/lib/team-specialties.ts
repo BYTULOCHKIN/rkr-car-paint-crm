@@ -47,3 +47,7 @@ export function specialtyWorkerOptions(
       : [])
   ];
 }
+
+export function readSubcontractPayroll(metadata: unknown): boolean {
+  return record(record(metadata)?.crm)?.includeSubcontractInPayroll === true;
+}

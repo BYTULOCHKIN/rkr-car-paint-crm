@@ -221,7 +221,10 @@ test('v10 migration preserves linked stock, order history and numbering gaps', (
       old.close();
     }
     repository = new CrmRepository(path);
-    assert.deepEqual(repository.workspace().orders, before.orders);
+    assert.deepEqual(
+      repository.workspace().orders.map(({ trashBlockedReason: _reason, ...order }) => order),
+      before.orders.map(({ trashBlockedReason: _reason, ...order }) => order)
+    );
     assert.deepEqual(repository.workspace().events, before.events);
     assert.equal(repository.inventory.items()[0].balanceMilli, 750);
     assert.equal(repository.inventory.movements().length, 2);

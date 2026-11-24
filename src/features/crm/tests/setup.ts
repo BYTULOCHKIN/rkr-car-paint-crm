@@ -24,6 +24,7 @@ Element.prototype.hasPointerCapture = () => false;
 Element.prototype.setPointerCapture = vi.fn();
 Element.prototype.releasePointerCapture = vi.fn();
 vi.mock('@/features/order-expenses/api/service', () => ({
+  createExpenseName: vi.fn(),
   saveOrderExpense: vi.fn(),
   removeOrderExpense: vi.fn()
 }));

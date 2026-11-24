@@ -119,9 +119,11 @@ const detailColumns: ReportColumn<PayrollEntry>[] = [
     id: 'role',
     title: 'Робота',
     cell: (entry) =>
-      entry.role === 'responsible'
-        ? 'Відповідальний'
-        : workerSpecialtyOptions.find((option) => option.value === entry.role)!.label
+      entry.role === 'subcontract'
+        ? 'Субпідряд'
+        : entry.role === 'responsible'
+          ? 'Відповідальний'
+          : workerSpecialtyOptions.find((option) => option.value === entry.role)!.label
   },
   {
     id: 'calculation',
@@ -302,8 +304,8 @@ function PayrollContent({
         <Alert>
           <AlertDescription>
             Підбір фарби: {money(report.warnings.coloristSubcontractCents)} за період обліковується
-            як субпідряд. Ця сума не включена до зарплат команди, оскільки одержувачі ще не
-            прив’язані до працівників.
+            як субпідряд. Ця сума не включена до зарплат команди, доки одержувачів не вибрано з
+            команди або для них не ввімкнено показ субпідряду в зарплатах.
           </AlertDescription>
         </Alert>
       )}

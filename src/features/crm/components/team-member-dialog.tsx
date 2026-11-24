@@ -39,7 +39,10 @@ interface TeamMemberDialogProps {
 }
 
 export function TeamMemberDialog({ member, orgId, editable, onClose }: TeamMemberDialogProps) {
-  const [defaults] = useState(() => ({ specialties: [...(member.specialties ?? [])] }));
+  const [defaults] = useState(() => ({
+    specialties: [...(member.specialties ?? [])],
+    includeSubcontractInPayroll: member.includeSubcontractInPayroll ?? false
+  }));
   const [discard, setDiscard] = useState(false);
   const formId = useId();
   const client = useQueryClient();
@@ -50,7 +53,9 @@ export function TeamMemberDialog({ member, orgId, editable, onClose }: TeamMembe
   });
   const form = useAppForm({
     defaultValues: defaults,
-    validators: { onSubmit: teamMemberSettingsSchema },
+    validators: {
+      onSubmit: teamMemberSettingsSchema.required({ includeSubcontractInPayroll: true })
+    },
     onSubmit: async ({ value }) => {
       if (!editable) return;
       try {
@@ -130,13 +135,21 @@ export function TeamMemberDialog({ member, orgId, editable, onClose }: TeamMembe
                     />
                   )}
                 </form.AppField>
+                <form.AppField name='includeSubcontractInPayroll'>
+                  {(field) => (
+                    <field.SwitchField
+                      label='Показувати субпідряд у зарплатах'
+                      description='Додає повну суму субпідрядних робіт цього учасника за вибраний період. За замовчуванням вимкнено.'
+                    />
+                  )}
+                </form.AppField>
                 <p className='text-sm text-muted-foreground'>
                   Нарахування залежать від призначення в замовленні. Зміна спеціалізацій не змінює
                   попередні роботи та виплати.
                 </p>
                 {!editable && (
                   <p className='text-sm text-muted-foreground'>
-                    Редагувати спеціалізації може лише адміністратор.
+                    Редагувати налаштування може лише адміністратор.
                   </p>
                 )}
                 {mutation.error && (
@@ -163,7 +176,7 @@ export function TeamMemberDialog({ member, orgId, editable, onClose }: TeamMembe
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Відкинути зміни?</AlertDialogTitle>
-            <AlertDialogDescription>Вибрані спеціалізації ще не збережено.</AlertDialogDescription>
+            <AlertDialogDescription>Налаштування учасника ще не збережено.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <Button variant='outline' onClick={() => setDiscard(false)}>

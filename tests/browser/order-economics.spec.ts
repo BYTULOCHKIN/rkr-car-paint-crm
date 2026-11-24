@@ -18,8 +18,11 @@ test('client works remain editable while subcontract costs are independent and p
   );
   await dialog.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
   await dialog.getByRole('button', { name: 'Додати витрату', exact: true }).click();
-  await dialog.getByRole('textbox', { name: 'Назва витрати', exact: false }).fill('Підбір кольору');
-  await dialog.getByRole('textbox', { name: 'Субпідрядник', exact: false }).fill('Колорист');
+  await dialog.getByRole('combobox', { name: 'Назва витрати', exact: false }).click();
+  await page.getByRole('option', { name: 'Підбір фарби', exact: true }).click();
+  await dialog.getByRole('combobox', { name: 'Субпідрядник', exact: false }).click();
+  await page.getByRole('option', { name: 'Маляр Андрій', exact: true }).click();
+  await dialog.getByRole('textbox', { name: 'Примітка', exact: true }).fill('Підбір кольору');
   await dialog
     .getByRole('textbox', { name: 'Вартість субпідряду, грн', exact: false })
     .fill('2500');
@@ -28,7 +31,10 @@ test('client works remain editable while subcontract costs are independent and p
     dialog.getByRole('button', { name: 'Зберегти замовлення', exact: true })
   ).toBeDisabled();
   await dialog.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
-  await expect(dialog.getByRole('textbox', { name: 'Назва витрати', exact: false })).toHaveValue(
+  await expect(dialog.getByRole('combobox', { name: 'Назва витрати', exact: false })).toContainText(
+    'Підбір фарби'
+  );
+  await expect(dialog.getByRole('textbox', { name: 'Примітка', exact: true })).toHaveValue(
     'Підбір кольору'
   );
   await dialog.getByRole('button', { name: 'Зберегти витрату', exact: true }).click();
@@ -38,7 +44,7 @@ test('client works remain editable while subcontract costs are independent and p
     '20\u00a0000,00'
   );
   await costs
-    .getByRole('button', { name: 'Редагувати витрату: Підбір кольору', exact: true })
+    .getByRole('button', { name: 'Редагувати витрату: Підбір фарби', exact: true })
     .click();
   await dialog
     .getByRole('textbox', { name: 'Вартість субпідряду, грн', exact: false })
@@ -52,8 +58,6 @@ test('client works remain editable while subcontract costs are independent and p
     path: info.outputPath('materials-and-expenses.png'),
     animations: 'disabled'
   });
-  await costs
-    .getByRole('button', { name: 'Видалити витрату: Підбір кольору', exact: true })
-    .click();
+  await costs.getByRole('button', { name: 'Видалити витрату: Підбір фарби', exact: true }).click();
   await expect(costs).toContainText('Витрат на субпідряд ще немає.');
 });

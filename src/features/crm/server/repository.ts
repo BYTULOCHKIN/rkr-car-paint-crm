@@ -1,3 +1,7 @@
+import { migrateExpenseCatalog } from '@/features/order-expenses/server/catalog-migration';
+import { migrateStockTags } from '@/features/inventory/server/tags-migration';
+import { migrateOrderTrash, orderTrashBlockers } from './order-trash';
+import { orderTrashSchema, type OrderTrashInput } from '../schemas/order-trash';
 import { migrateOrderExpenses } from '@/features/order-expenses/server/migration';
 import { OrderExpenseRepository } from '@/features/order-expenses/server/repository';
 import { DatabaseSync } from 'node:sqlite';
@@ -248,6 +252,12 @@ export class CrmRepository {
       migrateThreeStatuses(this.db);
     if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 18)
       this.transaction(() => migrateOrderExpenses(this.db));
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 19)
+      this.transaction(() => migrateOrderTrash(this.db));
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 20)
+      this.transaction(() => migrateExpenseCatalog(this.db));
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 21)
+      this.transaction(() => migrateStockTags(this.db));
     this.expenses = new OrderExpenseRepository(this.db, (id, actor, note) =>
       this.costsChanged(id, actor, note)
     );
@@ -406,7 +416,7 @@ export class CrmRepository {
       throw new CrmError('Запланована видача не може бути раніше запланованого прийому');
   }
 
-  workspace(): CrmWorkspace {
+  workspace(includeTrashed = false): CrmWorkspace {
     const customers = this.db
       .prepare('SELECT * FROM crm_customers ORDER BY createdAt DESC, id')
       .all()
@@ -441,7 +451,9 @@ export class CrmRepository {
       .all()
       .map((row) => ({ ...row })) as unknown as RepairRequest[];
     const rows = this.db
-      .prepare('SELECT * FROM crm_orders ORDER BY number DESC')
+      .prepare(
+        `SELECT * FROM crm_orders${includeTrashed ? '' : ' WHERE deletedAt IS NULL'} ORDER BY number DESC`
+      )
       .all() as unknown as (Omit<RepairOrder, 'items' | 'totalCents' | 'paintPlan'> & {
       paintPlan: string;
     })[];
@@ -473,10 +485,14 @@ export class CrmRepository {
       list.push(expense);
       expensesByOrder.set(expense.orderId, list);
     }
+    const blockers = orderTrashBlockers(this.db);
     const orders = rows.map((row) => {
       const orderItems = byOrder.get(row.id) ?? [];
       return {
         ...row,
+        deletedBy:
+          typeof row.deletedBy === 'string' ? (JSON.parse(row.deletedBy) as HistoryActor) : null,
+        trashBlockedReason: blockers.get(row.id) ?? null,
         ...(economics.has(row.id) ? { economics: economics.get(row.id) } : {}),
         expenses: expensesByOrder.get(row.id) ?? [],
         items: orderItems,
@@ -499,8 +515,11 @@ export class CrmRepository {
       vehicles,
       requests,
       orders,
-      events,
+      events: events.filter(
+        (event) => event.kind !== 'order' || orders.some((order) => order.id === event.recordId)
+      ),
       payments: this.payments.list(),
+      expenseNames: this.expenses.names(),
       finance: this.financeWorkspace()
     };
   }
@@ -841,6 +860,46 @@ export class CrmRepository {
     });
   }
 
+  changeOrderTrash(input: OrderTrashInput, actor: HistoryActor): void {
+    const value = orderTrashSchema.parse(input);
+    this.transaction(() => {
+      const order = this.db
+        .prepare('SELECT * FROM crm_orders WHERE id=?')
+        .get(value.orderId) as unknown as RepairOrder | undefined;
+      if (!order) throw new CrmError('Замовлення не знайдено');
+      if (order.workflowRevision !== value.expectedRevision)
+        throw new CrmError('Замовлення вже змінено. Оновіть сторінку й повторіть дію.');
+      const deleting = value.action === 'trash';
+      if (deleting && order.deletedAt) throw new CrmError('Замовлення вже в кошику.');
+      if (!deleting && !order.deletedAt) throw new CrmError('Замовлення вже відновлено.');
+      if (deleting) {
+        const reason = orderTrashBlockers(this.db).get(order.id);
+        if (reason) throw new CrmError(`Не можна перемістити замовлення в кошик: ${reason}`);
+      }
+      this.db
+        .prepare(
+          'UPDATE crm_orders SET deletedAt=?,deletedBy=?,workflowRevision=workflowRevision+1 WHERE id=?'
+        )
+        .run(
+          deleting ? new Date().toISOString() : null,
+          deleting ? JSON.stringify(actor) : null,
+          order.id
+        );
+      this.logEvent({
+        actor,
+        kind: 'order',
+        recordId: order.id,
+        fromStatus: order.status,
+        toStatus: order.status,
+        previousIntakeDate: order.plannedIntakeDate,
+        previousDeliveryDate: order.plannedDeliveryDate,
+        plannedIntakeDate: order.plannedIntakeDate,
+        plannedDeliveryDate: order.plannedDeliveryDate,
+        note: deleting ? 'Замовлення переміщено в кошик' : 'Замовлення відновлено з кошика'
+      });
+    });
+  }
+
   createClientOrder(input: OrderInput, name: string, actor: HistoryActor): string {
     return this.transaction(() => {
       const id = this.createOrder(input, name, actor);
@@ -889,7 +948,7 @@ export class CrmRepository {
 
   mutateOrderCosts<T>(id: string, actor: HistoryActor, operation: () => T): T {
     return this.transaction(() => {
-      if (!this.db.prepare('SELECT id FROM crm_orders WHERE id=?').get(id))
+      if (!this.db.prepare('SELECT id FROM crm_orders WHERE id=? AND deletedAt IS NULL').get(id))
         throw new CrmError('Замовлення не знайдено');
       const before = this.inventory.movements().length;
       this.db.prepare("UPDATE crm_orders SET salaryModel='net' WHERE id=?").run(id);
@@ -922,6 +981,7 @@ export class CrmRepository {
         | (Omit<RepairOrder, 'paintPlan'> & { paintPlan: string })
         | undefined;
       if (!current) throw new CrmError('Замовлення не знайдено');
+      if (current.deletedAt) throw new CrmError('Замовлення у кошику. Спочатку відновіть його.');
       const priorEconomicsRow = this.db
         .prepare('SELECT details FROM crm_order_economics WHERE orderId=?')
         .get(input.id);
@@ -1025,7 +1085,9 @@ export class CrmRepository {
               .get(key);
             if (!contractor) {
               const id = randomUUID();
-              this.db.prepare('INSERT INTO crm_contractors VALUES (?,?,?)').run(id, name, key);
+              this.db
+                .prepare('INSERT INTO crm_contractors(id,name,nameKey) VALUES (?,?,?)')
+                .run(id, name, key);
               contractor = { id, name };
             }
             return {
@@ -1208,6 +1270,8 @@ export class CrmRepository {
         .prepare(`SELECT * FROM ${table} WHERE id = ?`)
         .get(value.id) as unknown as RepairRequest | RepairOrder | undefined;
       if (!current) throw new CrmError('Запис не знайдено');
+      if (value.kind === 'order' && (current as RepairOrder).deletedAt)
+        throw new CrmError('Замовлення у кошику. Спочатку відновіть його.');
       const currentStatus =
         value.kind === 'request' && current.status !== 'converted'
           ? current.plannedIntakeDate
@@ -1319,12 +1383,12 @@ const globalDb = globalThis as typeof globalThis & {
 export function getCrmRepository(): CrmRepository {
   if (
     globalDb.crmRepository &&
-    (globalDb.crmSchemaVersion !== 18 || !(globalDb.crmRepository instanceof CrmRepository))
+    (globalDb.crmSchemaVersion !== 21 || !(globalDb.crmRepository instanceof CrmRepository))
   ) {
     globalDb.crmRepository.close();
     globalDb.crmRepository = undefined;
   }
-  globalDb.crmSchemaVersion = 18;
+  globalDb.crmSchemaVersion = 21;
   return (globalDb.crmRepository ??= new CrmRepository(
     process.env.CRM_DATABASE_PATH || resolve('data/crm.sqlite')
   ));
@@ -1381,7 +1445,7 @@ export function getOrganizationRepository(
   const cached = orgRegistry.crmOrganizations;
   if (
     !cached ||
-    cached.schemaVersion !== 18 ||
+    cached.schemaVersion !== 21 ||
     cached.filename !== filename ||
     cached.configuredAdmin !== configuredAdmin ||
     !(cached.repositories instanceof OrganizationRepositories)
@@ -1390,7 +1454,7 @@ export function getOrganizationRepository(
     orgRegistry.crmOrganizations = {
       filename,
       configuredAdmin,
-      schemaVersion: 18,
+      schemaVersion: 21,
       repositories: new OrganizationRepositories(filename, configuredAdmin)
     };
   }

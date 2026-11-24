@@ -247,7 +247,11 @@ export class SettlementRepository {
     const fingerprint = JSON.stringify({ value, actorId: actor.id });
     this.transaction(() => {
       if (this.duplicateCash(value.operationId, fingerprint)) return;
-      if (!this.db.prepare('SELECT id FROM crm_orders WHERE id=?').get(value.orderId))
+      if (
+        !this.db
+          .prepare('SELECT id FROM crm_orders WHERE id=? AND deletedAt IS NULL')
+          .get(value.orderId)
+      )
         throw new EconomicsError('Замовлення не знайдено');
       if (payee.kind !== value.payeeKind || payee.id !== value.payeeId)
         throw new EconomicsError('Одержувач не відповідає операції');

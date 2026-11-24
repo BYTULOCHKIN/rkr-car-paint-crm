@@ -20,6 +20,7 @@ const initial: InventoryData = {
     {
       id: '00000000-0000-4000-8000-000000000901',
       name: 'Фарба',
+      tags: ['Фарба', 'Фарба_зелена'],
       unit: 'л',
       notes: '',
       archived: false,
@@ -31,6 +32,7 @@ const initial: InventoryData = {
     {
       id: '00000000-0000-4000-8000-000000000902',
       name: 'Лак (старий залишок)',
+      tags: ['Розхідник'],
       unit: 'л',
       notes: '',
       archived: false,
@@ -96,19 +98,23 @@ function data(): InventoryData {
 }
 export function saveInventoryFixture(value: InventoryData): void {
   sessionStorage.setItem('stock-fixture', JSON.stringify(value));
+  document.cookie = `stock-items-fixture=${encodeURIComponent(JSON.stringify(value.items))}; path=/; SameSite=Lax`;
 }
 function save(value: InventoryData) {
-  sessionStorage.setItem('stock-fixture', JSON.stringify(value));
+  saveInventoryFixture(value);
   return { ok: true as const, data: undefined };
 }
 export async function getInventory() {
-  return data();
+  const value = data();
+  saveInventoryFixture(value);
+  return value;
 }
 export async function createStockItem(_org: string, input: ItemInput) {
   const value = data();
   const id = crypto.randomUUID();
   value.items.push({
     ...input,
+    tags: input.tags ?? ['Розхідник'],
     id,
     archived: false,
     locked: false,

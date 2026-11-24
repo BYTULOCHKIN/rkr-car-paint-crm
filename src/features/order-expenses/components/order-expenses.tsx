@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react';
 import { z } from 'zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/features/crm/components/action-button';
 import { Icons } from '@/components/icons';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { FieldGroup } from '@/components/ui/field';
 import { useAppForm } from '@/lib/form';
 import { CrmForm } from '@/features/crm/components/dialog-form';
@@ -14,14 +15,10 @@ import type { CrmWorkspace, RepairOrder } from '@/features/crm/api/types';
 import { crmQueries } from '@/features/crm/api/queries';
 import { money } from '@/features/crm/lib/format';
 import { expenseMutations } from '../api/queries';
-import type { OrderExpense, OrderExpenseKind } from '../api/types';
+import type { OrderExpense } from '../api/types';
+import { legacyExpenseName, defaultExpenseNames } from '../lib/names';
 import { orderExpenseSchema } from '../schemas/expenses';
 
-const kinds = [
-  { value: 'color_matching', label: 'Підбір фарби' },
-  { value: 'soldering', label: 'Пайка' },
-  { value: 'other', label: 'Інший субпідряд' }
-];
 interface OrderExpensesProps {
   order: RepairOrder;
   data: CrmWorkspace;
@@ -64,11 +61,16 @@ export function OrderExpenses({ order, data, disabled, onStateChange }: OrderExp
           key={expense.id}
           className='flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3'
         >
-          <div className='min-w-0 flex-1'>
-            <p className='break-words font-medium'>{expense.description}</p>
-            <p className='text-muted-foreground text-sm break-words'>
-              {expense.contractorName} · {kinds.find((kind) => kind.value === expense.kind)?.label}
+          <div className='min-w-0 basis-full sm:flex-1 sm:basis-auto'>
+            <p className='break-words font-medium'>
+              {expense.expenseName ?? legacyExpenseName(expense.kind)}
             </p>
+            <p className='text-muted-foreground text-sm break-words'>{expense.contractorName}</p>
+            {expense.note && (
+              <p className='text-muted-foreground text-sm whitespace-pre-wrap break-words'>
+                {expense.note}
+              </p>
+            )}
           </div>
           <strong className='text-sm tabular-nums'>{money(expense.amountCents)}</strong>
           {data.access?.role === 'admin' && (
@@ -77,7 +79,7 @@ export function OrderExpenses({ order, data, disabled, onStateChange }: OrderExp
                 type='button'
                 size='icon'
                 variant='ghost'
-                aria-label={`Редагувати витрату: ${expense.description}`}
+                aria-label={`Редагувати витрату: ${expense.expenseName ?? legacyExpenseName(expense.kind)}`}
                 disabled={disabled || !!editing || remove.isPending}
                 onClick={() => setEditing(expense)}
               >
@@ -87,7 +89,7 @@ export function OrderExpenses({ order, data, disabled, onStateChange }: OrderExp
                 type='button'
                 size='icon'
                 variant='ghost'
-                aria-label={`Видалити витрату: ${expense.description}`}
+                aria-label={`Видалити витрату: ${expense.expenseName ?? legacyExpenseName(expense.kind)}`}
                 disabled={disabled || !!editing || remove.isPending}
                 onClick={() =>
                   remove.mutate({
@@ -122,6 +124,7 @@ export function OrderExpenses({ order, data, disabled, onStateChange }: OrderExp
           key={typeof editing === 'string' ? editing : editing.id}
           order={order}
           orgId={data.access!.orgId}
+          data={data}
           expense={editing === 'new' ? undefined : editing}
           disabled={disabled}
           onStateChange={setFormState}
@@ -134,6 +137,7 @@ export function OrderExpenses({ order, data, disabled, onStateChange }: OrderExp
 function ExpenseForm({
   order,
   orgId,
+  data,
   expense,
   disabled,
   onStateChange,
@@ -141,12 +145,19 @@ function ExpenseForm({
 }: {
   order: RepairOrder;
   orgId: string;
+  data: CrmWorkspace;
   expense?: OrderExpense;
   disabled?: boolean;
   onStateChange: (state: FormState) => void;
   onSaved: () => void;
 }) {
   const client = useQueryClient();
+  const [addingName, setAddingName] = useState(false);
+  const createName = useMutation({
+    ...expenseMutations.createName(),
+    onError: (error) => toast.error(error.message),
+    onSettled: () => client.invalidateQueries({ queryKey: crmQueries.all() })
+  });
   const [operationId] = useState(() => crypto.randomUUID());
   const mutation = useMutation({
     ...expenseMutations.save(),
@@ -166,17 +177,39 @@ function ExpenseForm({
         operationId,
         expectedRevision: order.workflowRevision ?? 0,
         ...(expense ? { id: expense.id } : {}),
-        kind: expense?.kind ?? ('other' as OrderExpenseKind),
-        description: expense?.description ?? '',
-        contractorName: expense?.contractorName ?? '',
+        expenseNameId: expense?.expenseNameId ?? '',
+        contractorUserId: expense?.contractorUserId ?? '',
+        note: expense?.note ?? '',
         amount: expense ? String(expense.amountCents / 100) : ''
-      }
+      },
+      newExpenseName: ''
     },
-    validators: { onSubmit: z.object({ expense: orderExpenseSchema }) },
+    validators: { onSubmit: z.object({ expense: orderExpenseSchema, newExpenseName: z.string() }) },
     onSubmit: async ({ value }) => {
       await mutation.mutateAsync(value.expense).catch(() => undefined);
     }
   });
+  async function addName(): Promise<void> {
+    try {
+      const entry = await createName.mutateAsync({
+        orgId,
+        name: form.getFieldValue('newExpenseName')
+      });
+      form.setFieldValue('expense.expenseNameId', entry.id);
+      form.setFieldValue('newExpenseName', '');
+      setAddingName(false);
+    } catch {
+      /* Keep the name draft for correction or retry. */
+    }
+  }
+  const names = data.expenseNames ?? defaultExpenseNames;
+  const members = [
+    ...(data.team ?? []).map((member) => ({ value: member.id, label: member.name })),
+    ...(expense?.contractorUserId &&
+    !data.team?.some((member) => member.id === expense.contractorUserId)
+      ? [{ value: expense.contractorUserId, label: expense.contractorName, disabled: true }]
+      : [])
+  ];
   return (
     <CrmForm
       onSubmit={(event) => {
@@ -185,20 +218,98 @@ function ExpenseForm({
       }}
     >
       <form.Subscribe
-        selector={(state) => ({ dirty: !state.isDefaultValue, pending: state.isSubmitting })}
+        selector={(state) => ({
+          dirty: !state.isDefaultValue,
+          pending: state.isSubmitting || createName.isPending
+        })}
       >
         {(state) => <FormStatus {...state} onChange={onStateChange} />}
       </form.Subscribe>
-      <fieldset disabled={disabled || mutation.isPending} className='min-w-0'>
+      <fieldset
+        disabled={disabled || mutation.isPending || createName.isPending}
+        className='min-w-0'
+      >
         <FieldGroup>
-          <form.AppField name='expense.kind'>
-            {(field) => <field.SelectField label='Вид витрати' options={kinds} />}
+          <form.AppField name='expense.expenseNameId'>
+            {(field) => (
+              <field.ComboboxField
+                label='Назва витрати'
+                required
+                clearable={false}
+                options={names.map((entry) => ({ value: entry.id, label: entry.name }))}
+                placeholder='Виберіть назву витрати'
+                searchPlaceholder='Пошук назви витрати…'
+              />
+            )}
           </form.AppField>
-          <form.AppField name='expense.description'>
-            {(field) => <field.TextField label='Назва витрати' required />}
+          {!addingName ? (
+            <Button
+              type='button'
+              variant='outline'
+              className='self-start'
+              onClick={() => setAddingName(true)}
+            >
+              <Icons.add />
+              Нова назва витрати
+            </Button>
+          ) : (
+            <div className='flex flex-col gap-3 rounded-lg border p-3'>
+              <form.AppField name='newExpenseName'>
+                {(field) => (
+                  <field.TextField
+                    label='Нова назва витрати'
+                    maxLength={120}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        void addName();
+                      }
+                    }}
+                  />
+                )}
+              </form.AppField>
+              {createName.error && (
+                <Alert variant='destructive'>
+                  <AlertDescription>{createName.error.message}</AlertDescription>
+                </Alert>
+              )}
+              <div className='flex flex-wrap items-center gap-2'>
+                <Button
+                  type='button'
+                  isLoading={createName.isPending}
+                  onClick={() => void addName()}
+                >
+                  Додати назву
+                </Button>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  onClick={() => {
+                    setAddingName(false);
+                    form.setFieldValue('newExpenseName', '');
+                  }}
+                >
+                  Скасувати додавання назви
+                </Button>
+              </div>
+            </div>
+          )}
+          <form.AppField name='expense.contractorUserId'>
+            {(field) => (
+              <field.ComboboxField
+                label='Субпідрядник'
+                required
+                clearable={false}
+                options={members}
+                placeholder='Виберіть учасника команди'
+                searchPlaceholder='Пошук учасника…'
+                emptyMessage='Додайте учасника в розділі «Команда».'
+                description='У «Зарплатах» ці суми з’являться лише після ввімкнення відповідного налаштування учасника.'
+              />
+            )}
           </form.AppField>
-          <form.AppField name='expense.contractorName'>
-            {(field) => <field.TextField label='Субпідрядник' required />}
+          <form.AppField name='expense.note'>
+            {(field) => <field.TextareaField label='Примітка' maxLength={1000} />}
           </form.AppField>
           <form.AppField name='expense.amount'>
             {(field) => (
@@ -206,9 +317,9 @@ function ExpenseForm({
             )}
           </form.AppField>
           <FormActions
-            pending={mutation.isPending}
+            pending={mutation.isPending || createName.isPending}
             error={mutation.error}
-            disabled={disabled}
+            disabled={disabled || addingName}
             label='Зберегти витрату'
             onCancel={() => {
               onStateChange({ dirty: false, pending: false });

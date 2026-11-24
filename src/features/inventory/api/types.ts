@@ -1,10 +1,12 @@
 import type { CrmAccess, HistoryActor } from '@/features/crm/api/types';
+import type { StockTag } from '../constants/tags';
 
 export interface StockItem {
   id: string;
   name: string;
   unit: string;
   notes: string;
+  tags: StockTag[];
   archived: boolean;
   locked: boolean;
   balanceMilli: number;
@@ -39,4 +41,14 @@ export interface InventoryData {
   access: CrmAccess;
   items: StockItem[];
   movements: StockMovement[];
+}
+
+export interface InventoryFilters {
+  search: string;
+  tags: StockTag[];
+  archived: boolean;
+}
+
+export interface InventoryItemsResponse {
+  items: StockItem[];
 }

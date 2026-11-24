@@ -44,7 +44,7 @@ test('organization cache reopens repositories from an older app version and pres
     assert.equal(item.totalCostCents, 0);
     assert.equal(item.valuationRevision, 0);
     assert.equal(getOrganizationRepository('org_A', 'owner', true), reopened);
-    assert.equal(holder.crmOrganizations?.schemaVersion, 18);
+    assert.equal(holder.crmOrganizations?.schemaVersion, 21);
   } finally {
     holder.crmOrganizations?.repositories.close();
     holder.crmOrganizations = previous;

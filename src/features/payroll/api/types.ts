@@ -5,7 +5,7 @@ export interface PayrollFilters {
   to: string;
 }
 
-export type PayrollRole = 'painter' | 'polisher' | 'assembler' | 'responsible';
+export type PayrollRole = 'painter' | 'polisher' | 'assembler' | 'responsible' | 'subcontract';
 
 export interface PayrollCalculation {
   baseCents: number;

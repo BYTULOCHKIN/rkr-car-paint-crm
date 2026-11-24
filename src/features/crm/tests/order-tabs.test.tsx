@@ -79,6 +79,7 @@ const stock: InventoryData = {
     {
       id: '00000000-0000-4000-8000-000000000002',
       name: 'Лак Sprint',
+      tags: ['Розхідник'],
       unit: 'л',
       notes: '',
       archived: false,
@@ -240,15 +241,19 @@ test('subcontract draft survives tab switches and saves internal costs independe
   vi.mocked(saveOrderExpense).mockResolvedValue({ ok: true, data: 'expense-id' });
   await user.click(screen.getByRole('tab', { name: 'Матеріали і витрати' }));
   await user.click(await screen.findByRole('button', { name: 'Додати витрату' }));
-  await user.type(screen.getByRole('textbox', { name: /Назва витрати/ }), 'Пайка бампера');
-  await user.type(screen.getByRole('textbox', { name: /Субпідрядник/ }), 'Майстер пайки');
+  await user.click(screen.getByRole('combobox', { name: /Назва витрати/ }));
+  await user.click(await screen.findByRole('option', { name: 'Пайка' }));
+  await user.click(screen.getByRole('combobox', { name: /Субпідрядник/ }));
+  await user.click(await screen.findByRole('option', { name: 'Адміністратор' }));
+  await user.type(screen.getByRole('textbox', { name: 'Примітка' }), 'Пайка бампера');
   await user.type(screen.getByRole('textbox', { name: /Вартість субпідряду/ }), '2500');
   await user.click(screen.getByRole('tab', { name: 'Роботи' }));
   expect(
     (screen.getByRole('button', { name: 'Зберегти замовлення' }) as HTMLButtonElement).disabled
   ).toBe(true);
   await user.click(screen.getByRole('tab', { name: 'Матеріали і витрати' }));
-  expect((screen.getByRole('textbox', { name: /Назва витрати/ }) as HTMLInputElement).value).toBe(
+  expect(screen.getByRole('combobox', { name: /Назва витрати/ }).textContent).toContain('Пайка');
+  expect((screen.getByRole('textbox', { name: 'Примітка' }) as HTMLTextAreaElement).value).toBe(
     'Пайка бампера'
   );
   await user.click(screen.getByRole('button', { name: 'Зберегти витрату' }));
@@ -259,7 +264,9 @@ test('subcontract draft survives tab switches and saves internal costs independe
         orderId: order.id,
         expectedRevision: 3,
         amount: '2500',
-        contractorName: 'Майстер пайки'
+        contractorUserId: 'admin',
+        expenseNameId: 'soldering',
+        note: 'Пайка бампера'
       })
     )
   );

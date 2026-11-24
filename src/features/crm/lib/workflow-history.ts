@@ -36,6 +36,11 @@ export function historyDateChanges(event: WorkflowEvent): HistoryDateChange[] {
 }
 
 export function historyEventTitle(event: WorkflowEvent): string {
+  if (
+    event.note === 'Замовлення переміщено в кошик' ||
+    event.note === 'Замовлення відновлено з кошика'
+  )
+    return event.note;
   if (event.orderChanges) return 'Замовлення змінено';
   if (!event.fromStatus)
     return event.kind === 'request' ? 'Заявку створено' : 'Замовлення створено';

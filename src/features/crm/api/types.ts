@@ -52,6 +52,9 @@ export interface OrderItem {
 }
 
 export interface RepairOrder {
+  deletedAt?: string | null;
+  deletedBy?: HistoryActor | null;
+  trashBlockedReason?: string | null;
   salaryModel?: 'legacy' | 'net';
   expenses?: OrderExpense[];
   defaultEmployeeShareBps?: number;
@@ -134,6 +137,7 @@ export interface WorkflowEvent {
 export type CrmRole = 'admin' | 'worker';
 export type WorkerSpecialty = 'painter' | 'polisher' | 'assembler' | 'colorist';
 export interface TeamMember {
+  includeSubcontractInPayroll?: boolean;
   imageUrl?: string;
   id: string;
   name: string;
@@ -159,6 +163,7 @@ export interface PaymentEvent {
 }
 
 export interface CrmWorkspace {
+  expenseNames?: import('@/features/order-expenses/api/types').OrderExpenseName[];
   finance?: FinanceWorkspace;
   payments?: PaymentEvent[];
   access?: CrmAccess;
