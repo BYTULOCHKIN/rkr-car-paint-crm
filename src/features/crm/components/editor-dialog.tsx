@@ -41,6 +41,8 @@ import { DialogFormContext } from './dialog-form';
 import { OrderWorkspace } from './order-workspace';
 import type { OrderTab } from '../lib/order-tabs';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useQuery } from '@tanstack/react-query';
+import { crmQueries } from '../api/queries';
 
 export type Editor =
   | { type: 'trashOrder'; order: RepairOrder }
@@ -70,13 +72,82 @@ interface CrmEditorDialogProps {
   onBackToHistory?: (customer: Customer, vehicleId: string) => void;
 }
 
-export function CrmEditorDialog({
+export function CrmEditorDialog(props: CrmEditorDialogProps) {
+  const [createdId, setCreatedId] = useState<string | null>(null);
+  const { editor, data } = props;
+  const detail =
+    editor.type === 'workflow'
+      ? { id: editor.target.record.id, kind: 'history' as const, entity: editor.target.kind }
+      : editor.type === 'order'
+        ? { id: createdId ?? editor.order?.id, kind: 'order' as const, entity: 'order' as const }
+        : editor.type === 'history'
+          ? { id: editor.customer.id, kind: 'history' as const, entity: 'customer' as const }
+          : ['vehicleDetails', 'deleteVehicle', 'owner', 'vehicle'].includes(editor.type) &&
+              'vehicle' in editor &&
+              editor.vehicle
+            ? { id: editor.vehicle.id, kind: 'history' as const, entity: 'vehicle' as const }
+            : undefined;
+  const result = useQuery({
+    ...crmQueries.detail(
+      data.access?.userId ?? '',
+      data.access?.orgId ?? '',
+      detail?.id ?? '',
+      detail?.kind,
+      detail?.entity
+    ),
+    enabled: !!data.serverRead && !!detail?.id
+  });
+  if (data.serverRead && detail?.id && !result.data)
+    return (
+      <Dialog
+        open
+        onOpenChange={(open) => {
+          if (!open) props.onClose();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Завантаження даних</DialogTitle>
+            <DialogDescription>Отримуємо актуальні дані запису.</DialogDescription>
+          </DialogHeader>
+          {result.isError ? (
+            <div role='alert'>
+              Не вдалося завантажити запис.{' '}
+              <Button onClick={() => void result.refetch()}>Повторити</Button>
+            </div>
+          ) : (
+            <Skeleton className='h-64 w-full' />
+          )}
+        </DialogContent>
+      </Dialog>
+    );
+  // A workflow draft keeps the target/revision captured when it was opened.
+  const resolvedEditor =
+    createdId && editor.type === 'order' && result.data?.orders[0]
+      ? { ...editor, order: result.data.orders[0] }
+      : editor;
+  return (
+    <CrmEditorDialogContent
+      {...props}
+      editor={resolvedEditor}
+      data={
+        result.data
+          ? { ...data, ...result.data, access: data.access, team: data.team, serverRead: true }
+          : data
+      }
+      onOrderCreated={setCreatedId}
+    />
+  );
+}
+
+function CrmEditorDialogContent({
   editor,
   data,
   onClose,
   onSelectOrder,
-  onBackToHistory
-}: CrmEditorDialogProps) {
+  onBackToHistory,
+  onOrderCreated
+}: CrmEditorDialogProps & { onOrderCreated: (id: string) => void }) {
   const [state, setState] = useState<FormState>({ dirty: false, pending: false });
   const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
   const order =
@@ -317,7 +388,10 @@ export function CrmEditorDialog({
                         request={editor.request}
                         data={data}
                         initialTab={editor.tab}
-                        onCreated={setCreatedOrderId}
+                        onCreated={(id) => {
+                          setCreatedOrderId(id);
+                          onOrderCreated(id);
+                        }}
                         onClose={requestClose}
                         onStateChange={setState}
                         onBackToHistory={backToHistory ? requestHistory : undefined}

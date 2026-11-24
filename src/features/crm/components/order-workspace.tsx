@@ -24,6 +24,7 @@ import { money, vehicleLabel } from './format';
 import { OrderForm, type OrderFormSections } from './forms';
 import { OrderReadView } from './order-read-view';
 import { OrderPayments } from './order-payments';
+import { RemoteWorkflowHistory } from './remote-workflow-history';
 import { WorkflowDates, WorkflowHistory } from './workflow-details';
 import { WorkflowForm } from './workflow-form';
 import { ExecutorAdvance } from './executor-advance';
@@ -314,9 +315,12 @@ export function OrderWorkspace({
           )}
           {panel(
             'history',
-            visited.has('history') && (
-              <WorkflowHistory target={{ kind: 'order', record: order }} data={data} />
-            )
+            visited.has('history') &&
+              (data.serverRead && data.access ? (
+                <RemoteWorkflowHistory target={{ kind: 'order', record: order }} data={data} />
+              ) : (
+                <WorkflowHistory target={{ kind: 'order', record: order }} data={data} />
+              ))
           )}
         </>
       )}

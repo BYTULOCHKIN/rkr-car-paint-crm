@@ -1,3 +1,4 @@
+import { matchesSearchText } from '@/lib/search';
 export interface ChoiceOption {
   value: string;
   label: string;
@@ -25,15 +26,6 @@ export function choiceLabel(option: ChoiceOption): string {
   return [option.label, option.description].filter(Boolean).join(' · ');
 }
 
-function normalizeSearch(value: string): string {
-  return value.normalize('NFKC').toLocaleLowerCase('uk-UA').trim();
-}
-
 export function matchesChoice(option: ChoiceOption, query: string): boolean {
-  const text = normalizeSearch([choiceLabel(option), ...(option.keywords ?? [])].join(' '));
-  const search = normalizeSearch(query);
-  if (!search || search.split(/\s+/).every((word) => text.includes(word))) return true;
-  // Phone numbers, VINs and plates remain searchable without their display formatting.
-  const compact = search.replace(/[^\p{L}\p{N}]/gu, '');
-  return !!compact && text.replace(/[^\p{L}\p{N}]/gu, '').includes(compact);
+  return matchesSearchText([choiceLabel(option), ...(option.keywords ?? [])].join(' '), query);
 }

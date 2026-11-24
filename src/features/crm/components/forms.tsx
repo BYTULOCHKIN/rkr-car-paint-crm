@@ -3,7 +3,7 @@ import { useEffect, useCallback, useState, useId, type ReactNode } from 'react';
 import { primaryContact } from '../lib/customer-contacts';
 import { CrmForm } from './dialog-form';
 import { assigneeLabel } from '../lib/assignee';
-import { customerChoices } from './choice-options';
+import { CustomerSelect } from './customer-select';
 import { VehicleBrandAvatar } from '@/components/vehicle-brand-avatar';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -126,21 +126,20 @@ export function RequestForm({ data, onSaved, onCancel, onStateChange }: RequestF
             name='customerId'
             listeners={{ onChange: () => form.setFieldValue('vehicleId', '') }}
           >
-            {(field) => (
-              <field.ComboboxField
-                label='Клієнт'
-                required
-                placeholder='Виберіть клієнта'
-                emptyMessage='Клієнтів ще немає. Спочатку додайте клієнта в розділі «Клієнти та авто».'
-                searchPlaceholder='Ім’я або телефон…'
-                options={customerChoices(data.customers)}
-              />
-            )}
+            {() => <CustomerSelect data={data} />}
           </form.AppField>
           <form.Subscribe selector={(state) => state.values.customerId}>
             {(customerId) => (
               <form.AppField name='vehicleId'>
-                {() => <VehicleSelect customerId={customerId} vehicles={data.vehicles} />}
+                {() => (
+                  <VehicleSelect
+                    key={customerId}
+                    access={data.access}
+                    serverRead={data.serverRead}
+                    customerId={customerId}
+                    vehicles={data.vehicles}
+                  />
+                )}
               </form.AppField>
             )}
           </form.Subscribe>
@@ -279,7 +278,7 @@ export function OrderForm({
           const latest = data.access
             ? client
                 .getQueryData<CrmWorkspace>(
-                  crmQueries.workspace(data.access.userId, data.access.orgId).queryKey
+                  crmQueries.detail(data.access.userId, data.access.orgId, order.id).queryKey
                 )
                 ?.orders.find((entry) => entry.id === order.id)
             : undefined;
@@ -346,22 +345,20 @@ export function OrderForm({
             name='customerId'
             listeners={{ onChange: () => form.setFieldValue('vehicleId', '') }}
           >
-            {(field) => (
-              <field.ComboboxField
-                label='Клієнт'
-                required
-                placeholder='Виберіть клієнта'
-                emptyMessage='Клієнтів ще немає. Спочатку додайте клієнта в розділі «Клієнти та авто».'
-                searchPlaceholder='Ім’я або телефон…'
-                options={customerChoices(data.customers)}
-              />
-            )}
+            {() => <CustomerSelect data={data} />}
           </form.AppField>
           <form.Subscribe selector={(state) => state.values.customerId}>
             {(customerId) => (
               <form.AppField name='vehicleId'>
                 {() => (
-                  <VehicleSelect customerId={customerId} vehicles={data.vehicles} requireVin />
+                  <VehicleSelect
+                    key={customerId}
+                    access={data.access}
+                    serverRead={data.serverRead}
+                    customerId={customerId}
+                    vehicles={data.vehicles}
+                    requireVin
+                  />
                 )}
               </form.AppField>
             )}
@@ -584,7 +581,14 @@ export function OrderForm({
             disabled={
               disabled ||
               !vehicleId ||
-              !data.vehicles.find((vehicle) => vehicle.id === vehicleId)?.vin
+              ![
+                ...data.vehicles,
+                ...client
+                  .getQueriesData<CrmWorkspace>({
+                    queryKey: ['crm', data.access?.userId, data.access?.orgId, 'list']
+                  })
+                  .flatMap(([, value]) => value?.vehicles ?? [])
+              ].find((vehicle) => vehicle.id === vehicleId)?.vin
             }
             label={order ? 'Зберегти замовлення' : 'Створити замовлення'}
           />

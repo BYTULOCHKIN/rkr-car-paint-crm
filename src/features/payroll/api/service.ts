@@ -13,6 +13,6 @@ export async function getPayrollReport(
   const { repository, access, team } = await getOrganizationContext();
   if (access.orgId !== orgId) throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
   const value = payrollFiltersSchema.parse(filters);
-  const source = repository.reportSnapshot();
+  const source = repository.reportSnapshot(value, true);
   return buildPayrollReport(source.workspace, team, access, value);
 }

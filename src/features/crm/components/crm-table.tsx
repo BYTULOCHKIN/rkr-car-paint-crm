@@ -5,6 +5,7 @@ import type { ColumnDef, ReactTable } from '@tanstack/react-table';
 import { DataTable } from '@/components/data-table/data-table';
 import { useDataTable } from '@/hooks/use-data-table';
 import type { DataTableFeatures } from '@/lib/data-table-features';
+import { parseAsInteger, useQueryState } from 'nuqs';
 import { Icons } from '@/components/icons';
 import { CHOICE_POPUP_CLASS_NAME } from '@/components/forms/fields/choice-options';
 import {
@@ -95,17 +96,26 @@ interface CrmTableProps<T extends { id: string }> {
   rows: T[];
   columns: ColumnDef<DataTableFeatures, T>[];
   label: string;
+  total?: number;
 }
 
 export function CrmTable<T extends { id: string }>({
   rows,
   columns,
-  label
+  label,
+  total
 }: CrmTableProps<T>): ReactElement {
+  const [perPage] = useQueryState('perPage', parseAsInteger.withDefault(10));
   const { table } = useDataTable({
     data: rows,
     columns,
-    mode: 'client',
+    ...(total === undefined
+      ? { mode: 'client' as const }
+      : {
+          mode: 'server' as const,
+          pageCount: Math.ceil(total / Math.min(100, Math.max(1, perPage))),
+          rowCount: total
+        }),
     getRowId: (row) => row.id,
     initialState: { columnPinning: { start: [], end: ['actions'] } }
   });

@@ -18,6 +18,7 @@ import type {
   ValuationInput
 } from '../schemas/inventory';
 import type { InventoryData } from './types';
+import type { InventoryFilters, InventoryItemsResponse } from './types';
 
 type Context = Awaited<ReturnType<typeof getOrganizationContext>>;
 async function write<T>(
@@ -59,6 +60,27 @@ export async function getInventory(orgId: string): Promise<InventoryData> {
     items: repository.inventory.items(),
     movements: repository.inventory.movements()
   };
+}
+
+export async function getInventoryAccess(orgId: string) {
+  const { access } = await getOrganizationContext();
+  if (access.orgId !== orgId) throw new InventoryError('Автомалярку змінено. Оновіть сторінку.');
+  return { access };
+}
+
+export async function getInventoryPage(
+  orgId: string,
+  filters: InventoryFilters
+): Promise<InventoryItemsResponse> {
+  const { access, repository } = await getOrganizationContext();
+  if (access.orgId !== orgId) throw new InventoryError('Автомалярку змінено. Оновіть сторінку.');
+  return repository.inventory.listItems(filters);
+}
+
+export async function getOrderInventory(orgId: string, orderId: string): Promise<InventoryData> {
+  const { access, repository } = await getOrganizationContext();
+  if (access.orgId !== orgId) throw new InventoryError('Автомалярку змінено. Оновіть сторінку.');
+  return { access, items: [], movements: repository.inventory.orderMovements(orderId) };
 }
 export async function createStockItem(
   orgId: string,

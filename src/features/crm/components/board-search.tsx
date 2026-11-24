@@ -8,16 +8,17 @@ import { useDebouncedCallback } from '@/hooks/use-debounced-callback';
 interface BoardSearchProps {
   search: string;
   onSearch: (value: string) => void;
+  fetching?: boolean;
 }
 
 /** Keystrokes update only this small component, never the Kanban drag-and-drop tree. */
-export function BoardSearch({ search, onSearch }: BoardSearchProps) {
+export function BoardSearch({ search, onSearch, fetching = false }: BoardSearchProps) {
   const [value, setValue] = useState(search);
   const [isPending, startTransition] = useTransition();
   const update = useDebouncedCallback((query: string) => {
     startTransition(() => onSearch(query));
   }, 250);
-  const busy = value !== search || isPending;
+  const busy = value !== search || isPending || fetching;
   return (
     <div className='relative w-full sm:max-w-sm'>
       <Input

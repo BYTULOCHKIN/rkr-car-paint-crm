@@ -1,4 +1,4 @@
-import { mutationOptions, queryOptions } from '@tanstack/react-query';
+import { mutationOptions, queryOptions, infiniteQueryOptions } from '@tanstack/react-query';
 import {
   getOrderTrash,
   changeOrderTrash,
@@ -25,6 +25,8 @@ import {
   deleteVehicle
 } from './service';
 import type { ActionResult } from './types';
+import { getCrmList, getCrmDetail } from './read-service';
+import type { CrmListFilters } from '../schemas/reads';
 
 function unwrap<T>(result: ActionResult<T>): T {
   if (!result.ok) throw new Error(result.error);
@@ -32,6 +34,42 @@ function unwrap<T>(result: ActionResult<T>): T {
 }
 
 export const crmQueries = {
+  board: (userId: string, orgId: string, search: string) =>
+    infiniteQueryOptions({
+      queryKey: ['crm', userId, orgId, 'board', search] as const,
+      initialPageParam: 1,
+      queryFn: ({ pageParam, signal }) =>
+        getCrmList(orgId, { entity: 'kanban', search, page: pageParam, pageSize: 25 }, signal),
+      placeholderData: (previous, query) =>
+        query?.queryKey[1] === userId && query.queryKey[2] === orgId ? previous : undefined,
+      getNextPageParam: (last) =>
+        last.pagination &&
+        last.pagination.page * last.pagination.pageSize <
+          Math.max(0, ...Object.values(last.boardCounts ?? {}))
+          ? last.pagination.page + 1
+          : undefined
+    }),
+  list: (userId: string, orgId: string, filters: CrmListFilters) =>
+    queryOptions({
+      queryKey: ['crm', userId, orgId, 'list', filters] as const,
+      queryFn: ({ signal }) => getCrmList(orgId, filters, signal),
+      placeholderData: (previous, query) =>
+        query?.queryKey[1] === userId && query.queryKey[2] === orgId ? previous : undefined,
+      retry: false
+    }),
+  detail: (
+    userId: string,
+    orgId: string,
+    id: string,
+    kind: 'order' | 'history' = 'order',
+    entity: 'order' | 'customer' | 'vehicle' | 'request' = 'order'
+  ) =>
+    queryOptions({
+      queryKey: ['crm', userId, orgId, 'detail', kind, entity, id] as const,
+      queryFn: ({ signal }) => getCrmDetail(orgId, kind, id, entity, signal),
+      staleTime: 0,
+      retry: false
+    }),
   trash: (userId: string, orgId: string) =>
     queryOptions({
       queryKey: ['crm', userId, orgId, 'trash'] as const,

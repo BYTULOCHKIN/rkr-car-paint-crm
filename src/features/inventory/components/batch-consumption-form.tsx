@@ -3,8 +3,10 @@
 import { useEffect, useState, useId } from 'react';
 import { DialogActions } from '@/features/crm/components/dialog-form';
 import { FormStatus, type FormState } from '@/features/crm/components/form-status';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
+import { useDebounce } from '@/hooks/use-debounce';
 import { toast } from 'sonner';
+import { useStore } from '@tanstack/react-form';
 import { useAppForm } from '@/lib/form';
 import { Button } from '@/features/crm/components/action-button';
 import { FieldGroup } from '@/components/ui/field';
@@ -19,7 +21,17 @@ function emptyRow(): BatchConsumptionInput['rows'][number] {
   return { itemId: '', quantity: '', category: 'painting', note: '' };
 }
 
+function materialChoice(item: StockItem) {
+  return {
+    value: item.id,
+    label: item.name,
+    description: `Залишок: ${stockQuantity(item.balanceMilli)} ${item.unit}`,
+    disabled: item.balanceMilli <= 0
+  };
+}
+
 export function BatchConsumptionForm({
+  userId,
   orgId,
   orderId,
   items,
@@ -29,6 +41,7 @@ export function BatchConsumptionForm({
   onStateChange,
   disabled = false
 }: {
+  userId: string;
   orgId: string;
   orderId: string;
   items: StockItem[];
@@ -38,6 +51,12 @@ export function BatchConsumptionForm({
   onStateChange?: (state: FormState) => void;
   disabled?: boolean;
 }) {
+  const [search, setSearch] = useState('');
+  const debounced = useDebounce(search, 300);
+  const candidates = useQuery(
+    inventoryQueries.items(userId, orgId, { search: debounced, tags: [], archived: false })
+  );
+  const [knownItems, setKnownItems] = useState(items);
   const formId = useId();
   const [operationId] = useState(() => crypto.randomUUID());
   const client = useQueryClient();
@@ -64,14 +83,6 @@ export function BatchConsumptionForm({
         .map((movement) => movement.itemId)
     )
   ].slice(0, 8);
-  const options = items
-    .filter((item) => !item.archived)
-    .map((item) => ({
-      value: item.id,
-      label: item.name,
-      description: `Залишок: ${stockQuantity(item.balanceMilli)} ${item.unit}`,
-      disabled: item.balanceMilli <= 0
-    }));
   const form = useAppForm({
     defaultValues: { operationId, orderId, rows: [emptyRow()] },
     validators: { onSubmit: batchConsumptionSchema },
@@ -84,6 +95,18 @@ export function BatchConsumptionForm({
       }
     }
   });
+  const rows = useStore(form.store, (state) => state.values.rows);
+  const selectedIds = new Set(rows.map((row) => row.itemId));
+  const options = [
+    ...new Map(
+      [
+        ...knownItems.filter((item) => !debounced.trim() && selectedIds.has(item.id)),
+        ...(candidates.data?.items ?? [])
+      ].map((item) => [item.id, item])
+    ).values()
+  ]
+    .filter((item) => !item.archived)
+    .map(materialChoice);
   return (
     <form
       id={formId}
@@ -117,16 +140,44 @@ export function BatchConsumptionForm({
                             label='Матеріал'
                             required
                             options={options}
+                            selectedOption={
+                              knownItems
+                                .filter((item) => item.id === field.state.value)
+                                .map(materialChoice)[0]
+                            }
+                            onSearchChange={setSearch}
+                            onOptionChange={(option) => {
+                              const item = candidates.data?.items.find(
+                                (row) => row.id === option?.value
+                              );
+                              if (item)
+                                setKnownItems((previous) => [
+                                  ...new Map(
+                                    [...previous, item].map((row) => [row.id, row])
+                                  ).values()
+                                ]);
+                            }}
+                            loading={candidates.isFetching}
+                            errorMessage={
+                              candidates.isError ? 'Не вдалося завантажити матеріали' : undefined
+                            }
+                            onRetry={() => void candidates.refetch()}
                             recentValues={recentValues}
                             placeholder='Оберіть матеріал'
                             searchPlaceholder='Назва матеріалу…'
-                            emptyMessage='Додайте матеріали на склад'
+                            emptyMessage={
+                              debounced.trim()
+                                ? 'За цим пошуком нічого не знайдено.'
+                                : 'Додайте матеріали на склад'
+                            }
                           />
                         )}
                       </form.AppField>
                       <form.Subscribe selector={(state) => state.values.rows[index]?.itemId}>
                         {(itemId) => {
-                          const item = items.find((entry) => entry.id === itemId);
+                          const item =
+                            knownItems.find((entry) => entry.id === itemId) ??
+                            candidates.data?.items.find((entry) => entry.id === itemId);
                           return item ? (
                             <p className='text-muted-foreground text-sm'>
                               Одиниця: {item.unit} · Залишок: {stockQuantity(item.balanceMilli)}{' '}

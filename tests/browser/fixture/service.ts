@@ -40,7 +40,7 @@ for (let index = 1; index <= 24; index++) {
   data.customers.push({
     id: uuid(index),
     name: index === 1 ? 'Тестовий клієнт із довгим прізвищем та ім’ям' : `Тестовий клієнт ${index}`,
-    phone: '+380000000000',
+    phone: '+380501234567',
     notes: 'Нотатка про бажаний колір і особливості ремонту. '.repeat(5),
     createdAt: '2026-10-30T12:00:00Z'
   });
@@ -263,7 +263,15 @@ export async function getWorkspace() {
     data.orders[0].actualIntakeDate = null;
   }
   if (new URLSearchParams(location.search).has('empty'))
-    return { customers: [], vehicles: [], orders: [], requests: [], events: [] };
+    return {
+      customers: [],
+      vehicles: [],
+      orders: [],
+      requests: [],
+      events: [],
+      access: { userId: 'user_worker', orgId: 'org_test', role: 'admin' as const },
+      team: []
+    };
   data.expenseNames ??= structuredClone(defaultExpenseNames);
   const result = structuredClone(data);
   if (new URLSearchParams(location.search).has('trendDemo')) {

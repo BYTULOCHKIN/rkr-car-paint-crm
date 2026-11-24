@@ -1,5 +1,6 @@
 import type { CrmAccess, HistoryActor } from '@/features/crm/api/types';
 import type { StockTag } from '../constants/tags';
+import type { PageResult } from '@/features/crm/lib/pagination';
 
 export interface StockItem {
   id: string;
@@ -47,8 +48,15 @@ export interface InventoryFilters {
   search: string;
   tags: StockTag[];
   archived: boolean;
+  page?: number;
+  pageSize?: number;
 }
 
-export interface InventoryItemsResponse {
-  items: StockItem[];
+export interface InventoryItemsResponse extends PageResult<StockItem> {}
+
+export interface MovementFilters {
+  page?: number;
+  pageSize?: number;
+  itemId?: string;
+  orderId?: string;
 }

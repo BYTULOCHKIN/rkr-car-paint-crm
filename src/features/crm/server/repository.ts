@@ -1,3 +1,5 @@
+import type { WorkspaceSelection } from '../schemas/reads';
+import { CrmReadRepository } from './reads';
 import { migrateExpenseCatalog } from '@/features/order-expenses/server/catalog-migration';
 import { migrateStockTags } from '@/features/inventory/server/tags-migration';
 import { migrateOrderTrash, orderTrashBlockers } from './order-trash';
@@ -83,6 +85,7 @@ export class CrmRepository {
   readonly payments: PaymentRepository;
   readonly settlements: SettlementRepository;
   readonly expenses: OrderExpenseRepository;
+  readonly reads: CrmReadRepository;
 
   constructor(filename: string) {
     if (filename !== ':memory:') mkdirSync(dirname(resolve(filename)), { recursive: true });
@@ -264,6 +267,9 @@ export class CrmRepository {
     this.payments = new PaymentRepository(this.db);
     this.inventory = new InventoryRepository(this.db);
     this.settlements = new SettlementRepository(this.db);
+    this.reads = new CrmReadRepository(this.db, (selection) =>
+      this.workspace(!!selection.includeTrashed, selection)
+    );
   }
 
   vehicleModels(): { make: string; model: string }[] {
@@ -416,16 +422,25 @@ export class CrmRepository {
       throw new CrmError('Запланована видача не може бути раніше запланованого прийому');
   }
 
-  workspace(includeTrashed = false): CrmWorkspace {
-    const customers = this.db
-      .prepare('SELECT * FROM crm_customers ORDER BY createdAt DESC, id')
-      .all()
-      .map((row) => ({ ...row })) as unknown as Customer[];
-    const contacts = this.db
-      .prepare(
-        'SELECT id, customerId, type, value FROM crm_customer_contacts ORDER BY position, id'
-      )
-      .all();
+  workspace(includeTrashed = false, selection?: WorkspaceSelection): CrmWorkspace {
+    const read = (sql: string, column: string, ids?: string[]) =>
+      this.db
+        .prepare(
+          ids === undefined
+            ? sql
+            : `SELECT * FROM (${sql}) WHERE ${column} IN (SELECT value FROM json_each(?))`
+        )
+        .all(...(ids ? [JSON.stringify(ids)] : []));
+    const customers = read(
+      'SELECT * FROM crm_customers ORDER BY createdAt DESC, id',
+      'id',
+      selection?.customerIds
+    ).map((row) => ({ ...row })) as unknown as Customer[];
+    const contacts = read(
+      'SELECT id, customerId, type, value FROM crm_customer_contacts ORDER BY position, id',
+      'customerId',
+      selection?.customerIds
+    );
     const byCustomer = new Map<string, CustomerContact[]>();
     for (const row of contacts) {
       const list = byCustomer.get(row.customerId as string) ?? [];
@@ -440,26 +455,28 @@ export class CrmRepository {
       customer.contacts = byCustomer.get(customer.id) ?? [];
       customer.phone = customer.contacts.find((contact) => contact.type === 'phone')?.value ?? '';
     }
-    const vehicles = this.db
-      .prepare('SELECT * FROM crm_vehicles ORDER BY createdAt DESC, rowid DESC')
-      .all()
-      .map((row) => ({ ...row })) as unknown as Vehicle[];
-    const requests = this.db
-      .prepare(
-        "SELECT *, CASE WHEN status = 'converted' THEN 'converted' WHEN plannedIntakeDate IS NOT NULL THEN 'scheduled' ELSE 'backlog' END AS status FROM crm_requests ORDER BY createdAt DESC, id"
-      )
-      .all()
-      .map((row) => ({ ...row })) as unknown as RepairRequest[];
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM crm_orders${includeTrashed ? '' : ' WHERE deletedAt IS NULL'} ORDER BY number DESC`
-      )
-      .all() as unknown as (Omit<RepairOrder, 'items' | 'totalCents' | 'paintPlan'> & {
+    const vehicles = read(
+      'SELECT * FROM crm_vehicles ORDER BY createdAt DESC, rowid DESC',
+      'id',
+      selection?.vehicleIds
+    ).map((row) => ({ ...row })) as unknown as Vehicle[];
+    const requests = read(
+      "SELECT id,customerId,vehicleId,description,createdAt,plannedIntakeDate,plannedDeliveryDate,workflowRevision, CASE WHEN status = 'converted' THEN 'converted' WHEN plannedIntakeDate IS NOT NULL THEN 'scheduled' ELSE 'backlog' END AS status FROM crm_requests ORDER BY createdAt DESC, id",
+      'id',
+      selection?.requestIds
+    ).map((row) => ({ ...row })) as unknown as RepairRequest[];
+    const rows = read(
+      `SELECT * FROM crm_orders${includeTrashed ? '' : ' WHERE deletedAt IS NULL'} ORDER BY number DESC`,
+      'id',
+      selection?.orderIds
+    ) as unknown as (Omit<RepairOrder, 'items' | 'totalCents' | 'paintPlan'> & {
       paintPlan: string;
     })[];
-    const items = this.db
-      .prepare('SELECT * FROM crm_order_items ORDER BY position')
-      .all() as unknown as (OrderItem & { orderId: string })[];
+    const items = read(
+      'SELECT * FROM crm_order_items ORDER BY position',
+      'orderId',
+      selection?.summaryOnly ? [] : selection?.orderIds
+    ) as unknown as (OrderItem & { orderId: string })[];
     const byOrder = new Map<string, OrderItem[]>();
     for (const item of items) {
       const list = byOrder.get(item.orderId) ?? [];
@@ -471,21 +488,37 @@ export class CrmRepository {
       byOrder.set(item.orderId, list);
     }
     const economics = new Map(
-      this.db
-        .prepare('SELECT orderId,details FROM crm_order_economics')
-        .all()
-        .map((row) => [
-          row.orderId as string,
-          JSON.parse(row.details as string) as OrderEconomicsDetails
-        ])
+      read(
+        'SELECT orderId,details FROM crm_order_economics',
+        'orderId',
+        selection?.summaryOnly ? [] : selection?.orderIds
+      ).map((row) => [
+        row.orderId as string,
+        JSON.parse(row.details as string) as OrderEconomicsDetails
+      ])
     );
     const expensesByOrder = new Map<string, ReturnType<OrderExpenseRepository['list']>>();
-    for (const expense of this.expenses.list()) {
+    for (const expense of selection
+      ? selection.summaryOnly
+        ? []
+        : selection.orderIds.flatMap((id) => this.expenses.list(id))
+      : this.expenses.list()) {
       const list = expensesByOrder.get(expense.orderId) ?? [];
       list.push(expense);
       expensesByOrder.set(expense.orderId, list);
     }
-    const blockers = orderTrashBlockers(this.db);
+    const totals = new Map(
+      selection?.summaryOnly
+        ? read(
+            'SELECT orderId,SUM(quantity*unitPriceCents) AS total FROM crm_order_items GROUP BY orderId',
+            'orderId',
+            selection.orderIds
+          ).map((row) => [row.orderId as string, row.total as number])
+        : []
+    );
+    const blockers = selection?.summaryOnly
+      ? new Map<string, string>()
+      : orderTrashBlockers(this.db, selection?.orderIds);
     const orders = rows.map((row) => {
       const orderItems = byOrder.get(row.id) ?? [];
       return {
@@ -497,19 +530,26 @@ export class CrmRepository {
         expenses: expensesByOrder.get(row.id) ?? [],
         items: orderItems,
         paintPlan: paintPlanSchema.parse(JSON.parse(row.paintPlan)),
-        totalCents: orderItems.reduce((sum, item) => sum + item.quantity * item.unitPriceCents, 0)
+        totalCents:
+          totals.get(row.id) ??
+          orderItems.reduce((sum, item) => sum + item.quantity * item.unitPriceCents, 0)
       };
     });
-    const events = this.db
-      .prepare('SELECT * FROM crm_workflow_events ORDER BY createdAt DESC, rowid DESC')
-      .all()
-      .map((row) => ({
-        ...row,
-        actor: typeof row.actor === 'string' ? JSON.parse(row.actor) : null,
-        orderChanges: typeof row.orderChanges === 'string' ? JSON.parse(row.orderChanges) : null,
-        actualDateChanges:
-          typeof row.actualDateChanges === 'string' ? JSON.parse(row.actualDateChanges) : null
-      })) as unknown as WorkflowEvent[];
+    const events = read(
+      'SELECT * FROM crm_workflow_events ORDER BY createdAt DESC, rowid DESC',
+      'recordId',
+      selection
+        ? selection.history
+          ? [...selection.orderIds, ...selection.requestIds]
+          : []
+        : undefined
+    ).map((row) => ({
+      ...row,
+      actor: typeof row.actor === 'string' ? JSON.parse(row.actor) : null,
+      orderChanges: typeof row.orderChanges === 'string' ? JSON.parse(row.orderChanges) : null,
+      actualDateChanges:
+        typeof row.actualDateChanges === 'string' ? JSON.parse(row.actualDateChanges) : null
+    })) as unknown as WorkflowEvent[];
     return {
       customers,
       vehicles,
@@ -518,17 +558,74 @@ export class CrmRepository {
       events: events.filter(
         (event) => event.kind !== 'order' || orders.some((order) => order.id === event.recordId)
       ),
-      payments: this.payments.list(),
-      expenseNames: this.expenses.names(),
-      finance: this.financeWorkspace()
+      payments: selection
+        ? selection.payments
+          ? this.payments.list(selection.orderIds)
+          : []
+        : this.payments.list(),
+      expenseNames: !selection || selection.finance ? this.expenses.names() : [],
+      finance: selection
+        ? this.financeSettings(selection.finance ? selection.orderIds : [])
+        : this.financeWorkspace()
     };
   }
 
-  reportSnapshot(): { workspace: CrmWorkspace; movements: StockMovement[] } {
+  reportSnapshot(
+    filters?: { from: string; to: string; orderDate?: 'ready' | 'created' | 'delivered' },
+    payroll = false
+  ): { workspace: CrmWorkspace; movements: StockMovement[] } {
+    if (filters)
+      return this.transaction(() => {
+        const opening = payroll ? [] : this.reads.reportOpening(filters.from);
+        const selection = this.reads.reportSelection(
+          filters.from,
+          filters.to,
+          payroll,
+          filters.orderDate,
+          opening
+        );
+        const workspace = this.workspace(false, selection);
+        workspace.finance = {
+          ...this.financeSettings(),
+          postings: this.settlements.postings(selection.orderIds, filters.to),
+          events: payroll
+            ? []
+            : this.settlements.events(selection.orderIds, filters.to, filters.from)
+        };
+        workspace.reportOpening = opening;
+        workspace.reportReversalSources = payroll
+          ? []
+          : this.settlements.reversalSources(
+              workspace.finance.events.flatMap((event) =>
+                event.reversalOf ? [event.reversalOf] : []
+              )
+            );
+        workspace.payments = payroll ? [] : this.payments.list(selection.orderIds, filters);
+        return {
+          workspace,
+          movements: payroll ? [] : this.inventory.reportMovements(filters.from, filters.to)
+        };
+      });
     return this.transaction(() => ({
       workspace: this.workspace(),
       movements: this.inventory.movements()
     }));
+  }
+
+  financeSettings(orderIds: string[] = []): FinanceWorkspace {
+    const setting = this.db
+      .prepare("SELECT value FROM crm_settings WHERE key='economics_share'")
+      .get();
+    const configured = setting
+      ? JSON.parse(setting.value as string)
+      : { employeeShareBps: 6000, revision: 0 };
+    return {
+      postings: this.settlements.postings(orderIds),
+      events: this.settlements.events(orderIds),
+      inventoryRevision: '',
+      defaultShareBps: configured.employeeShareBps,
+      settingsRevision: configured.revision
+    };
   }
 
   financeWorkspace(): FinanceWorkspace {
@@ -919,18 +1016,18 @@ export class CrmRepository {
   }
 
   private syncSalary(id: string, actor: HistoryActor | undefined, note: string): void {
-    const order = this.workspace().orders.find((entry) => entry.id === id);
+    const order = this.reads.order(id).orders[0];
     if (order?.status === 'ready' && order.salaryModel === 'net')
       this.settlements.syncNet(
         order,
-        orderMaterialCosts(this.inventory.movements(), id),
+        orderMaterialCosts(this.inventory.orderMovements(id), id),
         actor ?? { id: 'system', name: 'Система' },
         note
       );
   }
 
   private costsChanged(id: string, actor: HistoryActor, note: string): void {
-    const order = this.workspace().orders.find((entry) => entry.id === id)!;
+    const order = this.reads.order(id).orders[0];
     this.syncSalary(id, actor, note);
     this.logEvent({
       actor,
@@ -950,10 +1047,10 @@ export class CrmRepository {
     return this.transaction(() => {
       if (!this.db.prepare('SELECT id FROM crm_orders WHERE id=? AND deletedAt IS NULL').get(id))
         throw new CrmError('Замовлення не знайдено');
-      const before = this.inventory.movements().length;
+      const before = this.inventory.movementCount(id);
       this.db.prepare("UPDATE crm_orders SET salaryModel='net' WHERE id=?").run(id);
       const result = operation();
-      if (this.inventory.movements().length !== before) {
+      if (this.inventory.movementCount(id) !== before) {
         this.db
           .prepare('UPDATE crm_orders SET workflowRevision=workflowRevision+1 WHERE id=?')
           .run(id);
@@ -1164,7 +1261,7 @@ export class CrmRepository {
     return this.transaction(() => {
       const duplicate = this.settlements.duplicatePosting(value.operationId, fingerprint);
       if (duplicate) return duplicate;
-      const order = this.workspace().orders.find((entry) => entry.id === value.orderId);
+      const order = this.reads.order(value.orderId).orders[0];
       if (!order) throw new EconomicsError('Замовлення не знайдено');
       const prior = this.settlements.latest(order.id);
       if (
@@ -1323,7 +1420,7 @@ export class CrmRepository {
       if (currentStatus === value.status && !planChanged && !actualChanges.length && !value.note)
         return;
       if (value.kind === 'order' && value.status === 'ready' && currentStatus !== value.status) {
-        const order = this.workspace().orders.find((order) => order.id === value.id)!;
+        const order = this.reads.order(value.id).orders[0];
         if (options?.netSalary || order.salaryModel === 'net') {
           this.db.prepare("UPDATE crm_orders SET salaryModel='net' WHERE id=?").run(order.id);
           this.settlements.syncNet(

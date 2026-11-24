@@ -38,7 +38,7 @@ test('creating a customer from overview invalidates the shared CRM data', async 
   await page.getByRole('button', { name: 'Додати клієнта', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('textbox', { name: 'Ім’я клієнта *' }).fill('Новий клієнт з огляду');
-  await dialog.getByRole('textbox', { name: 'Телефон 1 *' }).fill('+380000000000');
+  await dialog.getByRole('textbox', { name: 'Телефон 1 *' }).fill('+380501234567');
   await dialog.getByRole('button', { name: 'Створити клієнта', exact: true }).click();
   await expect(dialog).toBeHidden();
   await expect(page.getByRole('link', { name: 'Клієнтів у базі: 25', exact: true })).toBeVisible();

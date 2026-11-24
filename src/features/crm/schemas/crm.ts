@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { normalizeContact } from '../lib/customer-contacts';
+import { phoneNumberError } from '@/lib/phone-number';
 import { bodyParts } from '../constants/paint-plan';
 import { businessToday } from '../lib/workflow';
 
@@ -22,14 +23,13 @@ export const contactSchema = z
     const valid =
       contact.type === 'email'
         ? z.email().safeParse(contact.value).success
-        : /^\+?[\d\s().-]+$/.test(contact.value) &&
-          contact.value.length <= 40 &&
-          /^\d{7,15}$/.test(normalizeContact('phone', contact.value));
+        : !phoneNumberError(contact.value);
     if (!valid)
       ctx.addIssue({
         code: 'custom',
         path: ['value'],
-        message: contact.type === 'email' ? 'Вкажіть коректний email' : 'Вкажіть коректний телефон'
+        message:
+          contact.type === 'email' ? 'Вкажіть коректний email' : phoneNumberError(contact.value)!
       });
   });
 export const customerFields = z.object({

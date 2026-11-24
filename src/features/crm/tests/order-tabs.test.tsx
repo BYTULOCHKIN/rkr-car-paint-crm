@@ -21,8 +21,17 @@ vi.mock('../api/service', () => ({
 }));
 vi.mock('@/features/inventory/api/service', () => ({
   getInventory: vi.fn(async () => stock),
+  getOrderInventory: vi.fn(async () => stock),
   consumeStockBatch: vi.fn(),
   reverseConsumption: vi.fn()
+}));
+vi.mock('@/features/inventory/api/search-service', () => ({
+  getInventoryItems: vi.fn(async () => ({
+    items: stock.items,
+    total: stock.items.length,
+    page: 1,
+    pageSize: 50
+  }))
 }));
 const order: RepairOrder = {
   id: '00000000-0000-4000-8000-000000000001',

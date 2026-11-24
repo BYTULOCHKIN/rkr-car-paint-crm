@@ -83,7 +83,7 @@ test('client labels wrap, search accepts formatted phone numbers, and selection 
     expect((await first.boundingBox())!.height).toBeGreaterThan(60);
   await page.screenshot({ path: info.outputPath('customer-wrapped.png'), animations: 'allow' });
   const search = popup.getByRole('combobox', { name: 'Пошук: Клієнт (необов’язково)' });
-  await search.fill('+38 (000) 000-00-00');
+  await search.fill('+38 (050) 123-45-67');
   await expect(popup.getByRole('option')).toHaveCount(24);
   await search.fill('клієнт із довгим');
   await expect(popup.getByRole('option')).toHaveCount(1);
@@ -130,7 +130,7 @@ test('vehicle search finds VINs and changing a customer clears the vehicle', asy
   );
   popup = await openField(page, 'Клієнт *');
   await popup.getByRole('combobox', { name: 'Пошук: Клієнт' }).fill('Тестовий клієнт 2');
-  await popup.getByRole('option', { name: 'Тестовий клієнт 2 +380000000000', exact: true }).click();
+  await popup.getByRole('option', { name: 'Тестовий клієнт 2 +380501234567', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Автомобіль *', exact: true })).toContainText(
     'Виберіть автомобіль'
   );

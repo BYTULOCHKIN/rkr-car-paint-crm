@@ -12,16 +12,23 @@ interface InventoryExportButtonProps {
   items: StockItem[];
   archived: boolean;
   disabled?: boolean;
+  loadItems?: () => Promise<StockItem[]>;
 }
 
-export function InventoryExportButton({ items, archived, disabled }: InventoryExportButtonProps) {
+export function InventoryExportButton({
+  items,
+  archived,
+  disabled,
+  loadItems
+}: InventoryExportButtonProps) {
   const [pending, setPending] = useState(false);
   async function download(): Promise<void> {
     if (pending || disabled || !items.length) return;
     setPending(true);
     try {
       const { inventoryExcelFile } = await import('../lib/excel');
-      await inventoryExcelFile(items).toFile(
+      const exported = loadItems ? await loadItems() : items;
+      await inventoryExcelFile(exported).toFile(
         `sklad${archived ? '-archive' : ''}-${businessToday()}.xlsx`
       );
     } catch {

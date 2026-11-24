@@ -1,9 +1,11 @@
 import { queryOptions, mutationOptions, keepPreviousData } from '@tanstack/react-query';
-import { getInventoryItems } from './search-service';
-import type { InventoryFilters } from './types';
+import { getInventoryItems, getInventoryMovements } from './search-service';
+import type { InventoryFilters, MovementFilters } from './types';
 import type { ActionResult } from '@/features/crm/api/types';
 import {
   getInventory,
+  getInventoryAccess,
+  getOrderInventory,
   createStockItem,
   updateStockItem,
   archiveStockItem,
@@ -22,6 +24,24 @@ function unwrap<T>(result: ActionResult<T>): T {
 
 export const inventoryQueries = {
   all: () => ['inventory'] as const,
+  access: (userId: string, orgId: string) =>
+    queryOptions({
+      queryKey: ['inventory', userId, orgId, 'access'] as const,
+      queryFn: () => getInventoryAccess(orgId)
+    }),
+  order: (userId: string, orgId: string, orderId: string) =>
+    queryOptions({
+      queryKey: ['inventory', userId, orgId, 'order', orderId] as const,
+      queryFn: () => getOrderInventory(orgId, orderId),
+      staleTime: 0
+    }),
+  movements: (userId: string, orgId: string, filters: MovementFilters) =>
+    queryOptions({
+      queryKey: ['inventory', userId, orgId, 'movements', filters] as const,
+      queryFn: ({ signal }) => getInventoryMovements(orgId, filters, signal),
+      staleTime: 0,
+      retry: false
+    }),
   items: (userId: string, orgId: string, filters: InventoryFilters) =>
     queryOptions({
       queryKey: [...inventoryQueries.all(), userId, orgId, 'items', filters] as const,

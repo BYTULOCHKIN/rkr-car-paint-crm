@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import Link from 'next/link';
 import { SHOW_LEGACY_REQUEST_FLOW } from '@/config/product';
 import { SummaryCardLink } from '@/components/summary-card-link';
@@ -19,11 +19,10 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/features/crm/components/action-button';
 import { CrmEditorDialog, type Editor } from '@/features/crm/components/editor-dialog';
 import { money } from '@/features/crm/components/format';
-import { crmQueries } from '@/features/crm/api/queries';
+import { overviewQueries } from '../api/queries';
 import { businessToday, displayDate } from '@/features/crm/lib/workflow';
-import { overviewTrends, type TrendKey } from '../lib/trends';
+import type { TrendKey } from '../lib/trends';
 import { MetricTrend, trendLabel } from './metric-trend';
-import { overviewMetrics } from '../lib/metrics';
 import { compactMoney, compactNumber } from '../lib/format';
 import { ActivityChart } from './activity-chart';
 import { WorkQueue } from './work-queue';
@@ -37,11 +36,11 @@ interface OverviewProps {
 }
 
 export default function Overview({ userId, initialToday, orgId }: OverviewProps): ReactElement {
-  const { data, isRefetchError } = useSuspenseQuery({
-    ...crmQueries.workspace(userId, orgId),
-    refetchInterval: 60_000
-  });
   const [today, setToday] = useState(initialToday);
+  const { data: report, isRefetchError } = useSuspenseQuery(
+    overviewQueries.report(userId, orgId!, today)
+  );
+  const { data, metrics, trends, empty } = report;
   const [editor, setEditor] = useState<Editor | null>(null);
   useEffect(() => {
     const refreshDate = () => setToday(businessToday());
@@ -53,8 +52,6 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
       window.removeEventListener('focus', refreshDate);
     };
   }, []);
-  const metrics = useMemo(() => overviewMetrics(data, today), [data, today]);
-  const trends = useMemo(() => overviewTrends(data, today, metrics), [data, today, metrics]);
   const cards = [
     {
       title: 'Створені замовлення',
@@ -116,8 +113,7 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
       icon: Icons.orders
     }
   ];
-  const empty =
-    !data.customers.length && !data.vehicles.length && !data.requests.length && !data.orders.length;
+
   return (
     <div className='flex min-w-0 flex-col gap-4'>
       <div className='flex flex-wrap items-center justify-between gap-3'>
@@ -239,6 +235,7 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
       <div className='grid min-w-0 gap-4 lg:grid-cols-2'>
         <WorkQueue
           title='Потребують уваги'
+          total={report.queueCounts?.attention ?? metrics.attention.length}
           description='Прострочені прийоми й завершення робіт'
           entries={metrics.attention.map((target) => ({
             target,
@@ -256,6 +253,7 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
         />
         <WorkQueue
           title='Найближчі 7 днів'
+          total={report.queueCounts?.schedule ?? metrics.schedule.length}
           description='Планові прийоми й видачі, починаючи із сьогодні'
           entries={metrics.schedule.map((entry) => ({
             ...entry,

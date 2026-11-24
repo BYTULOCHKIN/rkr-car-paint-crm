@@ -1,13 +1,13 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useSuspenseQuery, useQuery } from '@tanstack/react-query';
 import { parseAsInteger, parseAsString, useQueryStates } from 'nuqs';
 import type { ColumnDef } from '@tanstack/react-table';
 import { DataTableColumnHeader } from '@/components/data-table/data-table-column-header';
 import type { DataTableFeatures } from '@/lib/data-table-features';
 import { OverflowText } from '@/components/data-table/table-cell-preview';
-import { Input } from '@/components/ui/input';
+import { DebouncedSearch } from './debounced-search';
 import { VehicleBrandAvatar } from '@/components/vehicle-brand-avatar';
 import { crmQueries } from '../api/queries';
 import type { Vehicle, CrmWorkspace } from '../api/types';
@@ -83,31 +83,41 @@ function columnsFor(
 }
 
 export function VehiclesView({ userId, orgId }: { userId: string; orgId?: string | null }) {
-  const { data } = useSuspenseQuery(crmQueries.workspace(userId, orgId));
+  const { data: context } = useSuspenseQuery(crmQueries.team(userId, orgId!));
   const [editor, setEditor] = useState<Editor | null>(null);
   const [params, setParams] = useQueryStates(
-    { q: parseAsString.withDefault(''), page: parseAsInteger.withDefault(1) },
+    {
+      q: parseAsString.withDefault(''),
+      page: parseAsInteger.withDefault(1),
+      perPage: parseAsInteger.withDefault(10),
+      sort: parseAsString
+    },
     { shallow: true }
   );
   const search = params.q;
-  const columns = useMemo(() => columnsFor(data, setEditor), [data]);
-  const rows = useMemo(
-    () =>
-      data.vehicles.filter((vehicle) =>
-        [
-          vehicle.make,
-          vehicle.model,
-          vehicle.year,
-          vehicle.vin,
-          vehicle.plate,
-          data.customers.find((customer) => customer.id === vehicle.customerId)?.name
-        ]
-          .join(' ')
-          .toLocaleLowerCase('uk-UA')
-          .includes(search.toLocaleLowerCase('uk-UA'))
-      ),
-    [data, search]
+  const result = useQuery(
+    crmQueries.list(userId, orgId!, {
+      entity: 'vehicles',
+      search,
+      page: Math.max(1, params.page),
+      pageSize: Math.min(100, Math.max(1, params.perPage)),
+      sort: params.sort ?? undefined
+    })
   );
+  const data = useMemo(
+    () =>
+      result.data ?? {
+        ...context,
+        customers: [],
+        vehicles: [],
+        requests: [],
+        orders: [],
+        events: []
+      },
+    [result.data, context]
+  );
+  const columns = useMemo(() => columnsFor(data, setEditor), [data]);
+  const rows = data.vehicles;
   if (data.access?.role === 'worker')
     return (
       <p className='text-sm text-muted-foreground'>
@@ -118,18 +128,17 @@ export function VehiclesView({ userId, orgId }: { userId: string; orgId?: string
   return (
     <div className='flex flex-1 flex-col gap-4'>
       <div className='flex flex-wrap gap-3'>
-        <Input
+        <DebouncedSearch
           className='sm:max-w-sm'
           placeholder='Марка, модель, VIN, клієнт…'
-          aria-label='Пошук автомобілів'
-          value={search}
-          onChange={(event) => {
-            void setParams({ q: event.target.value, page: 1 });
-          }}
+          label='Пошук автомобілів'
+          search={search}
+          fetching={result.isFetching}
+          onSearch={(value) => void setParams({ q: value, page: 1 })}
         />
         <Button onClick={() => setEditor({ type: 'vehicle' })}>Додати автомобіль</Button>
       </div>
-      <CrmTable rows={rows} columns={columns} label='Автомобілі' />
+      <CrmTable total={data.pagination?.total} rows={rows} columns={columns} label='Автомобілі' />
       {editor && (
         <CrmEditorDialog
           editor={editor}

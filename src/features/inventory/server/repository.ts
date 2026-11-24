@@ -1,7 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import type { HistoryActor } from '@/features/crm/api/types';
-import type { StockItem, StockMovement } from '../api/types';
+import type { StockItem, StockMovement, InventoryFilters, MovementFilters } from '../api/types';
+import { normalizeSearch, type PageResult } from '@/features/crm/lib/pagination';
+import { inventoryFiltersSchema, movementFiltersSchema } from '../schemas/filters';
 import { consumeValuedStock, valuePurchase } from '@/features/order-economics/lib/stock-valuation';
 import { sumIntegers } from '@/features/order-economics/lib/integers';
 import {
@@ -57,7 +59,11 @@ export const consumptionBatchTable = `
 `;
 
 export class InventoryRepository {
-  constructor(private db: DatabaseSync) {}
+  constructor(private db: DatabaseSync) {
+    db.function('crm_search', { deterministic: true }, (value) =>
+      normalizeSearch(String(value ?? ''))
+    );
+  }
 
   private transaction<T>(work: () => T): T {
     if (this.db.isTransaction) return work();
@@ -72,14 +78,15 @@ export class InventoryRepository {
     }
   }
 
-  items(): StockItem[] {
+  private itemRows(where = '', params: (string | number)[] = [], suffix = ''): StockItem[] {
     return this.db
       .prepare(`SELECT i.id, i.name, i.unit, i.notes, i.tags, i.archived,
       v.totalCostCents, v.revision AS valuationRevision,
       EXISTS(SELECT 1 FROM stock_movements WHERE itemId=i.id) AS locked,
       COALESCE((SELECT SUM(deltaMilli) FROM stock_movements WHERE itemId=i.id),0) AS balanceMilli
-      FROM stock_items i JOIN stock_item_values v ON v.itemId=i.id ORDER BY i.archived, i.name`)
-      .all()
+      FROM stock_items i JOIN stock_item_values v ON v.itemId=i.id ${where}
+      ORDER BY i.archived, i.name, i.id ${suffix}`)
+      .all(...params)
       .map((row) => ({
         ...row,
         tags: JSON.parse(row.tags as string),
@@ -88,9 +95,51 @@ export class InventoryRepository {
       })) as unknown as StockItem[];
   }
 
+  items(): StockItem[] {
+    return this.itemRows();
+  }
+
+  listItems(input: InventoryFilters): PageResult<StockItem> {
+    const filters = inventoryFiltersSchema.parse(input);
+    const conditions = ['i.archived=?'];
+    const params: (string | number)[] = [Number(filters.archived)];
+    for (const word of normalizeSearch(filters.search).split(/\s+/).filter(Boolean)) {
+      conditions.push(
+        "instr(crm_search(i.name || ' ' || i.notes || ' ' || COALESCE((SELECT group_concat(value,' ') FROM json_each(i.tags)),'')), ?) > 0"
+      );
+      params.push(word);
+    }
+    if (filters.tags.length) {
+      conditions.push(
+        `EXISTS(SELECT 1 FROM json_each(i.tags) WHERE value IN (${filters.tags.map(() => '?').join(',')}))`
+      );
+      params.push(...filters.tags);
+    }
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    return this.transaction(() => {
+      const total = this.db
+        .prepare(`SELECT COUNT(*) AS total FROM stock_items i ${where}`)
+        .get(...params)!.total as number;
+      return {
+        total,
+        page: filters.page,
+        pageSize: filters.pageSize,
+        items: this.itemRows(
+          where,
+          [...params, filters.pageSize, (filters.page - 1) * filters.pageSize],
+          'LIMIT ? OFFSET ?'
+        )
+      };
+    });
+  }
+
   movements(): StockMovement[] {
+    return this.movementRows();
+  }
+
+  private movementRows(where = '', params: (string | number)[] = [], suffix = ''): StockMovement[] {
     return this.db
-      .prepare(`SELECT m.id AS id, m.itemId, i.name AS itemName, i.unit, m.kind,
+      .prepare(`SELECT * FROM (SELECT m.id AS id, m.itemId, i.name AS itemName, i.unit, m.kind,
       m.deltaMilli, m.orderId, o.number AS orderNumber, m.reversesId, m.note, m.actor, m.createdAt,
       m.costDeltaCents, m.currency, m.purchaseAmountMinor, m.exchangeRateMicros, m.category,
       NULL AS valuationTotalCents,
@@ -102,8 +151,8 @@ export class InventoryRepository {
       SELECT v.id,v.itemId,i.name,i.unit,'valuation',0,NULL,NULL,NULL,v.note,v.actor,v.createdAt,
       NULL,NULL,NULL,NULL,NULL,v.totalCostCents,0,v.rowid,0
       FROM stock_valuation_events v JOIN stock_items i ON i.id=v.itemId
-      ORDER BY createdAt DESC, sortOrder DESC, id DESC`)
-      .all()
+       ) ${where} ORDER BY createdAt DESC, sortOrder DESC, id DESC ${suffix}`)
+      .all(...params)
       .map((row) => {
         const { sortOrder: _sortOrder, ...movement } = row;
         return {
@@ -115,8 +164,63 @@ export class InventoryRepository {
       }) as unknown as StockMovement[];
   }
 
+  listMovements(input: MovementFilters): PageResult<StockMovement> {
+    const filters = movementFiltersSchema.parse(input);
+    const conditions: string[] = [];
+    const params: string[] = [];
+    if (filters.itemId) {
+      conditions.push('itemId=?');
+      params.push(filters.itemId);
+    }
+    if (filters.orderId) {
+      conditions.push('orderId=?');
+      params.push(filters.orderId);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    return this.transaction(() => {
+      const movementWhere = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+      const movements = this.db
+        .prepare(`SELECT COUNT(*) AS total FROM stock_movements ${movementWhere}`)
+        .get(...params)!.total as number;
+      const valuations = filters.orderId
+        ? 0
+        : (this.db
+            .prepare(
+              `SELECT COUNT(*) AS total FROM stock_valuation_events ${filters.itemId ? 'WHERE itemId=?' : ''}`
+            )
+            .get(...(filters.itemId ? [filters.itemId] : []))!.total as number);
+      return {
+        total: movements + valuations,
+        page: filters.page,
+        pageSize: filters.pageSize,
+        items: this.movementRows(
+          where,
+          [...params, filters.pageSize, (filters.page - 1) * filters.pageSize],
+          'LIMIT ? OFFSET ?'
+        )
+      };
+    });
+  }
+
+  movementCount(orderId: string): number {
+    return this.db
+      .prepare('SELECT COUNT(*) AS total FROM stock_movements WHERE orderId=?')
+      .get(orderId)!.total as number;
+  }
+
+  orderMovements(orderId: string): StockMovement[] {
+    return this.movementRows('WHERE orderId=?', [orderId]);
+  }
+
+  reportMovements(from: string, to: string): StockMovement[] {
+    return this.movementRows(
+      "WHERE orderId IS NOT NULL AND kind IN ('consumption','reversal') AND (crm_day(createdAt) BETWEEN ? AND ? OR crm_day(createdAt) IS NULL)",
+      [from, to]
+    );
+  }
+
   private item(id: string): StockItem {
-    const item = this.items().find((entry) => entry.id === id);
+    const item = this.itemRows('WHERE i.id=?', [id])[0];
     if (!item) throw new InventoryError('Складську позицію не знайдено');
     return item;
   }

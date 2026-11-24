@@ -172,7 +172,7 @@ export async function updateWorkflow(input: WorkflowInput): Promise<ActionResult
 export async function advanceOrder(input: AdvanceOrderInput): Promise<ActionResult<null>> {
   return write((repository, context) => {
     const value = advanceOrderSchema.parse(input);
-    const order = repository.workspace().orders.find((order) => order.id === value.id);
+    const order = repository.reads.order(value.id).orders[0];
     if (!order) throw new CrmError('Замовлення не знайдено');
     const transition = executorTransition(order, value);
     if (!transition.ok) throw new CrmError(transition.error);
@@ -230,7 +230,7 @@ export async function createOrder(input: OrderInput): Promise<ActionResult<strin
 export async function updateOrder(input: UpdateOrderInput): Promise<ActionResult<null>> {
   return write((repository, context) => {
     const value = updateOrderSchema.parse(input);
-    const current = repository.workspace().orders.find((order) => order.id === value.id);
+    const current = repository.reads.order(value.id).orders[0];
     if (!current) throw new CrmError('Замовлення не знайдено');
     if (value.assigneeId === undefined || value.assigneeId === current.assigneeId) {
       repository.updateClientOrder(
@@ -260,8 +260,10 @@ export async function updateVehicleVin(input: {
 }
 
 export async function getOrderDocument(id: string): Promise<OrderDocument | null> {
-  const workspace = await getWorkspace();
-  const order = workspace.orders.find((order) => order.id === id);
+  const { repository } = await getOrganizationContext();
+  const workspace = repository.reads.findOrder(id);
+  if (!workspace) return null;
+  const order = workspace.orders[0];
   if (!order) return null;
   const customer = workspace.customers.find((customer) => customer.id === order.customerId);
   const vehicle = workspace.vehicles.find((vehicle) => vehicle.id === order.vehicleId);
@@ -365,16 +367,7 @@ export async function getOrderTrash(orgId: string): Promise<CrmWorkspace> {
   const { repository, access, team } = await getOrganizationContext();
   if (access.orgId !== orgId) throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
   if (access.role !== 'admin') throw new CrmError('Кошик доступний лише адміністратору.');
-  const workspace = repository.workspace(true);
-  return {
-    customers: workspace.customers,
-    vehicles: workspace.vehicles,
-    requests: [],
-    events: [],
-    orders: workspace.orders.filter((order) => !!order.deletedAt),
-    access,
-    team
-  };
+  return { ...repository.reads.list({ entity: 'orders', trash: true }), access, team };
 }
 
 export async function changeOrderTrash(input: OrderTrashInput): Promise<ActionResult<null>> {

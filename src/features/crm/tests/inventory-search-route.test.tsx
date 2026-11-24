@@ -3,13 +3,28 @@ import { auth } from '@clerk/nextjs/server';
 import { GET } from '@/app/api/inventory/items/route';
 import { getOrganizationContext } from '../server/organization';
 import { CrmError } from '../server/repository';
-import type { StockItem } from '@/features/inventory/api/types';
+import { filterStockItems } from '@/features/inventory/lib/search';
+import type { InventoryFilters, StockItem } from '@/features/inventory/api/types';
 
 vi.mock('@clerk/nextjs/server', () => ({ auth: vi.fn() }));
 vi.mock('../server/organization', () => ({ getOrganizationContext: vi.fn() }));
 vi.mock('../server/repository', () => ({ CrmError: class CrmError extends Error {} }));
 let items: StockItem[];
-const repository = { inventory: { items: vi.fn(() => items) } };
+const repository = {
+  inventory: {
+    listItems: vi.fn((filters: InventoryFilters) => {
+      const matching = filterStockItems(items, filters.search, filters.tags, filters.archived);
+      const page = filters.page ?? 1,
+        pageSize = filters.pageSize ?? 50;
+      return {
+        items: matching.slice((page - 1) * pageSize, page * pageSize),
+        total: matching.length,
+        page,
+        pageSize
+      };
+    })
+  }
+};
 beforeEach(() => {
   vi.clearAllMocks();
   items = [];

@@ -46,7 +46,7 @@ function actor(context: Context) {
 export async function recordSettlement(input: CashSettlementInput): Promise<ActionResult<void>> {
   return write(input.orgId, (context) => {
     const value = cashSettlementSchema.parse(input);
-    const workspace = context.repository.workspace();
+    const workspace = context.repository.reads.order(value.orderId);
     const order = workspace.orders.find((order) => order.id === value.orderId);
     if (!order) throw new EconomicsError('Замовлення не знайдено');
     const known =

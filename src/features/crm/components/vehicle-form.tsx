@@ -1,6 +1,6 @@
 'use client';
 import { CrmForm } from './dialog-form';
-import { customerChoices } from './choice-options';
+import { CustomerSelect } from './customer-select';
 import { AddVehicleModel } from './add-vehicle-model';
 import { VehicleBrandAvatar } from '@/components/vehicle-brand-avatar';
 
@@ -291,16 +291,13 @@ export function VehicleForm({
           </form.AppField>
           {!customer && (
             <form.AppField name='customerId'>
-              {(field) => (
-                <field.ComboboxField
+              {() => (
+                <CustomerSelect
+                  data={data}
                   label='Клієнт (необов’язково)'
                   disabled={linked}
-                  placeholder='Без клієнта'
-                  searchPlaceholder='Ім’я або телефон…'
-                  options={[
-                    { value: '', label: 'Без клієнта' },
-                    ...customerChoices(data.customers)
-                  ]}
+                  required={false}
+                  clearable
                 />
               )}
             </form.AppField>

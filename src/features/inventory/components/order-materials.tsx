@@ -32,7 +32,7 @@ function Materials({
   onStateChange?: (state: FormState) => void;
   disabled?: boolean;
 }) {
-  const { data } = useSuspenseQuery(inventoryQueries.workspace(access.userId, access.orgId));
+  const { data } = useSuspenseQuery(inventoryQueries.order(access.userId, access.orgId, order.id));
   const [adding, setAdding] = useState(false);
   const [pending, setPending] = useState(false);
   const [formState, setFormState] = useState<FormState>({ dirty: false, pending: false });
@@ -105,6 +105,7 @@ function Materials({
       {adding && editable && (
         <div className='flex flex-col gap-3'>
           <BatchConsumptionForm
+            userId={access.userId}
             orgId={access.orgId}
             items={data.items}
             movements={data.movements}

@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { getOrganizationContext } from '@/features/crm/server/organization';
 import { CrmError } from '@/features/crm/server/repository';
 import { inventoryFiltersSchema } from '@/features/inventory/schemas/filters';
-import { filterStockItems } from '@/features/inventory/lib/search';
 
 export async function GET(request: Request): Promise<NextResponse> {
   try {
@@ -19,6 +18,8 @@ export async function GET(request: Request): Promise<NextResponse> {
       );
     const archived = z.enum(['true', 'false']).parse(params.get('archived') ?? 'false');
     const filters = inventoryFiltersSchema.parse({
+      page: params.get('page') ?? undefined,
+      pageSize: params.get('pageSize') ?? undefined,
       search: params.get('search') ?? '',
       tags: params.getAll('tag'),
       archived: archived === 'true'
@@ -26,17 +27,9 @@ export async function GET(request: Request): Promise<NextResponse> {
     const { repository, access } = await getOrganizationContext();
     if (access.orgId !== orgId || access.userId !== userId)
       return NextResponse.json({ error: 'Немає доступу до автомалярки' }, { status: 403 });
-    return NextResponse.json(
-      {
-        items: filterStockItems(
-          repository.inventory.items(),
-          filters.search,
-          filters.tags,
-          filters.archived
-        )
-      },
-      { headers: { 'Cache-Control': 'private, no-store' } }
-    );
+    return NextResponse.json(repository.inventory.listItems(filters), {
+      headers: { 'Cache-Control': 'private, no-store' }
+    });
   } catch (error) {
     if (error instanceof z.ZodError)
       return NextResponse.json({ error: 'Перевірте параметри пошуку' }, { status: 400 });

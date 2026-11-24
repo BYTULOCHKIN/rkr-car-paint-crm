@@ -23,6 +23,7 @@ export interface Customer {
 }
 
 export interface Vehicle {
+  linked?: boolean;
   id: string;
   customerId: string | null;
   make: string;
@@ -162,7 +163,33 @@ export interface PaymentEvent {
   createdAt: string;
 }
 
+export interface PaymentSummary {
+  paidCents: number;
+  remainingCents: number;
+  overpaidCents: number;
+  status: 'Переплата' | 'Оплачено' | 'Частково оплачено' | 'Не оплачено';
+}
+
 export interface CrmWorkspace {
+  paymentSummaries?: Record<string, PaymentSummary>;
+  summaryCounts?: {
+    customers: number;
+    vehicles: number;
+    created: number;
+    active: number;
+    ready: number;
+  };
+  reportOpening?: {
+    orderId: string;
+    payee: import('@/features/order-economics/api/types').SettlementPayee;
+    amountCents: number;
+  }[];
+  reportReversalSources?: import('@/features/order-economics/api/types').SettlementEvent[];
+  boardCounts?: Record<string, number>;
+  boardTotal?: number;
+  hasLegacyRequests?: boolean;
+  serverRead?: boolean;
+  pagination?: import('../lib/pagination').Pagination & { total: number };
   expenseNames?: import('@/features/order-expenses/api/types').OrderExpenseName[];
   finance?: FinanceWorkspace;
   payments?: PaymentEvent[];

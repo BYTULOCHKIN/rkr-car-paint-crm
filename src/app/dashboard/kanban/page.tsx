@@ -5,8 +5,12 @@ export const metadata = {
   title: 'Дошка робіт'
 };
 
-export default async function page() {
+export default async function Page({
+  searchParams
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   await auth.protect();
 
-  return <CrmPage view='kanban' />;
+  return <CrmPage searchParams={searchParams} view='kanban' />;
 }

@@ -7,7 +7,8 @@ import type { ReactElement } from 'react';
 import { RequestForm, OrderForm } from '../components/forms';
 import { CrmEditorDialog } from '../components/editor-dialog';
 import { SummaryCards } from '../components/summary-cards';
-import { createRequest, createOrder, updateOrder } from '../api/service';
+import { createRequest, createOrder, updateOrder, createCustomer } from '../api/service';
+import { CustomerForm } from '../components/customer-form';
 import { useAppForm } from '@/lib/form';
 import type { CrmWorkspace, RepairOrder } from '../api/types';
 
@@ -78,6 +79,30 @@ function ExistingSelection() {
     </form.AppField>
   );
 }
+
+test('customer phone detects a country immediately and shows validation errors before saving', async () => {
+  vi.mocked(createCustomer).mockResolvedValue({ ok: true, data: first });
+  const saved = vi.fn();
+  renderForm(<CustomerForm onSaved={saved} />);
+  const user = userEvent.setup();
+  await user.type(screen.getByRole('textbox', { name: 'Ім’я клієнта *' }), 'Телефонний клієнт');
+  const phone = screen.getByRole('textbox', { name: 'Телефон 1 *' });
+  await user.type(phone, '+380');
+  expect(screen.getByText('Україна · +380')).toBeDefined();
+  await user.tab();
+  expect(screen.getByRole('alert').textContent).toContain('Вкажіть коректний номер');
+  await user.click(screen.getByRole('button', { name: 'Створити клієнта' }));
+  expect(createCustomer).not.toHaveBeenCalled();
+  await user.clear(phone);
+  await user.type(phone, '0501234567');
+  await user.tab();
+  expect((phone as HTMLInputElement).value).toBe('+380 50 123 4567');
+  await user.click(screen.getByRole('button', { name: 'Створити клієнта' }));
+  await waitFor(() => expect(saved).toHaveBeenCalledOnce());
+  expect(createCustomer).toHaveBeenCalledWith(
+    expect.objectContaining({ contacts: [{ type: 'phone', value: '+380 50 123 4567' }] })
+  );
+});
 
 async function select(label: string, option: RegExp) {
   const user = userEvent.setup();

@@ -17,12 +17,12 @@ import { PersonAvatar } from '@/components/person-avatar';
 import { VehicleBrandAvatar } from '@/components/vehicle-brand-avatar';
 
 import { Suspense, useMemo, useState } from 'react';
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useSuspenseQuery, useQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import { parseAsInteger, parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs';
 import { DataTableColumnHeader } from '@/components/data-table/data-table-column-header';
 import type { DataTableFeatures } from '@/lib/data-table-features';
-import { Input } from '@/components/ui/input';
+import { DebouncedSearch } from './debounced-search';
 import { SummaryCards } from './summary-cards';
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty';
 import { crmQueries } from '../api/queries';
@@ -35,7 +35,7 @@ import { paymentBalance } from '../lib/payment-balance';
 import { statusLabel } from '../lib/workflow';
 import { WorkflowDatePreview } from './workflow-details';
 import { CrmTable } from './crm-table';
-import { primaryContact, contactSearchValues } from '../lib/customer-contacts';
+import { primaryContact } from '../lib/customer-contacts';
 import { CustomerContactsPreview } from './customer-contacts';
 import { RowActions } from './row-actions';
 import { OverflowText } from '@/components/data-table/table-cell-preview';
@@ -283,7 +283,8 @@ function createColumns(data: CrmWorkspace, setEditor: (editor: Editor) => void) 
         <span className='block text-right font-medium tabular-nums'>
           {money(row.original.totalCents)}
           <span className='block text-xs font-normal text-muted-foreground'>
-            {paymentBalance(row.original, data.payments).status}
+            {data.paymentSummaries?.[row.original.id]?.status ??
+              paymentBalance(row.original, data.payments).status}
           </span>
         </span>
       )
@@ -390,7 +391,7 @@ interface CrmWorkspaceViewProps {
 }
 
 export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps) {
-  const { data } = useSuspenseQuery(crmQueries.workspace(userId, orgId));
+  const { data: context } = useSuspenseQuery(crmQueries.team(userId, orgId!));
   const [editor, setEditor] = useState<Editor | null>(null);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [params, setParams] = useQueryStates(
@@ -398,6 +399,7 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
       ordersScope: parseAsStringLiteral(['active', 'trash']).withDefault('active'),
       q: parseAsString.withDefault(''),
       page: parseAsInteger.withDefault(1),
+      perPage: parseAsInteger.withDefault(10),
       customerOrder: parseAsStringLiteral(['newest', 'oldest']).withDefault('newest'),
       sort: parseAsString,
       requestStatus: parseAsString.withDefault('all'),
@@ -406,6 +408,34 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
       )
     },
     { shallow: true }
+  );
+  const result = useQuery(
+    crmQueries.list(userId, orgId!, {
+      entity: view,
+      search: params.q,
+      page: Math.max(1, params.page),
+      pageSize: Math.min(100, Math.max(1, params.perPage)),
+      status:
+        view === 'requests'
+          ? params.requestStatus === 'all'
+            ? 'all'
+            : 'backlog'
+          : params.orderStatus,
+      customerOrder: params.customerOrder,
+      sort: params.sort ?? undefined
+    })
+  );
+  const data = useMemo(
+    () =>
+      result.data ?? {
+        customers: [],
+        vehicles: [],
+        requests: [],
+        orders: [],
+        events: [],
+        ...context
+      },
+    [result.data, context]
   );
   const trashView =
     view === 'orders' && data.access?.role === 'admin' && params.ordersScope === 'trash';
@@ -417,66 +447,17 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
     [data]
   );
 
-  const { customers, requests, orders } = useMemo(() => {
-    const matches = (...values: (string | null | undefined)[]) =>
-      values.join(' ').toLocaleLowerCase('uk-UA').includes(search);
-    const customersById = new Map(data.customers.map((customer) => [customer.id, customer]));
-    const vehiclesById = new Map(data.vehicles.map((vehicle) => [vehicle.id, vehicle]));
-    const customerName = (id: string) => customersById.get(id)?.name ?? '—';
-    const car = (id: string) => {
-      const vehicle = vehiclesById.get(id);
-      return vehicle ? vehicleLabel(vehicle) : '—';
-    };
-    const customers = data.customers
-      .filter((customer) =>
-        matches(
-          customer.name,
-          ...contactSearchValues(customer),
-          customer.notes,
-          ...data.vehicles
-            .filter((vehicle) => vehicle.customerId === customer.id)
-            .flatMap((vehicle) => [vehicleLabel(vehicle), vehicle.vin])
-        )
-      )
-      .toSorted((a, b) => {
-        const difference = Date.parse(a.createdAt) - Date.parse(b.createdAt);
-        return (
-          (params.customerOrder === 'oldest' ? difference : -difference) || a.id.localeCompare(b.id)
-        );
-      });
-    const requests = data.requests.filter(
-      (request) =>
-        (params.requestStatus === 'all' || request.status !== 'converted') &&
-        matches(
-          customerName(request.customerId),
-          ...contactSearchValues(customersById.get(request.customerId)),
-          car(request.vehicleId),
-          vehiclesById.get(request.vehicleId)?.vin,
-          request.description
-        )
-    );
-    const orders = data.orders.filter(
-      (order) =>
-        (params.orderStatus === 'all' || order.status === params.orderStatus) &&
-        matches(
-          String(order.number),
-          customerName(order.customerId),
-          ...contactSearchValues(customersById.get(order.customerId)),
-          car(order.vehicleId),
-          vehiclesById.get(order.vehicleId)?.vin,
-          order.description,
-          assigneeLabel(order, data.team),
-          ...order.items.map((item) => item.description)
-        )
-    );
-    return { customers, requests, orders };
-  }, [data, search, params.requestStatus, params.customerOrder, params.orderStatus]);
+  const { customers, requests, orders } = data;
   const empty =
-    view === 'customers'
-      ? !data.customers.length
-      : view === 'requests'
-        ? !data.requests.length
-        : !data.orders.length;
+    !params.q &&
+    params.orderStatus === 'all' &&
+    (data.pagination
+      ? data.pagination.total === 0
+      : view === 'customers'
+        ? !data.customers.length
+        : view === 'requests'
+          ? !data.requests.length
+          : !data.orders.length);
   const create = () =>
     setEditor({
       type: view === 'customers' ? 'customer' : view === 'requests' ? 'request' : 'order'
@@ -495,12 +476,13 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
       </p>
     );
   const searchControl = (
-    <Input
-      aria-label='Пошук за клієнтом, автомобілем, VIN або роботами'
+    <DebouncedSearch
+      label='Пошук за клієнтом, автомобілем, VIN або роботами'
       placeholder='Клієнт, телефон, автомобіль, VIN…'
       className='w-full min-w-0 sm:w-72'
-      value={params.q}
-      onChange={(event) => void setParams({ q: event.target.value, page: 1 })}
+      search={params.q}
+      fetching={result.isFetching}
+      onSearch={(value) => void setParams({ q: value, page: 1 })}
     />
   );
   const content = (
@@ -538,6 +520,13 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
         <Suspense fallback={<Skeleton className='h-48 w-full' />}>
           <OrderTrashList access={data.access} search={search} />
         </Suspense>
+      ) : result.isPending ? (
+        <p role='status'>Завантажуємо записи…</p>
+      ) : result.isError ? (
+        <div role='alert'>
+          Не вдалося завантажити записи.{' '}
+          <Button onClick={() => void result.refetch()}>Повторити</Button>
+        </div>
       ) : empty ? (
         <Empty className='min-h-64 rounded-xl border'>
           <EmptyHeader>
@@ -566,11 +555,26 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
           )}
         </Empty>
       ) : view === 'customers' ? (
-        <CrmTable rows={customers} columns={customerColumns} label='Клієнти' />
+        <CrmTable
+          total={data.pagination?.total}
+          rows={customers}
+          columns={customerColumns}
+          label='Клієнти'
+        />
       ) : view === 'requests' ? (
-        <CrmTable rows={requests} columns={requestColumns} label='Заявки' />
+        <CrmTable
+          total={data.pagination?.total}
+          rows={requests}
+          columns={requestColumns}
+          label='Заявки'
+        />
       ) : (
-        <CrmTable rows={orders} columns={orderColumns} label='Замовлення' />
+        <CrmTable
+          total={data.pagination?.total}
+          rows={orders}
+          columns={orderColumns}
+          label='Замовлення'
+        />
       )}
       {editor && (
         <CrmEditorDialog
@@ -613,11 +617,13 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
         pageHeaderAction={
           <div className='flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto'>
             {searchControl}
-            {!trashView && data.access?.role !== 'worker' && data.requests.length > 0 && (
-              <Link href='/dashboard/requests' className={buttonVariants({ variant: 'ghost' })}>
-                Архів заявок
-              </Link>
-            )}
+            {!trashView &&
+              data.access?.role !== 'worker' &&
+              (data.hasLegacyRequests ?? data.requests.length > 0) && (
+                <Link href='/dashboard/requests' className={buttonVariants({ variant: 'ghost' })}>
+                  Архів заявок
+                </Link>
+              )}
             {!trashView && (
               <DropdownMenu open={statusMenuOpen} onOpenChange={setStatusMenuOpen}>
                 <DropdownMenuTrigger

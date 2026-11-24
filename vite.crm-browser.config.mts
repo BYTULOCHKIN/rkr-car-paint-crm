@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { readFileSync, readdirSync } from 'node:fs';
 import { filterStockItems } from './src/features/inventory/lib/search';
 import { inventoryFiltersSchema } from './src/features/inventory/schemas/filters';
-import type { StockItem } from './src/features/inventory/api/types';
+import type { StockItem, StockMovement } from './src/features/inventory/api/types';
 const root = fileURLToPath(new URL('.', import.meta.url));
 function productionCss(): string {
   const folder = `${root}/.next/static/chunks`;
@@ -47,14 +47,53 @@ export default defineConfig({
             const filters = inventoryFiltersSchema.parse({
               search: params.get('search') ?? '',
               tags: params.getAll('tag'),
-              archived: params.get('archived') === 'true'
+              archived: params.get('archived') === 'true',
+              page: params.get('page') ?? undefined,
+              pageSize: params.get('pageSize') ?? undefined
             });
             const items: StockItem[] = snapshot ? JSON.parse(decodeURIComponent(snapshot)) : [];
             res.setHeader('Content-Type', 'application/json');
             res.setHeader('Cache-Control', 'no-store');
+            const matching = filterStockItems(
+              items,
+              filters.search,
+              filters.tags,
+              filters.archived
+            );
             res.end(
               JSON.stringify({
-                items: filterStockItems(items, filters.search, filters.tags, filters.archived)
+                items: matching.slice(
+                  (filters.page - 1) * filters.pageSize,
+                  filters.page * filters.pageSize
+                ),
+                total: matching.length,
+                page: filters.page,
+                pageSize: filters.pageSize
+              })
+            );
+            return;
+          }
+          if (req.url?.startsWith('/api/inventory/movements?')) {
+            const params = new URL(req.url, 'http://localhost').searchParams;
+            const snapshot = req.headers.cookie
+              ?.split('; ')
+              .find((value) => value.startsWith('stock-movements-fixture='))
+              ?.slice('stock-movements-fixture='.length);
+            const all: StockMovement[] = snapshot ? JSON.parse(decodeURIComponent(snapshot)) : [];
+            const items = all.filter(
+              (entry) =>
+                (!params.get('itemId') || entry.itemId === params.get('itemId')) &&
+                (!params.get('orderId') || entry.orderId === params.get('orderId'))
+            );
+            const page = Number(params.get('page') ?? 1),
+              pageSize = Number(params.get('pageSize') ?? 50);
+            res.setHeader('Content-Type', 'application/json');
+            res.end(
+              JSON.stringify({
+                items: items.slice((page - 1) * pageSize, page * pageSize),
+                total: items.length,
+                page,
+                pageSize
               })
             );
             return;
@@ -71,6 +110,14 @@ export default defineConfig({
         });
       },
       resolveId(source, importer) {
+        if (
+          source.endsWith('/api/read-service') ||
+          (source === './read-service' && importer?.includes('/features/crm/api/queries'))
+        )
+          return `${root}/tests/browser/fixture/read-service.ts`;
+        if (source === './service' && importer?.includes('/features/overview/api/queries'))
+          return `${root}/tests/browser/fixture/overview-service.ts`;
+
         if (
           importer?.replaceAll('\\', '/').includes('/features/order-expenses/api/queries') &&
           source === './service'

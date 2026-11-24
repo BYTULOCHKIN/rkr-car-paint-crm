@@ -26,12 +26,15 @@ CREATE INDEX IF NOT EXISTS crm_payments_order ON crm_payments(orderId, createdAt
 
 export class PaymentRepository {
   constructor(private readonly db: DatabaseSync) {}
-  list(): PaymentEvent[] {
+  list(orderIds?: string[], period?: { from: string; to: string }): PaymentEvent[] {
     return this.db
       .prepare(`SELECT id,operationId,orderId,kind,amountCents,reversalOf,note,actor,createdAt FROM (
         SELECT *,rowid AS sortOrder FROM crm_payments UNION ALL SELECT *,rowid AS sortOrder FROM crm_customer_refunds
-      ) ORDER BY createdAt,sortOrder,id`)
-      .all()
+      ) WHERE ${orderIds ? `orderId IN (SELECT value FROM json_each(?))` : '1=1'}${period ? ' AND (crm_day(createdAt) BETWEEN ? AND ? OR crm_day(createdAt) IS NULL)' : ''} ORDER BY createdAt,sortOrder,id`)
+      .all(
+        ...(orderIds ? [JSON.stringify(orderIds)] : []),
+        ...(period ? [period.from, period.to] : [])
+      )
       .map((row) => ({
         ...row,
         actor: JSON.parse(row.actor as string)

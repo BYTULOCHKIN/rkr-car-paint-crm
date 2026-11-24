@@ -13,6 +13,6 @@ export async function getPeriodReport(
   const { repository, access } = await getOrganizationContext();
   if (access.orgId !== orgId) throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
   const value = reportFiltersSchema.parse(filters);
-  const source = repository.reportSnapshot();
+  const source = repository.reportSnapshot(value);
   return buildPeriodReport(source.workspace, source.movements, access, value);
 }

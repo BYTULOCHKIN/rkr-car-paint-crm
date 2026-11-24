@@ -1,8 +1,14 @@
 'use client';
+import { uniqueRecords as unique } from '../lib/pagination';
 
 import { useCallback, useId, useMemo, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import { useSuspenseQuery } from '@tanstack/react-query';
+import {
+  useSuspenseQuery,
+  useInfiniteQuery,
+  useQueryClient,
+  type InfiniteData
+} from '@tanstack/react-query';
 import { DragOverlay, type DragEndEvent, type UniqueIdentifier } from '@dnd-kit/core';
 import { toast } from 'sonner';
 import { Icons } from '@/components/icons';
@@ -35,10 +41,8 @@ import { vehicleLabel } from './format';
 import { BoardViewport } from './board-viewport';
 
 import {
-  batchBoard,
   filterBoard,
   indexBoard,
-  BOARD_BATCH_SIZE,
   type BoardCard,
   type BoardColumns as Columns
 } from '../lib/board';
@@ -189,27 +193,53 @@ function BoardCardContent({
 }
 
 export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactElement {
-  const { data } = useSuspenseQuery(crmQueries.workspace(userId, orgId));
-  const worker = data.access?.role === 'worker';
+  const { data: context } = useSuspenseQuery(crmQueries.team(userId, orgId!));
+  const client = useQueryClient();
   const [search, setSearch] = useState('');
   const [editor, setEditor] = useState<Editor | null>(null);
   const [draft, setDraft] = useState<Columns | null>(null);
   const [draggedId, setDraggedId] = useState<UniqueIdentifier | null>(null);
   const boardId = useId();
-  const [limit, setLimit] = useState(BOARD_BATCH_SIZE);
+  const result = useInfiniteQuery(crmQueries.board(userId, orgId!, search));
+  const pages = result.data?.pages ?? [];
+  const data = useMemo(() => {
+    const pages = result.data?.pages ?? [];
+    return {
+      ...context,
+      serverRead: true,
+      customers: unique(pages.flatMap((part) => part.customers)),
+      vehicles: unique(pages.flatMap((part) => part.vehicles)),
+      orders: unique(pages.flatMap((part) => part.orders)),
+      requests: [],
+      events: []
+    };
+  }, [context, result.data]);
+  const worker = context.access.role === 'worker';
   const [searchReset, setSearchReset] = useState(0);
   const cards = useMemo(() => indexBoard(data), [data]);
-  const columns = useMemo(() => filterBoard(cards, search), [cards, search]);
-  const batched = useMemo(() => batchBoard(columns, limit), [columns, limit]);
-  const visible = draft ?? batched;
+  const columns = useMemo(() => filterBoard(cards, ''), [cards]);
+  const visible = draft ?? columns;
   const draggedCard = cards.find((card) => card.id === draggedId);
-  const matchCount = Object.values(columns).reduce((sum, list) => sum + list.length, 0);
-  const shownCount = Object.values(batched).reduce((sum, list) => sum + list.length, 0);
-  const applySearch = useCallback((value: string) => {
-    setSearch(value);
-    setDraft(null);
-    setLimit(BOARD_BATCH_SIZE);
-  }, []);
+  const matchCount = pages[0]?.pagination?.total ?? 0;
+  const shownCount = cards.length;
+  const applySearch = useCallback(
+    (value: string) => {
+      client.setQueryData<InfiniteData<CrmWorkspace>>(
+        crmQueries.board(userId, orgId!, value).queryKey,
+        (previous) =>
+          previous
+            ? {
+                ...previous,
+                pages: previous.pages.slice(0, 1),
+                pageParams: previous.pageParams.slice(0, 1)
+              }
+            : previous
+      );
+      setSearch(value);
+      setDraft(null);
+    },
+    [client, userId, orgId]
+  );
 
   function openOrder(target: WorkflowRecord): void {
     if (target.kind === 'order') {
@@ -254,7 +284,12 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
   return (
     <div className='flex min-w-0 flex-1 flex-col gap-4'>
       <div className='flex flex-wrap items-center gap-3'>
-        <BoardSearch key={searchReset} search={search} onSearch={applySearch} />
+        <BoardSearch
+          key={searchReset}
+          search={search}
+          onSearch={applySearch}
+          fetching={result.isFetching}
+        />
         {!worker && SHOW_LEGACY_REQUEST_FLOW && (
           <Button onClick={() => setEditor({ type: 'request' })}>Нова заявка</Button>
         )}
@@ -264,14 +299,20 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
           </Button>
         )}
         <p role='status' aria-live='polite' className='text-muted-foreground text-xs'>
-          Знайдено {matchCount} із {cards.length}
+          Знайдено {matchCount} із {pages[0]?.boardTotal ?? matchCount}
         </p>
       </div>
       <p className='text-muted-foreground text-sm'>
         Перетягніть картку або відкрийте «Статус і дати». Зміни застосуються після збереження форми.
         <span className='hidden lg:inline'> Картки впорядковано за плановою датою.</span>
       </p>
-      {search.trim() && matchCount === 0 && (
+      {result.isError && (
+        <div role='alert'>
+          Не вдалося завантажити дошку.{' '}
+          <Button onClick={() => void result.refetch()}>Повторити</Button>
+        </div>
+      )}
+      {!result.isFetching && !result.isError && search.trim() && matchCount === 0 && (
         <div className='flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm'>
           <p>За вашим пошуком записів не знайдено.</p>
           <Button
@@ -317,7 +358,8 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
                   size='sm'
                   variant='outline'
                   aria-controls={`${boardId}-board`}
-                  onClick={() => setLimit((previous) => previous + BOARD_BATCH_SIZE)}
+                  onClick={() => void result.fetchNextPage()}
+                  disabled={result.isFetching}
                 >
                   <span className='inline-flex items-center gap-1 whitespace-nowrap'>
                     <Icons.chevronDown aria-hidden data-icon='inline-start' />
@@ -354,7 +396,7 @@ export function CrmKanbanBoard({ userId, orgId }: CrmKanbanBoardProps): ReactEle
                     variant='secondary'
                     className='min-w-6 shrink-0 justify-center tabular-nums'
                   >
-                    {columns[column.value]?.length ?? 0}
+                    {pages[0]?.boardCounts?.[column.value] ?? 0}
                   </Badge>
                 </div>
                 <div

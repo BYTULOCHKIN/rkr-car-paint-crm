@@ -48,6 +48,9 @@ interface ComboboxFieldProps extends BaseFieldProps {
   onRetry?: () => void;
   clearable?: boolean;
   renderIcon?: (option: ChoiceOption) => ReactNode;
+  onSearchChange?: (search: string) => void;
+  onOptionChange?: (option: ChoiceOption | null) => void;
+  selectedOption?: ChoiceOption;
 }
 
 const NO_RECENT_VALUES: string[] = [];
@@ -74,19 +77,25 @@ export function ComboboxField({
   errorMessage,
   onRetry,
   clearable = !required,
-  renderIcon
+  renderIcon,
+  onSearchChange,
+  onOptionChange,
+  selectedOption
 }: ComboboxFieldProps): ReactElement {
   const field = useFieldContext<string>();
   const isInvalid = useFieldInvalid();
   const controlId = useId();
   const [open, setOpen] = useState(false);
-  const selected = options.find((option) => option.value === field.state.value);
+  const selected =
+    options.find((option) => option.value === field.state.value) ??
+    (selectedOption?.value === field.state.value ? selectedOption : undefined);
   const selectedLabel = selected ? choiceLabel(selected) : '';
   const hasOptions = options.some((option) => !option.disabled);
-  const isDisabled = disabled || !hasOptions;
+  const isDisabled = disabled || (!hasOptions && !onSearchChange);
   const help = disabled
     ? description || (!hasOptions ? emptyMessage : undefined)
-    : errorMessage || (loading ? loadingMessage : !hasOptions ? emptyMessage : description);
+    : errorMessage ||
+      (loading ? loadingMessage : !hasOptions && !selected ? emptyMessage : description);
   const describedBy =
     [help && `${controlId}-description`, isInvalid && `${controlId}-error`]
       .filter(Boolean)
@@ -112,14 +121,21 @@ export function ComboboxField({
         isItemEqualToValue={(option, value) => option.value === value.value}
         itemToStringLabel={choiceLabel}
         itemToStringValue={(option) => option.value}
-        filter={matchesChoice}
+        filter={onSearchChange ? null : matchesChoice}
+        onInputValueChange={(value, details) => {
+          if (details.reason === 'input-change') onSearchChange?.(value);
+        }}
         disabled={isDisabled}
         open={open && !isDisabled}
         autoHighlight
-        onValueChange={(option) => field.handleChange(option?.value ?? '')}
-        onOpenChange={(open) => {
-          setOpen(open);
-          if (!open) field.handleBlur();
+        onValueChange={(option) => {
+          field.handleChange(option?.value ?? '');
+          onOptionChange?.(option ?? null);
+        }}
+        onOpenChange={(nextOpen, details) => {
+          setOpen(nextOpen);
+          if (nextOpen && !open && details.reason !== 'input-change') onSearchChange?.('');
+          if (!nextOpen) field.handleBlur();
         }}
       >
         <ComboboxTrigger
@@ -139,7 +155,7 @@ export function ComboboxField({
             </span>
           )}
           <span className='min-w-0 flex-1 truncate text-left' title={selectedLabel || undefined}>
-            {selectedLabel || (!hasOptions && !disabled ? help : placeholder)}
+            {selectedLabel || (!hasOptions && !disabled && !onSearchChange ? help : placeholder)}
           </span>
         </ComboboxTrigger>
         <ComboboxContent

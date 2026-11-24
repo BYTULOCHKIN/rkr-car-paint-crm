@@ -1,13 +1,13 @@
 'use client';
 import { useState, useMemo } from 'react';
-import { useSuspenseQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import type { DataTableFeatures } from '@/lib/data-table-features';
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty';
 import { crmQueries } from '../api/queries';
 import type { CrmAccess, CrmWorkspace, RepairOrder } from '../api/types';
 import { money, vehicleLabel } from './format';
-import { contactSearchValues } from '../lib/customer-contacts';
+import { parseAsInteger, useQueryStates } from 'nuqs';
 import { historyTimestamp } from '../lib/workflow-history';
 import { StatusBadge } from './status-badge';
 import { CrmTable } from './crm-table';
@@ -15,30 +15,33 @@ import { Button } from './action-button';
 import { CrmEditorDialog, type Editor } from './editor-dialog';
 
 export function OrderTrashList({ access, search }: { access: CrmAccess; search: string }) {
-  const { data } = useSuspenseQuery(crmQueries.trash(access.userId, access.orgId));
+  const [params] = useQueryStates(
+    { page: parseAsInteger.withDefault(1), perPage: parseAsInteger.withDefault(10) },
+    { shallow: true }
+  );
+  const result = useQuery(
+    crmQueries.list(access.userId, access.orgId, {
+      entity: 'orders',
+      trash: true,
+      search,
+      page: Math.max(1, params.page),
+      pageSize: Math.min(100, Math.max(1, params.perPage))
+    })
+  );
+  const data = useMemo(
+    () =>
+      result.data ?? {
+        customers: [],
+        vehicles: [],
+        requests: [],
+        orders: [],
+        events: [],
+        access
+      },
+    [result.data, access]
+  );
   const [editor, setEditor] = useState<Editor | null>(null);
-  const customers = new Map(data.customers.map((entry) => [entry.id, entry.name]));
-  const vehicles = new Map(data.vehicles.map((entry) => [entry.id, vehicleLabel(entry)]));
-  const contacts = new Map(
-    data.customers.map((customer) => [customer.id, contactSearchValues(customer)])
-  );
-  const vins = new Map(data.vehicles.map((vehicle) => [vehicle.id, vehicle.vin]));
-  const rows = data.orders.filter((order) =>
-    [
-      String(order.number),
-      customers.get(order.customerId),
-      vehicles.get(order.vehicleId),
-      order.description,
-      ...(contacts.get(order.customerId) ?? []),
-      vins.get(order.vehicleId),
-      order.assigneeName,
-      order.deletedBy?.name,
-      ...order.items.map((item) => item.description)
-    ]
-      .join(' ')
-      .toLocaleLowerCase('uk-UA')
-      .includes(search)
-  );
+  const rows = data.orders;
   const columns = useMemo(
     () => createTrashColumns(data, (order) => setEditor({ type: 'restoreOrder', order })),
     [data]
@@ -48,7 +51,14 @@ export function OrderTrashList({ access, search }: { access: CrmAccess; search: 
       <p className='text-muted-foreground text-sm'>
         Замовлення зберігаються в кошику до відновлення. Номери та історія збережені.
       </p>
-      {!data.orders.length ? (
+      {result.isPending ? (
+        <p role='status'>Завантажуємо кошик…</p>
+      ) : result.isError ? (
+        <div role='alert'>
+          Не вдалося завантажити кошик.{' '}
+          <Button onClick={() => void result.refetch()}>Повторити</Button>
+        </div>
+      ) : (data.pagination?.total ?? data.orders.length) === 0 ? (
         <Empty className='min-h-64 rounded-xl border'>
           <EmptyHeader>
             <EmptyTitle>Кошик порожній</EmptyTitle>
@@ -56,7 +66,12 @@ export function OrderTrashList({ access, search }: { access: CrmAccess; search: 
           </EmptyHeader>
         </Empty>
       ) : (
-        <CrmTable rows={rows} columns={columns} label='Кошик замовлень' />
+        <CrmTable
+          total={data.pagination?.total}
+          rows={rows}
+          columns={columns}
+          label='Кошик замовлень'
+        />
       )}
       {editor && (
         <CrmEditorDialog

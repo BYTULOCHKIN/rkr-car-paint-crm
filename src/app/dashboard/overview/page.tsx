@@ -8,7 +8,7 @@ import { dehydrate, HydrationBoundary } from '@tanstack/react-query';
 import PageContainer from '@/components/layout/page-container';
 import { buttonVariants } from '@/components/ui/button';
 import { getQueryClient } from '@/lib/query-client';
-import { crmQueries } from '@/features/crm/api/queries';
+import { overviewQueries } from '@/features/overview/api/queries';
 import { checkCrmAccess } from '@/features/crm/api/service';
 import { businessToday } from '@/features/crm/lib/workflow';
 import Overview from '@/features/overview/components/overview';
@@ -38,7 +38,7 @@ export default async function OverviewPage() {
     );
   if ((await getOrganizationContext()).access.role === 'worker') redirect('/dashboard/orders');
   const queryClient = getQueryClient();
-  void queryClient.prefetchQuery(crmQueries.workspace(userId, orgId));
+  void queryClient.prefetchQuery(overviewQueries.report(userId, orgId!, businessToday()));
   return (
     <PageContainer
       pageTitle='Огляд автомалярки'

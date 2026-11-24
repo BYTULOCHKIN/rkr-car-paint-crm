@@ -98,6 +98,17 @@ const repository = {
     reverse: vi.fn(),
     valueOpeningBalance: vi.fn()
   },
+  reads: {
+    order: vi.fn<(id: string) => CrmWorkspace>((id): CrmWorkspace => {
+      const value = repository.workspace();
+      return { ...value, orders: value.orders.filter((order) => order.id === id) };
+    }),
+    findOrder: vi.fn<(id: string) => CrmWorkspace | null>((id): CrmWorkspace | null => {
+      const value = repository.workspace();
+      const order = value.orders.find((order) => order.id === id);
+      return order ? { ...value, orders: [order] } : null;
+    })
+  },
   workspace: vi.fn(() => workspace),
   reportSnapshot: vi.fn<() => { workspace: CrmWorkspace; movements: StockMovement[] }>(),
   addVehicleModel: vi.fn(() => '001'),

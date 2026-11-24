@@ -136,8 +136,24 @@ export function buildPeriodReport(
     (event) =>
       access.role === 'admin' || (event.payee.kind === 'worker' && event.payee.id === access.userId)
   );
-  const byId = new Map(events.map((event) => [event.id, event]));
+  const byId = new Map(
+    [...events, ...(workspace.reportReversalSources ?? [])].map((event) => [event.id, event])
+  );
   const settlementRows = new Map<string, OrderSettlementRow>();
+  for (const opening of workspace.reportOpening ?? []) {
+    if (
+      access.role !== 'admin' &&
+      !(opening.payee.kind === 'worker' && opening.payee.id === access.userId)
+    )
+      continue;
+    settlementRows.set(JSON.stringify([opening.orderId, payeeKey(opening.payee)]), {
+      ...zeroSettlement(),
+      order: orderRef(opening.orderId),
+      payee: opening.payee,
+      openingCents: opening.amountCents,
+      closingCents: opening.amountCents
+    });
+  }
   const activeRows = new Set<string>();
   for (const event of events) {
     const date = dated(event.createdAt);

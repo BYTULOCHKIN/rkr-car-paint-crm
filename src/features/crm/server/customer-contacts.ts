@@ -23,7 +23,14 @@ export function migrateCustomerContacts(db: DatabaseSync): void {
   const insert = db.prepare(
     'INSERT OR IGNORE INTO crm_customer_contacts VALUES (?, ?, ?, ?, ?, ?)'
   );
-  for (const row of db.prepare("SELECT id, phone FROM crm_customers WHERE phone != ''").all()) {
+  for (const row of db
+    .prepare(`
+    SELECT id, phone FROM crm_customers c WHERE phone != '' AND NOT EXISTS (
+      SELECT 1 FROM crm_customer_contacts contact
+      WHERE contact.customerId=c.id AND contact.type='phone'
+    )
+  `)
+    .all()) {
     insert.run(
       randomUUID(),
       row.id,

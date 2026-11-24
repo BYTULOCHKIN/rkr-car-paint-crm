@@ -5,6 +5,7 @@ import { RowActions } from '@/features/crm/components/row-actions';
 import { startTransition, useCallback, useMemo, useState } from 'react';
 import { useQuery, useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  parseAsInteger,
   parseAsBoolean,
   parseAsString,
   parseAsStringLiteral,
@@ -43,7 +44,9 @@ import {
   StockReversalForm,
   StockValuationForm
 } from './stock-forms';
-import { MovementHistory } from './movement-history';
+import { PagedMovements } from './paged-movements';
+import { ListPagination } from '@/features/crm/components/list-pagination';
+import { getInventoryExport } from '../api/search-service';
 import { StockTagFilterControl } from './tag-filter';
 import { stockTags } from '../constants/tags';
 import { InventoryExportButton } from './inventory-export-button';
@@ -58,7 +61,7 @@ type Editor =
   | { kind: 'reversal'; movement: StockMovement };
 
 export function InventoryView({ userId, orgId }: { userId: string; orgId: string }) {
-  const { data } = useSuspenseQuery(inventoryQueries.workspace(userId, orgId));
+  const { data } = useSuspenseQuery(inventoryQueries.access(userId, orgId));
   const admin = data.access.role === 'admin';
   const [tab, setTab] = useQueryState(
     'stockTab',
@@ -71,6 +74,10 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
   const [search, setSearch] = useQueryState(
     'stockSearch',
     parseAsString.withDefault('').withOptions({ shallow: true })
+  );
+  const [page, setPage] = useQueryState(
+    'stockPage',
+    parseAsInteger.withDefault(1).withOptions({ shallow: true })
   );
   const [typing, setTyping] = useState(false);
   const [searchReset, setSearchReset] = useState(0);
@@ -92,7 +99,7 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
     onSettled: () => client.invalidateQueries({ queryKey: inventoryQueries.all() })
   });
   const result = useQuery({
-    ...inventoryQueries.items(userId, orgId, { search, tags, archived }),
+    ...inventoryQueries.items(userId, orgId, { search, tags, archived, page: Math.max(1, page) }),
     enabled: tab === 'materials'
   });
   const items = result.data?.items ?? [];
@@ -118,23 +125,39 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
               key={`${orgId}:${searchReset}`}
               search={search}
               fetching={result.isFetching}
-              onSearch={(value) => void setSearch(value)}
+              onSearch={(value) => {
+                void setSearch(value);
+                void setPage(1);
+              }}
               onPendingChange={onSearchPending}
             />
-            <StockTagFilterControl value={tags} onChange={(value) => void setTag(value)} />
-            <Button variant='outline' onClick={() => void setArchived(!archived)}>
+            <StockTagFilterControl
+              value={tags}
+              onChange={(value) => {
+                void setTag(value);
+                void setPage(1);
+              }}
+            />
+            <Button
+              variant='outline'
+              onClick={() => {
+                void setArchived(!archived);
+                void setPage(1);
+              }}
+            >
               {archived ? 'Показати активні' : 'Показати архів'}
             </Button>
             {admin && <Button onClick={() => setEditor({ kind: 'create' })}>Нова позиція</Button>}
             <InventoryExportButton
               items={items}
               archived={archived}
+              loadItems={() => getInventoryExport(orgId, { search, tags, archived })}
               disabled={searchPending || result.isError}
             />
           </div>
           <div className='flex flex-wrap items-center gap-3 text-sm'>
             <p className='text-muted-foreground' role='status'>
-              {searchPending ? 'Пошук…' : `Знайдено позицій: ${items.length}`}
+              {searchPending ? 'Пошук…' : `Знайдено позицій: ${result.data?.total ?? 0}`}
             </p>
             {filtered && (
               <Button
@@ -142,6 +165,7 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
                 size='sm'
                 onClick={() => {
                   void setSearch('');
+                  void setPage(1);
                   void setTag([]);
                   setTyping(false);
                   setSearchReset((value) => value + 1);
@@ -276,6 +300,13 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
               </EmptyHeader>
             </Empty>
           )}
+          {result.data && (
+            <ListPagination
+              {...result.data}
+              pending={searchPending}
+              onPage={(value) => void setPage(value)}
+            />
+          )}
         </TabsContent>
         <TabsContent
           value='operations'
@@ -283,17 +314,13 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
         >
           <section className='flex flex-col gap-3'>
             <h2 className='text-lg font-semibold'>Останні операції</h2>
-            <MovementHistory
-              movements={data.movements.slice(0, 50)}
+            <PagedMovements
+              userId={userId}
+              orgId={orgId}
               onReverse={
                 admin ? (movement) => setEditor({ kind: 'reversal', movement }) : undefined
               }
             />
-            {data.movements.length > 50 && (
-              <p className='text-muted-foreground text-sm'>
-                Показано останні 50 операцій. Повна історія доступна в кожній позиції.
-              </p>
-            )}
           </section>
         </TabsContent>
       </Tabs>
@@ -359,8 +386,11 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
             />
           )}
           {editor?.kind === 'history' && (
-            <MovementHistory
-              movements={data.movements.filter((movement) => movement.itemId === editor.item.id)}
+            <PagedMovements
+              key={editor.item.id}
+              userId={userId}
+              orgId={orgId}
+              itemId={editor.item.id}
               onReverse={
                 admin ? (movement) => setEditor({ kind: 'reversal', movement }) : undefined
               }

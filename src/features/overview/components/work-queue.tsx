@@ -31,6 +31,7 @@ interface WorkQueueProps {
   emptyTitle: string;
   emptyDescription: string;
   entries: QueueEntry[];
+  total?: number;
   data: CrmWorkspace;
   today: string;
   onOpen: (target: WorkflowRecord) => void;
@@ -40,6 +41,7 @@ export function WorkQueue({
   title,
   description,
   entries,
+  total = entries.length,
   data,
   today,
   onOpen,
@@ -116,7 +118,7 @@ export function WorkQueue({
       </CardContent>
       <CardFooter className='flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground'>
         <span>
-          {entries.length > 5 ? `Показано 5 із ${entries.length}` : `Записів: ${entries.length}`}
+          {total > 5 ? `Показано ${Math.min(5, entries.length)} із ${total}` : `Записів: ${total}`}
         </span>
         <Link href='/dashboard/kanban' className='underline underline-offset-4'>
           Переглянути дошку

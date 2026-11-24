@@ -9,10 +9,16 @@ import { checkCrmAccess } from '@/features/crm/api/service';
 import { OrganizationBoundary } from '@/features/crm/components/organization-boundary';
 import { inventoryQueries } from '@/features/inventory/api/queries';
 import { InventoryView } from '@/features/inventory/components/inventory-view';
+import { getInventoryPage } from '@/features/inventory/api/service';
+import { stockTags, type StockTag } from '@/features/inventory/constants/tags';
 
 export const metadata = { title: 'Склад' };
 
-export default async function InventoryPage() {
+export default async function InventoryPage({
+  searchParams
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { userId, orgId } = await auth.protect();
   const access = await checkCrmAccess();
   if (!access.ok || !orgId)
@@ -25,7 +31,27 @@ export default async function InventoryPage() {
       </PageContainer>
     );
   const client = getQueryClient();
-  void client.prefetchQuery(inventoryQueries.workspace(userId, orgId));
+  void client.prefetchQuery(inventoryQueries.access(userId, orgId));
+  const params = await searchParams;
+  const text = (key: string) => (typeof params[key] === 'string' ? (params[key] as string) : '');
+  if (text('stockTab') !== 'operations') {
+    const filters = {
+      search: text('stockSearch'),
+      tags: [
+        ...new Set(
+          text('stockTag')
+            .split(',')
+            .filter((tag): tag is StockTag => stockTags.includes(tag as StockTag))
+        )
+      ],
+      archived: text('stockArchived') === 'true',
+      page: Math.min(1_000_000, Math.max(1, parseInt(text('stockPage'), 10) || 1))
+    };
+    void client.prefetchQuery({
+      ...inventoryQueries.items(userId, orgId, filters),
+      queryFn: () => getInventoryPage(orgId, filters)
+    });
+  }
   return (
     <PageContainer
       pageTitle='Склад'

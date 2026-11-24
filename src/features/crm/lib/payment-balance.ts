@@ -1,4 +1,4 @@
-import type { PaymentEvent, RepairOrder } from '../api/types';
+import type { PaymentEvent, RepairOrder, PaymentSummary } from '../api/types';
 import { sumIntegers } from '@/features/order-economics/lib/integers';
 
 export function paymentDelta(payment: PaymentEvent): number {
@@ -10,10 +10,17 @@ export function paymentDelta(payment: PaymentEvent): number {
 export function paymentBalance(
   order: Pick<RepairOrder, 'id' | 'totalCents'>,
   payments: PaymentEvent[] = []
-) {
+): PaymentSummary {
   const paidCents = sumIntegers(
     payments.filter((payment) => payment.orderId === order.id).map(paymentDelta)
   );
+  return paymentBalanceFromPaid(order, paidCents);
+}
+
+export function paymentBalanceFromPaid(
+  order: Pick<RepairOrder, 'totalCents'>,
+  paidCents: number
+): PaymentSummary {
   const remainingCents = Math.max(0, order.totalCents - paidCents);
   return {
     paidCents,

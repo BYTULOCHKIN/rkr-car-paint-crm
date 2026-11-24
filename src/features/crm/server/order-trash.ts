@@ -12,7 +12,7 @@ export function migrateOrderTrash(db: DatabaseSync): void {
 }
 
 /** Any historical operation blocks trash, including reversals and zero accrual snapshots. */
-export function orderTrashBlockers(db: DatabaseSync): Map<string, string> {
+export function orderTrashBlockers(db: DatabaseSync, orderIds?: string[]): Map<string, string> {
   const reasons = new Map<string, string>();
   const sources = [
     ['crm_payments', 'Є оплати клієнта або їх скасування.'],
@@ -25,8 +25,10 @@ export function orderTrashBlockers(db: DatabaseSync): Map<string, string> {
   ] as const;
   for (const [table, reason] of sources) {
     for (const row of db
-      .prepare(`SELECT DISTINCT orderId FROM ${table} WHERE orderId IS NOT NULL`)
-      .all())
+      .prepare(
+        `SELECT DISTINCT orderId FROM ${table} WHERE orderId IS NOT NULL${orderIds ? ` AND orderId IN (SELECT value FROM json_each(?))` : ''}`
+      )
+      .all(...(orderIds ? [JSON.stringify(orderIds)] : [])))
       if (!reasons.has(row.orderId as string)) reasons.set(row.orderId as string, reason);
   }
   return reasons;

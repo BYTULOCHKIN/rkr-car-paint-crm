@@ -23,10 +23,12 @@ import { decimalScaled } from '@/features/inventory/schemas/inventory';
 
 export class SettlementRepository {
   constructor(private readonly db: DatabaseSync) {}
-  postings(): EconomicsPosting[] {
+  postings(orderIds?: string[], to?: string): EconomicsPosting[] {
     return this.db
-      .prepare('SELECT * FROM crm_economics_postings ORDER BY orderId,revision')
-      .all()
+      .prepare(
+        `SELECT * FROM crm_economics_postings WHERE ${orderIds ? `orderId IN (SELECT value FROM json_each(?))` : '1=1'}${to ? ' AND (crm_day(createdAt)<=? OR crm_day(createdAt) IS NULL)' : ''} ORDER BY orderId,revision`
+      )
+      .all(...(orderIds ? [JSON.stringify(orderIds)] : []), ...(to ? [to] : []))
       .map((row) => ({
         ...JSON.parse(row.snapshot as string),
         id: row.id,
@@ -40,16 +42,17 @@ export class SettlementRepository {
       })) as EconomicsPosting[];
   }
   latest(orderId: string): EconomicsPosting | null {
-    return (
-      this.postings()
-        .filter((entry) => entry.orderId === orderId)
-        .at(-1) ?? null
-    );
+    return this.postings([orderId]).at(-1) ?? null;
   }
-  events(): SettlementEvent[] {
+  events(orderIds?: string[], to?: string, from?: string): SettlementEvent[] {
     return this.db
-      .prepare('SELECT * FROM crm_settlement_events ORDER BY createdAt,rowid')
-      .all()
+      .prepare(
+        `SELECT * FROM crm_settlement_events WHERE ${orderIds ? `orderId IN (SELECT value FROM json_each(?))` : '1=1'}${to ? ` AND ((crm_day(createdAt)<=?${from ? ' AND crm_day(createdAt)>=?' : ''}) OR crm_day(createdAt) IS NULL)` : ''} ORDER BY createdAt,rowid`
+      )
+      .all(
+        ...(orderIds ? [JSON.stringify(orderIds)] : []),
+        ...(to ? [to, ...(from ? [from] : [])] : [])
+      )
       .map((row) => ({
         id: row.id,
         orderId: row.orderId,
@@ -63,6 +66,25 @@ export class SettlementRepository {
         createdAt: row.createdAt
       })) as SettlementEvent[];
   }
+  reversalSources(ids: string[]): SettlementEvent[] {
+    if (!ids.length) return [];
+    const rows = this.db
+      .prepare(`SELECT * FROM crm_settlement_events WHERE id IN (SELECT value FROM json_each(?))`)
+      .all(JSON.stringify(ids));
+    return rows.map((row) => ({
+      id: row.id,
+      orderId: row.orderId,
+      payee: { kind: row.payeeKind, id: row.payeeId, name: row.payeeName },
+      kind: row.kind,
+      amountCents: row.amountCents,
+      postingId: row.postingId,
+      reversalOf: row.reversalOf,
+      note: row.note,
+      actor: JSON.parse(row.actor as string),
+      createdAt: row.createdAt
+    })) as SettlementEvent[];
+  }
+
   private transaction<T>(work: () => T): T {
     if (this.db.isTransaction) return work();
     this.db.exec('BEGIN IMMEDIATE');

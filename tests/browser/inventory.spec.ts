@@ -478,6 +478,17 @@ test('order consumption validates remaining stock and cancellation preserves his
   await materials.getByRole('button', { name: 'Додати списання' }).click();
   await materials.getByRole('combobox', { name: 'Матеріал' }).click();
   await page.getByRole('option', { name: /Фарба/ }).click();
+  const materialChoice = materials.getByRole('combobox', { name: 'Матеріал' });
+  await materialChoice.click();
+  await page.getByRole('combobox', { name: 'Пошук: Матеріал' }).fill('неіснуючий матеріал');
+  await expect(page.getByRole('option')).toHaveCount(0);
+  await expect(
+    page
+      .getByRole('status', { name: '' })
+      .filter({ hasText: 'За вашим пошуком нічого не знайдено.' })
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(materialChoice).toContainText('Фарба');
   await materials.getByRole('textbox', { name: 'Кількість' }).fill('2');
   await page.getByRole('button', { name: 'Списати матеріали' }).click();
   await expect(materials.getByRole('alert')).toContainText('Недостатньо');

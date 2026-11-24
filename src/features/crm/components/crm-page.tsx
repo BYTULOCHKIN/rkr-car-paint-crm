@@ -12,11 +12,13 @@ import { crmQueries } from '../api/queries';
 import { checkCrmAccess } from '../api/service';
 import type { CrmView } from '../api/types';
 import { CrmWorkspaceView } from './workspace';
+import { readCrmList } from '../server/read-service';
 import { CrmKanbanBoard } from './kanban-board';
 import { VehiclesView } from './vehicles-view';
 
 interface CrmPageProps {
   view: CrmView;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }
 
 const copy = {
@@ -30,7 +32,7 @@ const copy = {
   orders: ['Замовлення', 'Автомобілі в роботі, перелік робіт і вартість за позиціями.']
 };
 
-export async function CrmPage({ view }: CrmPageProps) {
+export async function CrmPage({ view, searchParams }: CrmPageProps) {
   const { userId, orgId } = await auth.protect();
   const access = await checkCrmAccess();
   if (!access.ok)
@@ -56,7 +58,49 @@ export async function CrmPage({ view }: CrmPageProps) {
   )
     redirect('/dashboard/orders');
   const queryClient = getQueryClient();
-  void queryClient.prefetchQuery(crmQueries.workspace(userId, orgId));
+  void queryClient.prefetchQuery(crmQueries.team(userId, orgId!));
+  const params = (await searchParams) ?? {};
+  const text = (key: string) =>
+    typeof params[key] === 'string' ? (params[key] as string) : undefined;
+  const positive = (key: string, fallback: number, max: number) =>
+    Math.min(max, Math.max(1, parseInt(text(key) ?? '', 10) || fallback));
+  const filters = {
+    entity: view,
+    search: text('q') ?? '',
+    page: positive('page', 1, 1_000_000),
+    pageSize: positive('perPage', 10, 100),
+    status: (view === 'requests'
+      ? text('requestStatus') === 'backlog'
+        ? 'backlog'
+        : 'all'
+      : ['created', 'in_progress', 'ready'].includes(text('orderStatus') ?? '')
+        ? text('orderStatus')
+        : 'all') as 'all' | 'created' | 'in_progress' | 'ready' | 'backlog',
+    customerOrder: text('customerOrder') === 'oldest' ? ('oldest' as const) : ('newest' as const),
+    sort: text('sort')
+  };
+  if (view === 'kanban')
+    void queryClient.prefetchInfiniteQuery({
+      ...crmQueries.board(userId, orgId!, ''),
+      queryFn: ({ pageParam }) =>
+        readCrmList(orgId!, { entity: 'kanban', search: '', page: pageParam, pageSize: 25 })
+    });
+  else {
+    const listFilters =
+      view === 'vehicles'
+        ? {
+            entity: view,
+            search: filters.search,
+            page: filters.page,
+            pageSize: filters.pageSize,
+            sort: filters.sort
+          }
+        : filters;
+    void queryClient.prefetchQuery({
+      ...crmQueries.list(userId, orgId!, listFilters),
+      queryFn: () => readCrmList(orgId!, listFilters)
+    });
+  }
   const content = (
     <OrganizationBoundary orgId={orgId ?? null}>
       <HydrationBoundary state={dehydrate(queryClient)}>

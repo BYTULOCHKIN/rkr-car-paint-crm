@@ -7,10 +7,12 @@ import type { ReactElement } from 'react';
 import { WorkflowForm } from '../components/workflow-form';
 import { CrmKanbanBoard } from '../components/kanban-board';
 import { WorkflowDates } from '../components/workflow-details';
-import { updateWorkflow } from '../api/service';
+import { updateWorkflow, getTeam } from '../api/service';
 import { crmQueries } from '../api/queries';
 import type { CrmWorkspace, RepairRequest, RepairOrder } from '../api/types';
 
+import { getCrmList, getCrmDetail } from '../api/read-service';
+vi.mock('../api/read-service', () => ({ getCrmList: vi.fn(), getCrmDetail: vi.fn() }));
 vi.mock('../api/service', () => ({
   addVehicleModel: vi.fn(),
   createCustomer: vi.fn(),
@@ -26,6 +28,7 @@ vi.mock('../api/service', () => ({
   decodeVehicleVin: vi.fn(),
   assignVehicle: vi.fn(),
   getWorkspace: vi.fn(),
+  getTeam: vi.fn(),
   updateWorkflow: vi.fn()
 }));
 
@@ -74,7 +77,10 @@ function renderUi(element: ReactElement) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } }
   });
-  client.setQueryData(crmQueries.workspace('admin').queryKey, data);
+  client.setQueryData(crmQueries.team('admin', 'org_A').queryKey, {
+    access: { userId: 'admin', orgId: 'org_A', role: 'admin' },
+    team: []
+  });
   return render(<QueryClientProvider client={client}>{element}</QueryClientProvider>);
 }
 
@@ -150,16 +156,25 @@ test('readiness preserves earlier factual and planned dates', async () => {
 });
 
 test('board has one card after conversion and opens the existing order workflow', async () => {
-  renderUi(<CrmKanbanBoard userId='admin' />);
-  expect(screen.getAllByText('Замовлення №1')).toHaveLength(1);
+  vi.mocked(getTeam).mockResolvedValue({
+    access: { userId: 'admin', orgId: 'org_A', role: 'admin' },
+    team: []
+  });
+  vi.mocked(getCrmList).mockResolvedValue({
+    ...data,
+    pagination: { total: 1, page: 1, pageSize: 25 },
+    boardCounts: { created: 0, in_progress: 1, ready: 0 }
+  });
+  vi.mocked(getCrmDetail).mockResolvedValue(data);
+  renderUi(<CrmKanbanBoard userId='admin' orgId='org_A' />);
+  expect(await screen.findAllByText('Замовлення №1')).toHaveLength(1);
   expect(screen.queryByText('Заявка', { exact: true })).toBeNull();
   expect(screen.getByRole('heading', { name: 'Створено' })).toBeDefined();
   expect(screen.getByRole('heading', { name: 'В роботі' })).toBeDefined();
   expect(screen.getByRole('heading', { name: 'Готово' })).toBeDefined();
   expect(screen.queryByRole('heading', { name: 'Видано' })).toBeNull();
   await userEvent.setup().click(screen.getByRole('button', { name: 'Статус і дати' }));
-  const dialog = await screen.findByRole('dialog');
-  expect(within(dialog).getByRole('combobox', { name: 'Статус *' }).textContent).toContain(
+  expect((await screen.findByRole('combobox', { name: 'Статус *' })).textContent).toContain(
     'Готово'
   );
 });

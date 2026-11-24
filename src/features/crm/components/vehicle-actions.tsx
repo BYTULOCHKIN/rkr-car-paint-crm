@@ -21,8 +21,9 @@ interface VehicleActionsProps {
 
 export function VehicleActions({ vehicle, data, edit }: VehicleActionsProps) {
   const linked =
-    data.requests.some((request) => request.vehicleId === vehicle.id) ||
-    data.orders.some((order) => order.vehicleId === vehicle.id);
+    vehicle.linked ??
+    (data.requests.some((request) => request.vehicleId === vehicle.id) ||
+      data.orders.some((order) => order.vehicleId === vehicle.id));
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger

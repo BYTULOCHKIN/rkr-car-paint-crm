@@ -22,6 +22,7 @@
     "test:economics": "node --import tsx --test src/features/order-economics/tests/*.test.ts",
     "crm:demo": "node --import tsx scripts/crm-demo.ts",
     "test:crm:ui": "vitest run",
+    "benchmark:crm": "node --expose-gc --max-old-space-size=512 --import tsx scripts/benchmark-crm-reads.ts",
     "test:crm:browser": "next build && playwright test --config playwright.crm.config.mts"
   },
   "dependencies": {
@@ -51,6 +52,7 @@
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.5.0",
     "kbar": "^1.0.0",
+    "libphonenumber-js": "^1.13.16",
     "match-sorter": "^8.3.0",
     "motion": "^14.2.0",
     "next": "16.4.5",

@@ -1,7 +1,10 @@
 import type { Customer, CustomerContactValue } from '../api/types';
+import { parseCustomerPhone } from '@/lib/phone-number';
 
 export function normalizeContact(type: CustomerContactValue['type'], value: string): string {
   if (type === 'email') return value.trim().toLowerCase();
+  const parsed = parseCustomerPhone(value);
+  if (parsed?.isValid()) return parsed.number.slice(1);
   let digits = value.replace(/\D/g, '');
   if (digits.startsWith('00')) digits = digits.slice(2);
   if (digits.length === 10 && digits.startsWith('0')) digits = `38${digits}`;

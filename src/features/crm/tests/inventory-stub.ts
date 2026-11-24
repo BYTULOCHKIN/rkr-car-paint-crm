@@ -5,3 +5,8 @@ export async function getInventory(orgId: string) {
     movements: []
   };
 }
+
+export const getOrderInventory = getInventory;
+export async function getInventoryAccess(orgId: string) {
+  return { access: (await getInventory(orgId)).access };
+}

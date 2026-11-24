@@ -98,11 +98,23 @@ function data(): InventoryData {
 }
 export function saveInventoryFixture(value: InventoryData): void {
   sessionStorage.setItem('stock-fixture', JSON.stringify(value));
+  document.cookie = `stock-movements-fixture=${encodeURIComponent(JSON.stringify(value.movements))}; path=/; SameSite=Lax`;
   document.cookie = `stock-items-fixture=${encodeURIComponent(JSON.stringify(value.items))}; path=/; SameSite=Lax`;
 }
 function save(value: InventoryData) {
   saveInventoryFixture(value);
   return { ok: true as const, data: undefined };
+}
+export async function getInventoryAccess() {
+  return { access: (await getInventory()).access };
+}
+export async function getOrderInventory(_orgId: string, orderId: string) {
+  const value = await getInventory();
+  return {
+    ...value,
+    items: [],
+    movements: value.movements.filter((entry) => entry.orderId === orderId)
+  };
 }
 export async function getInventory() {
   const value = data();

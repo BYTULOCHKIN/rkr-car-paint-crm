@@ -141,7 +141,7 @@ test('footer submits the associated form and a vehicle select stays inside the v
   await page.getByRole('button', { name: 'Додати клієнта', exact: true }).first().click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('textbox', { name: 'Ім’я клієнта *' }).fill('Браузерна перевірка');
-  await dialog.getByRole('textbox', { name: 'Телефон 1 *' }).fill('+380000000000');
+  await dialog.getByRole('textbox', { name: 'Телефон 1 *' }).fill('+380501234567');
   await dialog.getByRole('button', { name: 'Створити клієнта', exact: true }).click();
   await expect(dialog).toBeHidden();
   await page.goto('/dashboard/vehicles');

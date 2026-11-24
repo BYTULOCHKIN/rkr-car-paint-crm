@@ -1,6 +1,6 @@
 'use client';
 import { CrmForm } from './dialog-form';
-import { customerChoices } from './choice-options';
+import { CustomerSelect } from './customer-select';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { useAppForm } from '@/lib/form';
@@ -42,18 +42,7 @@ export function VehicleOwnerForm({
         {(state) => <FormStatus {...state} onChange={onStateChange} />}
       </form.Subscribe>
       <FieldGroup>
-        <form.AppField name='customerId'>
-          {(field) => (
-            <field.ComboboxField
-              label='Клієнт'
-              required
-              placeholder='Виберіть клієнта'
-              searchPlaceholder='Ім’я або телефон…'
-              options={customerChoices(data.customers)}
-              emptyMessage='Спочатку додайте клієнта в розділі «Клієнти».'
-            />
-          )}
-        </form.AppField>
+        <form.AppField name='customerId'>{() => <CustomerSelect data={data} />}</form.AppField>
         <FormActions
           pending={mutation.isPending}
           error={mutation.error}

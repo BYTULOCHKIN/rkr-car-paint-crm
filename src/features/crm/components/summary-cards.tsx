@@ -20,23 +20,27 @@ export function SummaryCards({ data, compactOnMobile = false }: SummaryCardsProp
   const cards = [
     {
       title: 'Клієнти',
-      count: data.customers.length,
+      count: data.summaryCounts?.customers ?? data.customers.length,
       href: '/dashboard/clients',
-      description: `Автомобілів у базі: ${data.vehicles.length}`,
+      description: `Автомобілів у базі: ${data.summaryCounts?.vehicles ?? data.vehicles.length}`,
       icon: Icons.customers
     },
     {
       title: 'Створені замовлення',
-      count: data.orders.filter((order) => order.status === 'created').length,
+      count:
+        data.summaryCounts?.created ??
+        data.orders.filter((order) => order.status === 'created').length,
       href: '/dashboard/orders?orderStatus=created',
       description: 'Очікують початку робіт',
       icon: Icons.orders
     },
     {
       title: 'Замовлення в роботі',
-      count: data.orders.filter((order) => !isCompletedStatus(order.status)).length,
+      count:
+        data.summaryCounts?.active ??
+        data.orders.filter((order) => !isCompletedStatus(order.status)).length,
       href: '/dashboard/orders',
-      description: `Готово: ${data.orders.filter((order) => order.status === 'ready').length}`,
+      description: `Готово: ${data.summaryCounts?.ready ?? data.orders.filter((order) => order.status === 'ready').length}`,
       icon: Icons.orders
     }
   ];
