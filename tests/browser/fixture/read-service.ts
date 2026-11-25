@@ -141,6 +141,11 @@ export async function getCrmDetail(
   entity: 'order' | 'customer' | 'vehicle' | 'request' = 'order'
 ): Promise<CrmWorkspace> {
   const data = await getWorkspace();
+  if (data.access?.role === 'worker') {
+    if (kind === 'history' && entity !== 'order')
+      throw new Error('Цей розділ доступний адміністратору');
+    if (!data.orders.some((order) => order.id === id)) throw new Error('Замовлення не знайдено');
+  }
   if (kind === 'order') return scope(data, [id]);
   if (entity === 'request')
     return {

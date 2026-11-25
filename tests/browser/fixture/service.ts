@@ -88,6 +88,8 @@ for (let index = 1; index <= 24; index++) {
     totalCents: 6000000
   });
 }
+data.orders[0].assigneeId = 'user_worker';
+data.orders[0].assigneeName = 'Маляр Андрій';
 if (location.pathname.endsWith('/kanban')) {
   data.customers[0].name = 'НадзвичайноДовгеПрізвищеБезПробілів'.repeat(5);
   data.vehicles[0].model = 'ДужеДовгаНазваМоделіБезПробілів'.repeat(3).slice(0, 80);
@@ -442,10 +444,38 @@ export async function getWorkspace() {
       assigneeId: order.assigneeId ?? 'user_owner',
       assigneeName: order.assigneeName ?? 'Олена Адміністратор'
     }));
-  if (result.finance && result.access.role === 'worker')
-    result.finance.events = result.finance.events.filter(
-      (entry) => entry.payee.kind === 'worker' && entry.payee.id === result.access!.userId
+  if (result.access.role === 'worker') {
+    const userId = result.access.userId;
+    result.orders = result.orders.filter(
+      (order) =>
+        order.assigneeId === userId ||
+        (['painter', 'polisher', 'assembler'] as const).some((role) =>
+          order.labor
+            ? order.labor[role].workerId === userId
+            : order.economics?.[`${role}Id`] === userId
+        ) ||
+        order.expenses?.some((expense) => expense.contractorUserId === userId)
     );
+    const ids = new Set(result.orders.map((order) => order.id));
+    result.customers = result.customers.filter((customer) =>
+      result.orders.some((order) => order.customerId === customer.id)
+    );
+    result.vehicles = result.vehicles.filter((vehicle) =>
+      result.orders.some((order) => order.vehicleId === vehicle.id)
+    );
+    result.requests = [];
+    result.events = result.events.filter((event) => ids.has(event.recordId));
+    result.payments = result.payments?.filter((event) => ids.has(event.orderId));
+    if (result.finance) {
+      result.finance.postings = result.finance.postings.filter((posting) =>
+        ids.has(posting.orderId)
+      );
+      result.finance.events = result.finance.events.filter(
+        (entry) =>
+          ids.has(entry.orderId) && entry.payee.kind === 'worker' && entry.payee.id === userId
+      );
+    }
+  }
   return result;
 }
 const localModels: { make: string; model: string }[] = [];
@@ -603,7 +633,8 @@ export async function updateTeamMember(input: UpdateTeamMemberInput) {
   return { ok: true as const, data: value.specialties };
 }
 export async function advanceOrder(input: AdvanceOrderInput) {
-  const order = data.orders.find((order) => order.id === input.id);
+  const visible = (await getWorkspace()).orders.some((order) => order.id === input.id);
+  const order = visible ? data.orders.find((order) => order.id === input.id) : undefined;
   if (!order) return { ok: false as const, error: 'Замовлення не знайдено' };
   const next = executorTransition(order, input);
   if (!next.ok) return next;

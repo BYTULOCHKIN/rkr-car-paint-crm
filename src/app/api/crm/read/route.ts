@@ -34,7 +34,7 @@ export async function GET(request: Request): Promise<NextResponse> {
         throw new CrmError('Цей розділ доступний адміністратору');
       if (filters.trash && context.access.role !== 'admin')
         throw new CrmError('Кошик доступний лише адміністратору');
-      data = context.repository.reads.list(filters, context.team);
+      data = context.repository.reads.list(filters, context.team, context.access);
     } else {
       const id = z.string().uuid().parse(params.get('id'));
       const entity = z
@@ -42,8 +42,8 @@ export async function GET(request: Request): Promise<NextResponse> {
         .parse(params.get('entity') ?? 'order');
       data =
         kind === 'order'
-          ? context.repository.reads.order(id)
-          : context.repository.reads.history(entity, id);
+          ? context.repository.reads.order(id, context.access)
+          : context.repository.reads.history(entity, id, context.access);
     }
     const finance = data.finance && {
       ...data.finance,

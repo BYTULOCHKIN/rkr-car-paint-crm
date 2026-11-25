@@ -65,10 +65,11 @@ test('CRM list and detail reads validate pagination and pass filters to the orga
       search: 'Ford',
       trash: false
     }),
-    []
+    [],
+    context.access
   );
   expect((await readCrm(request(`kind=order&id=${id}`))).status).toBe(200);
-  expect(repository.reads.order).toHaveBeenCalledWith(id);
+  expect(repository.reads.order).toHaveBeenCalledWith(id, context.access);
   for (const query of [
     'kind=list&entity=orders&pageSize=101',
     'kind=list&entity=other',
@@ -85,11 +86,31 @@ test('workers cannot read administrative lists or trash; scoped order and moveme
     expect((await readCrm(request(`kind=list&entity=${entity}`))).status).toBe(403);
   expect((await readCrm(request('kind=list&entity=orders&trash=true'))).status).toBe(403);
   expect((await readCrm(request('kind=list&entity=orders'))).status).toBe(200);
+  expect(repository.reads.list).toHaveBeenCalledWith(
+    expect.objectContaining({ entity: 'orders' }),
+    [],
+    context.access
+  );
   expect((await readMovements(request(`page=2&pageSize=25&itemId=${id}`))).status).toBe(200);
   expect(repository.inventory.listMovements).toHaveBeenCalledWith(
-    expect.objectContaining({ itemId: id, page: 2, pageSize: 25 })
+    expect.objectContaining({ itemId: id, page: 2, pageSize: 25 }),
+    context.access
   );
   expect((await readMovements(request('pageSize=101'))).status).toBe(400);
+});
+
+test('direct worker order and history requests pass verified identity and never return inaccessible rows', async () => {
+  context.access.role = 'worker';
+  repository.reads.order.mockImplementationOnce(() => {
+    throw new CrmError('Замовлення не знайдено');
+  });
+  const denied = await readCrm(request(`kind=order&id=${id}`));
+  expect(denied.status).toBe(403);
+  expect(await denied.json()).toEqual({ error: 'Замовлення не знайдено' });
+  expect(repository.reads.order).toHaveBeenCalledWith(id, context.access);
+  expect((await readCrm(request(`kind=history&id=${id}&entity=order`))).status).toBe(200);
+  expect(repository.reads.history).toHaveBeenCalledWith('order', id, context.access);
+  expect((await readCrm(request('kind=list&entity=orders&userId=another'))).status).toBe(400);
 });
 
 test('overview drilldown validates its full date scope and keeps organization isolation', async () => {
@@ -101,7 +122,8 @@ test('overview drilldown validates its full date scope and keeps organization is
       overviewFrom: '2026-11-01',
       overviewTo: '2026-11-25'
     }),
-    []
+    [],
+    context.access
   );
   for (const query of [
     'entity=orders&overviewMetric=profit',

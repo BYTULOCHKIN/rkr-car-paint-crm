@@ -6,7 +6,8 @@ import type {
   RepairOrder,
   WorkflowEvent,
   PaymentEvent,
-  TeamMember
+  TeamMember,
+  CrmAccess
 } from '../api/types';
 import { crmListSchema, type CrmListFilters, type WorkspaceSelection } from '../schemas/reads';
 import { CrmError } from './repository';
@@ -14,6 +15,7 @@ import { normalizeSearch } from '../lib/pagination';
 import { reportDate } from '@/features/workshop-reports/lib/report';
 import { matchesSearchText } from '@/lib/search';
 import { paymentBalanceFromPaid } from '../lib/payment-balance';
+import { orderAccessPredicate } from './order-access';
 
 const contactText = (customer: string) =>
   `COALESCE((SELECT group_concat(value, ' ') FROM crm_customer_contacts WHERE customerId=${customer}), '')`;
@@ -63,8 +65,13 @@ export class CrmReadRepository {
     };
   }
 
-  list(input: CrmListFilters, team: TeamMember[] = []): CrmWorkspace {
+  list(input: CrmListFilters, team: TeamMember[] = [], access?: CrmAccess): CrmWorkspace {
     const filters = crmListSchema.parse(input);
+    if (
+      access?.role === 'worker' &&
+      (filters.trash || !['orders', 'kanban'].includes(filters.entity))
+    )
+      throw new CrmError('Цей розділ доступний адміністратору');
     if (filters.entity === 'kanban') {
       const statuses = ['created', 'in_progress', 'ready'] as const;
       const parts = statuses.map((status) =>
@@ -78,9 +85,11 @@ export class CrmReadRepository {
               { id: 'createdAt', desc: false }
             ])
           },
-          team
+          team,
+          access
         )
       );
+      const visibility = orderAccessPredicate(access, 'o');
       return {
         ...parts[0],
         customers: unique(parts.flatMap((part) => part.customers)),
@@ -92,9 +101,9 @@ export class CrmReadRepository {
         ),
         boardTotal: this.db
           .prepare(
-            `SELECT COUNT(*) AS total FROM crm_orders WHERE deletedAt ${filters.trash ? 'IS NOT NULL' : 'IS NULL'}`
+            `SELECT COUNT(*) AS total FROM crm_orders o WHERE o.deletedAt ${filters.trash ? 'IS NOT NULL' : 'IS NULL'} AND ${visibility.sql}`
           )
-          .get()!.total as number,
+          .get(...visibility.params)!.total as number,
         pagination: {
           page: filters.page,
           pageSize: filters.pageSize,
@@ -123,8 +132,12 @@ export class CrmReadRepository {
           : `t.description || ' ' || c.name || ' ' || ${contactText('c.id')} || ' ' || ${vehicleText('v')}${entity === 'orders' ? " || ' ' || t.number || ' ' || COALESCE(t.assigneeName,'') || ' ' || COALESCE((SELECT group_concat(description,' ') FROM crm_order_items WHERE orderId=t.id),'')" : ''}`;
     const conditions: string[] = [];
     const params: (string | number)[] = [];
-    if (entity === 'orders')
+    if (entity === 'orders') {
       conditions.push(filters.trash ? 't.deletedAt IS NOT NULL' : 't.deletedAt IS NULL');
+      const visibility = orderAccessPredicate(access, 't');
+      conditions.push(visibility.sql);
+      params.push(...visibility.params);
+    }
     if (filters.overviewMetric) {
       const predicate = overviewOrderPredicate(filters.overviewMetric, {
         from: filters.overviewFrom!,
@@ -310,19 +323,35 @@ export class CrmReadRepository {
     };
   }
 
-  order(id: string): CrmWorkspace {
-    const result = this.findOrder(id);
+  order(id: string, access?: CrmAccess): CrmWorkspace {
+    const result = this.findOrder(id, access);
     if (!result) throw new CrmError('Замовлення не знайдено');
     return result;
   }
 
-  findOrder(id: string): CrmWorkspace | null {
-    if (!this.db.prepare('SELECT id FROM crm_orders WHERE id=? AND deletedAt IS NULL').get(id))
+  findOrder(id: string, access?: CrmAccess): CrmWorkspace | null {
+    const visibility = orderAccessPredicate(access, 'o');
+    if (
+      !this.db
+        .prepare(
+          `SELECT id FROM crm_orders o WHERE o.id=? AND o.deletedAt IS NULL AND ${visibility.sql}`
+        )
+        .get(id, ...visibility.params)
+    )
       return null;
     return {
       ...this.project(this.selection([id], { payments: true, finance: true })),
       serverRead: true
     };
+  }
+
+  workspace(access: CrmAccess): CrmWorkspace {
+    const visibility = orderAccessPredicate(access, 'o');
+    const ids = this.db
+      .prepare(`SELECT id FROM crm_orders o WHERE o.deletedAt IS NULL AND ${visibility.sql}`)
+      .all(...visibility.params)
+      .map((row) => row.id as string);
+    return this.project(this.selection(ids, { payments: true, finance: true, history: true }));
   }
 
   overviewSource(): CrmWorkspace {
@@ -435,7 +464,13 @@ export class CrmReadRepository {
     return this.selection(ids, { summaryOnly: true });
   }
 
-  history(kind: 'order' | 'customer' | 'vehicle' | 'request', id: string): CrmWorkspace {
+  history(
+    kind: 'order' | 'customer' | 'vehicle' | 'request',
+    id: string,
+    access?: CrmAccess
+  ): CrmWorkspace {
+    if (access?.role === 'worker' && kind !== 'order')
+      throw new CrmError('Цей розділ доступний адміністратору');
     if (kind === 'request') {
       const request = this.db
         .prepare('SELECT customerId,vehicleId FROM crm_requests WHERE id=?')
@@ -450,7 +485,7 @@ export class CrmReadRepository {
       });
     }
     if (kind === 'order') {
-      const result = this.order(id);
+      const result = this.order(id, access);
       const history = this.project(this.selection([id], { history: true }));
       return { ...result, events: history.events };
     }

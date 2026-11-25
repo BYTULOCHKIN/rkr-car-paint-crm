@@ -25,7 +25,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     const { access, repository } = await getOrganizationContext();
     if (access.orgId !== orgId || access.userId !== userId)
       return NextResponse.json({ error: 'Немає доступу до автомалярки' }, { status: 403 });
-    return NextResponse.json(repository.inventory.listMovements(filters), {
+    return NextResponse.json(repository.inventory.listMovements(filters, access), {
       headers: { 'Cache-Control': 'private, no-store' }
     });
   } catch (error) {

@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import type { HistoryActor } from '@/features/crm/api/types';
+import type { CrmAccess, HistoryActor } from '@/features/crm/api/types';
+import { orderAccessPredicate } from '@/features/crm/server/order-access';
 import type { StockItem, StockMovement, InventoryFilters, MovementFilters } from '../api/types';
 import { normalizeSearch, type PageResult } from '@/features/crm/lib/pagination';
 import { inventoryFiltersSchema, movementFiltersSchema } from '../schemas/filters';
@@ -146,8 +147,18 @@ export class InventoryRepository {
     });
   }
 
-  movements(): StockMovement[] {
-    return this.movementRows();
+  private movementAccess(access?: CrmAccess): { sql: string; params: string[] } {
+    if (!access || access.role === 'admin') return { sql: '1=1', params: [] };
+    const orders = orderAccessPredicate(access, 'o');
+    return {
+      sql: `(orderId IS NULL OR orderId IN (SELECT o.id FROM crm_orders o WHERE o.deletedAt IS NULL AND ${orders.sql}))`,
+      params: orders.params
+    };
+  }
+
+  movements(access?: CrmAccess): StockMovement[] {
+    const visibility = this.movementAccess(access);
+    return this.movementRows(`WHERE ${visibility.sql}`, visibility.params);
   }
 
   private movementRows(where = '', params: (string | number)[] = [], suffix = ''): StockMovement[] {
@@ -177,10 +188,11 @@ export class InventoryRepository {
       }) as unknown as StockMovement[];
   }
 
-  listMovements(input: MovementFilters): PageResult<StockMovement> {
+  listMovements(input: MovementFilters, access?: CrmAccess): PageResult<StockMovement> {
     const filters = movementFiltersSchema.parse(input);
-    const conditions: string[] = [];
-    const params: string[] = [];
+    const visibility = this.movementAccess(access);
+    const conditions: string[] = [visibility.sql];
+    const params: string[] = [...visibility.params];
     if (filters.itemId) {
       conditions.push('itemId=?');
       params.push(filters.itemId);

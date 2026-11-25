@@ -13,16 +13,28 @@ test('admin can select either active role as executor when creating an order', a
   );
 });
 
-test('worker sees all orders as read-only and takes successive forward status steps', async ({
+test('worker sees only assigned orders as read-only and takes successive forward status steps', async ({
   page
 }, info) => {
   await page.goto('/dashboard/orders?role=worker');
   await expect(page.getByRole('button', { name: 'Нове замовлення', exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Відкрити замовлення №2', exact: true })
+  ).toHaveCount(0);
+  await page
+    .getByRole('textbox', { name: 'Пошук за клієнтом, автомобілем, VIN або роботами' })
+    .fill('Тестовий клієнт 2');
+  await expect(
+    page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true })
+  ).toHaveCount(0);
+  await page
+    .getByRole('textbox', { name: 'Пошук за клієнтом, автомобілем, VIN або роботами' })
+    .fill('');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('textbox')).toHaveCount(0);
   await expect(dialog.getByRole('spinbutton')).toHaveCount(0);
-  await expect(dialog.getByText('Олена Адміністратор', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Маляр Андрій', { exact: true })).toBeVisible();
   await dialog
     .getByRole('button', { name: 'Позначити готовим', exact: true })
     .scrollIntoViewIfNeeded();

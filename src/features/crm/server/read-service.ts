@@ -10,5 +10,5 @@ export async function readCrmList(orgId: string, input: CrmListFilters): Promise
   const filters = crmListSchema.parse(input);
   if (access.role !== 'admin' && (filters.trash || !['orders', 'kanban'].includes(filters.entity)))
     throw new CrmError('Цей розділ доступний адміністратору');
-  return { ...repository.reads.list(filters, team), access, team };
+  return { ...repository.reads.list(filters, team, access), access, team };
 }

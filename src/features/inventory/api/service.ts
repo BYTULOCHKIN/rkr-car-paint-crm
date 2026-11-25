@@ -60,7 +60,7 @@ export async function getInventory(orgId: string): Promise<InventoryData> {
   return {
     access,
     items: repository.inventory.items(),
-    movements: repository.inventory.movements()
+    movements: repository.inventory.movements(access)
   };
 }
 
@@ -82,7 +82,7 @@ export async function getInventoryPage(
 export async function getOrderInventory(orgId: string, orderId: string): Promise<InventoryData> {
   const { access, repository } = await getOrganizationContext();
   if (access.orgId !== orgId) throw new InventoryError('Автомалярку змінено. Оновіть сторінку.');
-  if (!repository.reads.order(orderId).orders.length)
+  if (!repository.reads.order(orderId, access).orders.length)
     throw new InventoryError('Замовлення не знайдено');
   return {
     access,

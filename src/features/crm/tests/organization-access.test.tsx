@@ -22,7 +22,7 @@ import type { SettlementEvent } from '@/features/order-economics/api/types';
 import { businessToday } from '../lib/workflow';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { auth, clerkClient } from '@clerk/nextjs/server';
-import { getOrganizationRepository } from '../server/repository';
+import { CrmError, getOrganizationRepository } from '../server/repository';
 import { getOrganizationContext } from '../server/organization';
 import type { CrmWorkspace, RepairOrder } from '../api/types';
 import {
@@ -43,6 +43,7 @@ import {
   getVehicleCatalog
 } from '../api/service';
 import {
+  getOrderInventory,
   getInventory,
   createStockItem,
   updateStockItem,
@@ -105,6 +106,7 @@ const repository = {
     valueOpeningBalance: vi.fn()
   },
   reads: {
+    workspace: vi.fn((): CrmWorkspace => repository.workspace()),
     order: vi.fn<(id: string) => CrmWorkspace>((id): CrmWorkspace => {
       const value = repository.workspace();
       return { ...value, orders: value.orders.filter((order) => order.id === id) };
@@ -357,7 +359,7 @@ test('reassignment validates the new member, preserves inactive historical assig
   );
 });
 
-test('worker advances any shop order through a dedicated strict endpoint but cannot edit plans or priced work', async () => {
+test('worker status changes use scoped order access and cannot edit plans or priced work', async () => {
   memberships.mockResolvedValue({
     totalCount: 1,
     data: [
@@ -389,6 +391,11 @@ test('worker advances any shop order through a dedicated strict endpoint but can
   repository.workspace.mockReturnValue({ ...workspace, orders: [order] });
   const input = { id: order.id, expectedStatus: order.status, expectedRevision: 2 };
   expect((await advanceOrder(input)).ok).toBe(true);
+  expect(repository.reads.order).toHaveBeenCalledWith(order.id, {
+    userId: 'user_admin',
+    orgId: 'org_A',
+    role: 'worker'
+  });
   expect(repository.updateWorkflow).toHaveBeenCalledWith(
     expect.objectContaining({
       status: 'ready',
@@ -677,7 +684,37 @@ test('workers receive only their cash journal while administrators receive all p
     data: [{ role: 'org:member', publicUserData: { userId: 'user_admin' } }]
   });
   expect((await getWorkspace()).finance!.events.map((event) => event.id)).toEqual(['own']);
+  expect(repository.reads.workspace).toHaveBeenCalledWith({
+    userId: 'user_admin',
+    orgId: 'org_A',
+    role: 'worker'
+  });
   expect(repository.workspace().finance!.events).toHaveLength(3);
+});
+
+test('worker print, material and status endpoints enforce current order access', async () => {
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [{ role: 'org:member', publicUserData: { userId: 'user_admin' } }]
+  });
+  const id = '00000000-0000-4000-8000-000000000001';
+  const access = { userId: 'user_admin', orgId: 'org_A', role: 'worker' };
+  repository.reads.findOrder.mockReturnValueOnce(null);
+  expect(await getOrderDocument(id)).toBeNull();
+  expect(repository.reads.findOrder).toHaveBeenCalledWith(id, access);
+  repository.reads.order.mockImplementationOnce(() => {
+    throw new CrmError('Замовлення не знайдено');
+  });
+  await expect(getOrderInventory('org_A', id)).rejects.toThrow('Замовлення не знайдено');
+  expect(repository.reads.order).toHaveBeenCalledWith(id, access);
+  repository.reads.order.mockImplementationOnce(() => {
+    throw new CrmError('Замовлення не знайдено');
+  });
+  expect(await advanceOrder({ id, expectedStatus: 'in_progress', expectedRevision: 0 })).toEqual({
+    ok: false,
+    error: 'Замовлення не знайдено'
+  });
+  expect(repository.updateWorkflow).not.toHaveBeenCalled();
 });
 
 test('report service verifies current organization, strict filters and scopes workers on the server', async () => {

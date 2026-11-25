@@ -128,7 +128,8 @@ export async function getWorkspace(expectedOrgId?: string | null): Promise<CrmWo
   const { repository, access, team } = await getOrganizationContext();
   if (expectedOrgId && expectedOrgId !== access.orgId)
     throw new CrmError('Автомалярку змінено. Оновіть сторінку.');
-  const workspace = repository.workspace();
+  const workspace =
+    access.role === 'worker' ? repository.reads.workspace(access) : repository.workspace();
   return {
     ...workspace,
     finance: workspace.finance && {
@@ -172,7 +173,7 @@ export async function updateWorkflow(input: WorkflowInput): Promise<ActionResult
 export async function advanceOrder(input: AdvanceOrderInput): Promise<ActionResult<null>> {
   return write((repository, context) => {
     const value = advanceOrderSchema.parse(input);
-    const order = repository.reads.order(value.id).orders[0];
+    const order = repository.reads.order(value.id, context.access).orders[0];
     if (!order) throw new CrmError('Замовлення не знайдено');
     const transition = executorTransition(order, value);
     if (!transition.ok) throw new CrmError(transition.error);
@@ -260,8 +261,8 @@ export async function updateVehicleVin(input: {
 }
 
 export async function getOrderDocument(id: string): Promise<OrderDocument | null> {
-  const { repository } = await getOrganizationContext();
-  const workspace = repository.reads.findOrder(id);
+  const { repository, access } = await getOrganizationContext();
+  const workspace = repository.reads.findOrder(id, access);
   if (!workspace) return null;
   const order = workspace.orders[0];
   if (!order) return null;
