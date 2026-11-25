@@ -3,31 +3,38 @@ import type { OrderMaterialCosts } from '@/features/inventory/lib/order-costs';
 import type { EconomicsPosting } from '@/features/order-economics/api/types';
 import { EconomicsError, sumIntegers } from '@/features/order-economics/lib/integers';
 import { aggregateAccruals } from '@/features/order-economics/lib/settlements';
-import { calculateNetOrder } from './calculate';
+import { calculateRoleSalary, orderLabor } from '@/features/order-labor/lib/calculate';
+import { laborRoles } from '@/features/order-labor/api/types';
 
-/** Legacy role field names remain only in persisted snapshots; the payee is the order responsible. */
+/** Immutable role snapshots keep historical wages independent of later order settings. */
 export function netSalarySnapshot(
   order: RepairOrder,
   costs: OrderMaterialCosts
 ): Pick<EconomicsPosting, 'model' | 'expenses' | 'details' | 'costs' | 'result' | 'allocations'> {
-  if (!order.assigneeId)
-    throw new EconomicsError('Вкажіть відповідального перед завершенням авто.');
+  const labor = orderLabor(order);
+  if (!labor.painter.workerId) throw new EconomicsError('Вкажіть маляра перед завершенням авто.');
+  if (labor.polishingCents > 0 && !labor.polisher.workerId)
+    throw new EconomicsError('Вкажіть полірувальника.');
+  if (labor.assemblyCents > 0 && !labor.assembler.workerId)
+    throw new EconomicsError('Вкажіть розбірника-збірника.');
   const expenses = order.expenses ?? [];
-  const net = calculateNetOrder(
+  const result = calculateRoleSalary(
     order.totalCents,
-    costs.totalCents,
+    costs,
     sumIntegers(expenses.map((expense) => expense.amountCents)),
-    order.defaultEmployeeShareBps ?? 6000
+    labor
   );
   const allocations = aggregateAccruals([
-    {
-      payee: {
-        kind: 'worker' as const,
-        id: order.assigneeId,
-        name: order.assigneeName || 'Працівник'
-      },
-      amountCents: net.employeeCents
-    },
+    ...laborRoles
+      .filter((role) => labor[role].workerId)
+      .map((role) => ({
+        payee: {
+          kind: 'worker' as const,
+          id: labor[role].workerId,
+          name: labor[role].workerName || 'Працівник'
+        },
+        amountCents: result[`${role}AccrualCents`]
+      })),
     ...expenses.map((expense) => ({
       payee: {
         kind: 'contractor' as const,
@@ -38,30 +45,25 @@ export function netSalarySnapshot(
     }))
   ]);
   return {
-    model: 'order_net' as const,
+    model: 'order_roles' as const,
     expenses,
     details: {
-      employeeShareBps: net.employeeShareBps,
-      painterId: order.assigneeId,
-      painterName: order.assigneeName || 'Працівник',
-      polisherId: '',
-      assemblerId: '',
+      employeeShareBps: labor.painter.shareBps,
+      roleSharesBps: {
+        painter: labor.painter.shareBps,
+        polisher: labor.polisher.shareBps,
+        assembler: labor.assembler.shareBps
+      },
+      painterId: labor.painter.workerId,
+      painterName: labor.painter.workerName || 'Працівник',
+      polisherId: labor.polisher.workerId,
+      polisherName: labor.polisher.workerName,
+      assemblerId: labor.assembler.workerId,
+      assemblerName: labor.assembler.workerName,
       lines: []
     },
     costs: costs as EconomicsPosting['costs'],
-    result: {
-      checkCents: net.checkCents,
-      materialsCents: net.materialsCents,
-      painterBaseCents: net.baseCents,
-      polisherBaseCents: 0,
-      assemblerBaseCents: 0,
-      painterAccrualCents: net.employeeCents,
-      polisherAccrualCents: 0,
-      assemblerAccrualCents: 0,
-      employeeAccrualsCents: net.employeeCents,
-      subcontractCostsCents: net.subcontractCents,
-      workshopRemainderCents: net.workshopCents
-    },
+    result,
     allocations
   };
 }

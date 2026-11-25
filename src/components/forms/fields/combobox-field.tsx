@@ -48,6 +48,7 @@ interface ComboboxFieldProps extends BaseFieldProps {
   onRetry?: () => void;
   clearable?: boolean;
   renderIcon?: (option: ChoiceOption) => ReactNode;
+  renderValue?: (option: ChoiceOption) => ReactNode;
   onSearchChange?: (search: string) => void;
   onOptionChange?: (option: ChoiceOption | null) => void;
   selectedOption?: ChoiceOption;
@@ -78,6 +79,7 @@ export function ComboboxField({
   onRetry,
   clearable = !required,
   renderIcon,
+  renderValue,
   onSearchChange,
   onOptionChange,
   selectedOption
@@ -141,7 +143,11 @@ export function ComboboxField({
         <ComboboxTrigger
           id={controlId}
           render={<Button type='button' variant='outline' />}
-          className={cn('w-full min-w-0 justify-between', !selected && 'text-muted-foreground')}
+          className={cn(
+            'w-full min-w-0 justify-between',
+            !selected && 'text-muted-foreground',
+            renderValue && selected && 'h-auto min-h-10 py-2'
+          )}
           aria-labelledby={`${controlId}-label`}
           aria-required={required || undefined}
           aria-invalid={isInvalid}
@@ -155,7 +161,9 @@ export function ComboboxField({
             </span>
           )}
           <span className='min-w-0 flex-1 truncate text-left' title={selectedLabel || undefined}>
-            {selectedLabel || (!hasOptions && !disabled && !onSearchChange ? help : placeholder)}
+            {selected && renderValue
+              ? renderValue(selected)
+              : selectedLabel || (!hasOptions && !disabled && !onSearchChange ? help : placeholder)}
           </span>
         </ComboboxTrigger>
         <ComboboxContent

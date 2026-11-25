@@ -1,6 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useDialogPresence } from '@/hooks/use-dialog-presence';
+import { OrderOperationDialog } from '@/features/crm/components/order-operation-dialog';
+import { specialtyLabels } from '@/features/crm/lib/team-specialties';
 import { z } from 'zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -41,18 +44,24 @@ export function OrderExpenses({ order, data, disabled, onStateChange }: OrderExp
   }, [formState, remove.isPending, onStateChange]);
   const expenses = order.expenses ?? [];
   return (
-    <section
-      className='flex flex-col gap-3 rounded-lg border p-4'
-      aria-label='Витрати на субпідряд'
-    >
-      <h3 className='font-semibold'>Субпідряд</h3>
-      <p className='text-muted-foreground text-sm'>
-        Внутрішні витрати на підбір фарби, пайку та інші послуги. Віднімаються перед розрахунком
-        зарплати й не потрапляють у клієнтський чек.
-      </p>
-      <p className='text-sm'>
-        Разом:{' '}
-        <strong>{money(expenses.reduce((sum, expense) => sum + expense.amountCents, 0))}</strong>
+    <section className='flex flex-col gap-3' aria-label='Витрати на субпідряд'>
+      <div className='flex flex-wrap items-center justify-between gap-2'>
+        <h3 className='font-semibold'>Субпідряд</h3>
+        {data.access?.role === 'admin' && (
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            disabled={disabled || !!editing || remove.isPending}
+            onClick={() => setEditing('new')}
+          >
+            <Icons.add data-icon='inline-start' />
+            Додати субпідряд
+          </Button>
+        )}
+      </div>
+      <p className='text-muted-foreground text-xs'>
+        Підбір фарби, пайка та інші послуги. Погоджена сума повністю належить виконавцю.
       </p>
       {!expenses.length && (
         <p className='text-muted-foreground text-sm'>Витрат на субпідряд ще немає.</p>
@@ -60,22 +69,31 @@ export function OrderExpenses({ order, data, disabled, onStateChange }: OrderExp
       {expenses.map((expense) => (
         <div
           key={expense.id}
-          className='flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3'
+          className='grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto_auto] sm:gap-4'
         >
-          <div className='min-w-0 basis-full sm:flex-1 sm:basis-auto'>
+          <div className='col-span-2 min-w-0 sm:col-span-1'>
             <p className='break-words font-medium'>
               {expense.expenseName ?? legacyExpenseName(expense.kind)}
             </p>
-            <p className='text-muted-foreground text-sm break-words'>{expense.contractorName}</p>
             {expense.note && (
               <p className='text-muted-foreground text-sm whitespace-pre-wrap break-words'>
                 {expense.note}
               </p>
             )}
           </div>
+          <div className='col-span-2 min-w-0 sm:col-span-1'>
+            {' '}
+            <p className='text-sm break-words'>
+              {expense.contractorName}
+              {specialtyLabels(
+                data.team?.find((member) => member.id === expense.contractorUserId)?.specialties
+              ) &&
+                ` · ${specialtyLabels(data.team?.find((member) => member.id === expense.contractorUserId)?.specialties)}`}
+            </p>
+          </div>
           <strong className='text-sm tabular-nums'>{money(expense.amountCents)}</strong>
           {data.access?.role === 'admin' && (
-            <div className='flex items-center gap-1'>
+            <div className='flex items-center justify-self-end gap-1'>
               <Button
                 type='button'
                 size='icon'
@@ -108,33 +126,63 @@ export function OrderExpenses({ order, data, disabled, onStateChange }: OrderExp
           )}
         </div>
       ))}
-      {data.access?.role === 'admin' && !editing && (
-        <Button
-          type='button'
-          variant='outline'
-          className='self-start'
-          disabled={disabled || remove.isPending}
-          onClick={() => setEditing('new')}
-        >
-          <Icons.add />
-          Додати витрату
-        </Button>
-      )}
       {editing && (
-        <ExpenseForm
-          key={typeof editing === 'string' ? editing : editing.id}
+        <ExpenseDialog
           order={order}
-          orgId={data.access!.orgId}
           data={data}
           expense={editing === 'new' ? undefined : editing}
+          pending={formState.pending}
           disabled={disabled}
           onStateChange={setFormState}
-          onSaved={() => setEditing(null)}
+          onClosed={() => {
+            setEditing(null);
+            setFormState({ dirty: false, pending: false });
+          }}
         />
       )}
     </section>
   );
 }
+function ExpenseDialog({
+  order,
+  data,
+  expense,
+  pending,
+  disabled,
+  onStateChange,
+  onClosed
+}: {
+  order: RepairOrder;
+  data: CrmWorkspace;
+  expense?: OrderExpense;
+  pending: boolean;
+  disabled?: boolean;
+  onStateChange: (state: FormState) => void;
+  onClosed: () => void;
+}) {
+  const presence = useDialogPresence(onClosed);
+  return (
+    <OrderOperationDialog
+      open={presence.open}
+      onOpenChangeComplete={presence.onOpenChangeComplete}
+      title={expense ? 'Редагувати субпідряд' : 'Новий субпідряд'}
+      description='Повна сума послуги належить субпідряднику. Зміни зберігаються одразу.'
+      pending={pending}
+      onClose={presence.close}
+    >
+      <ExpenseForm
+        order={order}
+        orgId={data.access!.orgId}
+        data={data}
+        expense={expense}
+        disabled={disabled}
+        onStateChange={onStateChange}
+        onSaved={presence.close}
+      />
+    </OrderOperationDialog>
+  );
+}
+
 function ExpenseForm({
   order,
   orgId,
@@ -213,6 +261,7 @@ function ExpenseForm({
     <CrmForm
       onSubmit={(event) => {
         event.preventDefault();
+        event.stopPropagation();
         void form.handleSubmit();
       }}
     >

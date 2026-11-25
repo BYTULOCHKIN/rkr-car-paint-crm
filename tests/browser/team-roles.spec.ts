@@ -92,9 +92,12 @@ test('member specialties are configured in a keyboard-accessible modal and persi
   await specialist.click();
   await expect(responsible).toContainText('Маляр Андрій · Маляр, Розбірник-збірник');
   await order.getByRole('button', { name: 'Зберегти замовлення', exact: true }).click();
-  await order.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
-  await order.getByRole('button', { name: 'Додати витрату', exact: true }).click();
-  await order.getByRole('combobox', { name: 'Субпідрядник', exact: false }).click();
+  await order.getByRole('tab', { name: 'Матеріали і субпідряд', exact: true }).click();
+  await order.getByRole('button', { name: 'Додати субпідряд', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Новий субпідряд', exact: true })
+    .getByRole('combobox', { name: 'Субпідрядник', exact: false })
+    .click();
   await page.getByRole('combobox', { name: 'Пошук: Субпідрядник', exact: true }).fill('розбірник');
   await expect(specialist).toContainText('Маляр, Розбірник-збірник');
   await expect(page.getByRole('option')).toHaveCount(1);
@@ -151,11 +154,16 @@ test('order responsible can be any active team member irrespective of specialty'
   await page.getByRole('combobox', { name: 'Відповідальний', exact: false }).click();
   await expect(page.getByRole('option', { name: /Маляр Андрій/ })).toBeVisible();
   await page.getByRole('option', { name: /Олена Адміністратор/ }).click();
-  await page.getByRole('spinbutton', { name: 'Частка відповідального, %' }).fill('70');
   await page.getByRole('button', { name: 'Зберегти замовлення', exact: true }).click();
   await expect(page.getByRole('combobox', { name: 'Відповідальний', exact: false })).toContainText(
     'Олена Адміністратор'
   );
+  await page.getByRole('tab', { name: 'Команда і зарплата', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Частка: Маляр, %', exact: false }).fill('70');
+  await page.getByRole('button', { name: 'Зберегти умови нарахування', exact: true }).click();
+  await expect(
+    page.getByRole('tab', { name: 'Команда і зарплата', exact: true })
+  ).not.toHaveAttribute('data-dirty');
   await page.getByRole('tab', { name: 'Роботи', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Деталізувати чек', exact: true })).toHaveCount(0);
 });

@@ -1,5 +1,6 @@
 'use client';
 
+import { useDialogPresence } from '@/hooks/use-dialog-presence';
 import { useCallback, useEffect, useId, useState } from 'react';
 import { useStore } from '@tanstack/react-form';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -16,7 +17,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle
-} from '@/components/ui/dialog';
+} from '@/components/animated-dialog';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -24,7 +25,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle
-} from '@/components/ui/alert-dialog';
+} from '@/components/animated-alert-dialog';
 import type { TeamMember } from '../api/types';
 import { crmMutations, crmQueries } from '../api/queries';
 import { workerSpecialtyOptions } from '../lib/team-specialties';
@@ -38,7 +39,14 @@ interface TeamMemberDialogProps {
   onClose: () => void;
 }
 
-export function TeamMemberDialog({ member, orgId, editable, onClose }: TeamMemberDialogProps) {
+export function TeamMemberDialog({
+  member,
+  orgId,
+  editable,
+  onClose: onClosed
+}: TeamMemberDialogProps) {
+  const presence = useDialogPresence(onClosed);
+  const onClose = presence.close;
   const [defaults] = useState(() => ({
     specialties: [...(member.specialties ?? [])],
     includeSubcontractInPayroll: member.includeSubcontractInPayroll ?? false
@@ -84,7 +92,11 @@ export function TeamMemberDialog({ member, orgId, editable, onClose }: TeamMembe
 
   return (
     <>
-      <Dialog open onOpenChange={(open) => !open && requestClose()}>
+      <Dialog
+        open={presence.open}
+        onOpenChangeComplete={presence.onOpenChangeComplete}
+        onOpenChange={(open) => !open && requestClose()}
+      >
         <DialogContent
           className='max-h-[90dvh] overflow-y-auto sm:max-w-lg'
           showCloseButton={!busy}
@@ -171,23 +183,31 @@ export function TeamMemberDialog({ member, orgId, editable, onClose }: TeamMembe
             )}
           </DialogFooter>
         </DialogContent>
+        <AlertDialog open={discard} onOpenChange={setDiscard}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Відкинути зміни?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Налаштування учасника ще не збережено.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <Button variant='outline' onClick={() => setDiscard(false)}>
+                Продовжити редагування
+              </Button>
+              <Button
+                variant='destructive'
+                onClick={() => {
+                  setDiscard(false);
+                  onClose();
+                }}
+              >
+                Відкинути зміни
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </Dialog>
-      <AlertDialog open={discard} onOpenChange={setDiscard}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Відкинути зміни?</AlertDialogTitle>
-            <AlertDialogDescription>Налаштування учасника ще не збережено.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <Button variant='outline' onClick={() => setDiscard(false)}>
-              Продовжити редагування
-            </Button>
-            <Button variant='destructive' onClick={onClose}>
-              Відкинути зміни
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }

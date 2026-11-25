@@ -7,6 +7,7 @@ import type { ActionResult } from '@/features/crm/api/types';
 import { InventoryError } from '../server/repository';
 import { EconomicsError } from '@/features/order-economics/lib/integers';
 import { archiveSchema } from '../schemas/inventory';
+import type { EditConsumptionInput } from '../schemas/inventory';
 import type {
   ItemInput,
   UpdateItemInput,
@@ -80,7 +81,23 @@ export async function getInventoryPage(
 export async function getOrderInventory(orgId: string, orderId: string): Promise<InventoryData> {
   const { access, repository } = await getOrganizationContext();
   if (access.orgId !== orgId) throw new InventoryError('Автомалярку змінено. Оновіть сторінку.');
-  return { access, items: [], movements: repository.inventory.orderMovements(orderId) };
+  if (!repository.reads.order(orderId).orders.length)
+    throw new InventoryError('Замовлення не знайдено');
+  return {
+    access,
+    items: repository.inventory.orderItems(orderId),
+    movements: repository.inventory.orderMovements(orderId)
+  };
+}
+export async function editConsumption(
+  orgId: string,
+  input: EditConsumptionInput
+): Promise<ActionResult<void>> {
+  return write(orgId, (context) =>
+    context.repository.mutateOrderCosts(input.orderId, actor(context), () =>
+      context.repository.inventory.editConsumption(input, actor(context))
+    )
+  );
 }
 export async function createStockItem(
   orgId: string,

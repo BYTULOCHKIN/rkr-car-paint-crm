@@ -5,7 +5,7 @@ import type { StockItem, StockMovement, InventoryFilters, MovementFilters } from
 import { normalizeSearch, type PageResult } from '@/features/crm/lib/pagination';
 import { inventoryFiltersSchema, movementFiltersSchema } from '../schemas/filters';
 import { consumeValuedStock, valuePurchase } from '@/features/order-economics/lib/stock-valuation';
-import { sumIntegers } from '@/features/order-economics/lib/integers';
+import { sumIntegers, roundedRatio } from '@/features/order-economics/lib/integers';
 import {
   itemSchema,
   stockUnitSchema,
@@ -19,6 +19,7 @@ import {
   decimalScaled,
   valuationSchema
 } from '../schemas/inventory';
+import { editConsumptionSchema, type EditConsumptionInput } from '../schemas/inventory';
 import type {
   ItemInput,
   UpdateItemInput,
@@ -55,6 +56,9 @@ export const consumptionBatchTable = `
     orderId TEXT NOT NULL REFERENCES crm_orders(id),
     fingerprint TEXT NOT NULL,
     createdAt TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS stock_consumption_edits (
+    id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL
   );
 `;
 
@@ -97,6 +101,12 @@ export class InventoryRepository {
 
   items(): StockItem[] {
     return this.itemRows();
+  }
+
+  orderItems(orderId: string): StockItem[] {
+    return this.itemRows('WHERE i.id IN (SELECT itemId FROM stock_movements WHERE orderId=?)', [
+      orderId
+    ]);
   }
 
   listItems(input: InventoryFilters): PageResult<StockItem> {
@@ -288,6 +298,8 @@ export class InventoryRepository {
     actor: HistoryActor,
     kind: StockMovement['kind']
   ): boolean {
+    if (this.db.prepare('SELECT id FROM stock_consumption_edits WHERE id=?').get(id))
+      throw new InventoryError('Ідентифікатор операції вже використано для редагування списання.');
     const row = this.db
       .prepare(`SELECT fingerprint,kind FROM stock_movements WHERE id=?
       UNION ALL SELECT fingerprint,'valuation' FROM stock_valuation_events WHERE id=?`)
@@ -473,6 +485,10 @@ export class InventoryRepository {
       if (this.item(value.itemId).archived)
         throw new InventoryError('Не можна списувати архівну позицію');
       const cost = this.consumptionCost(value.itemId, quantityMilli(value.quantity));
+      if (cost === null && !financialCorrection)
+        throw new InventoryError(
+          'Собівартість матеріалу не визначена. Спочатку оцініть залишок на складі.'
+        );
       this.insert(
         value.operationId,
         value.itemId,
@@ -487,6 +503,85 @@ export class InventoryRepository {
         undefined,
         value.category
       );
+    });
+  }
+
+  /** A replacement and reversal are one atomic operation; original movements remain immutable. */
+  editConsumption(input: EditConsumptionInput, actor: HistoryActor): void {
+    const value = editConsumptionSchema.parse(input);
+    const fingerprint = JSON.stringify({ value, actorId: actor.id });
+    this.transaction(() => {
+      const duplicate = this.db
+        .prepare('SELECT fingerprint FROM stock_consumption_edits WHERE id=?')
+        .get(value.operationId);
+      if (duplicate) {
+        if (duplicate.fingerprint !== fingerprint)
+          throw new InventoryError('Операцію вже проведено з іншими даними.');
+        return;
+      }
+      if (
+        this.db
+          .prepare(
+            `SELECT id FROM stock_movements WHERE id=? UNION ALL SELECT id FROM stock_valuation_events WHERE id=? UNION ALL SELECT id FROM stock_consumption_batches WHERE id=?`
+          )
+          .get(value.operationId, value.operationId, value.operationId)
+      )
+        throw new InventoryError('Ідентифікатор операції вже використано.');
+      const original = this.orderMovements(value.orderId).find(
+        (entry) => entry.id === value.movementId
+      );
+      if (!original || original.kind !== 'consumption' || original.reversed)
+        throw new InventoryError('Списання вже змінено або скасовано. Оновіть сторінку.');
+      const order = this.db
+        .prepare('SELECT status FROM crm_orders WHERE id=? AND deletedAt IS NULL')
+        .get(value.orderId);
+      if (!order || !['in_progress', 'ready'].includes(String(order.status)))
+        throw new InventoryError('Редагування доступне в статусах «В роботі» та «Готово».');
+      const item = this.item(value.itemId);
+      if (item.archived) throw new InventoryError('Не можна списувати архівну позицію');
+      if (original.itemId === value.itemId && original.costDeltaCents === null)
+        throw new InventoryError(
+          'Собівартість історичного списання не визначена. Скасуйте його, оцініть повернений залишок і створіть нове списання.'
+        );
+      const quantity = quantityMilli(value.quantity);
+      let cost: number | null;
+      if (original.itemId === value.itemId && original.costDeltaCents !== null) {
+        const previousQuantity = -original.deltaMilli;
+        if (quantity <= previousQuantity) {
+          cost = roundedRatio(
+            BigInt(-original.costDeltaCents) * BigInt(quantity),
+            BigInt(previousQuantity)
+          );
+        } else {
+          const extraCost = this.consumptionCost(value.itemId, quantity - previousQuantity);
+          if (extraCost === null)
+            throw new InventoryError('Спочатку визначте собівартість матеріалу.');
+          cost = sumIntegers([-original.costDeltaCents, extraCost]);
+        }
+      } else cost = this.consumptionCost(value.itemId, quantity);
+      if (cost === null)
+        throw new InventoryError('Спочатку визначте собівартість матеріалу на складі.');
+      this.reverse(
+        { movementId: original.id, operationId: randomUUID(), note: 'Виправлення списання' },
+        actor
+      );
+      this.insert(
+        randomUUID(),
+        value.itemId,
+        'consumption',
+        -quantity,
+        value.orderId,
+        null,
+        value.note,
+        actor,
+        value,
+        -cost,
+        undefined,
+        value.category
+      );
+      this.db
+        .prepare('INSERT INTO stock_consumption_edits VALUES (?,?)')
+        .run(value.operationId, fingerprint);
     });
   }
 

@@ -22,7 +22,8 @@ export async function syncNetFixture(order: RepairOrder): Promise<void> {
   );
   const previous = finance.postings.filter((entry) => entry.orderId === order.id).at(-1);
   if (
-    previous?.model === 'order_net' &&
+    previous &&
+    previous.model === snapshot.model &&
     JSON.stringify(previous.result) === JSON.stringify(snapshot.result) &&
     JSON.stringify(previous.allocations) === JSON.stringify(snapshot.allocations) &&
     JSON.stringify(previous.expenses) === JSON.stringify(snapshot.expenses)

@@ -34,7 +34,7 @@ function contributions(
       name: posting.details[`${role}Name`] || 'Працівник',
       role: posting.model === 'order_net' ? 'responsible' : role,
       baseCents: posting.result[`${role}BaseCents`],
-      shareBps: posting.details.employeeShareBps,
+      shareBps: posting.details.roleSharesBps?.[role] ?? posting.details.employeeShareBps,
       amountCents: posting.result[`${role}AccrualCents`]
     });
   }
@@ -65,7 +65,7 @@ function coloristCost(
   posting: EconomicsPosting | undefined,
   enabledSubcontractors: ReadonlySet<string>
 ): number {
-  if (posting?.model === 'order_net')
+  if (posting?.model === 'order_net' || posting?.model === 'order_roles')
     return sumIntegers(
       (posting.expenses ?? [])
         .filter(
@@ -186,7 +186,14 @@ export function buildPayrollReport(
       const person = (current ?? old)!;
       if (!visible(person.workerId)) continue;
       const amountCents = sumIntegers([current?.amountCents ?? 0, -(old?.amountCents ?? 0)]);
-      if (!amountCents && !(posting.model === 'order_net' && posting.kind === 'initial' && current))
+      if (
+        !amountCents &&
+        !(
+          (posting.model === 'order_net' || posting.model === 'order_roles') &&
+          posting.kind === 'initial' &&
+          current
+        )
+      )
         continue;
       worker(person.workerId, person.name).entries.push({
         id: `${posting.id}:${key}`,

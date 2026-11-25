@@ -85,6 +85,7 @@ export interface DetailedWorkLine {
 }
 
 export interface OrderEconomicsDetails {
+  roleSharesBps?: { painter: number; polisher: number; assembler: number };
   employeeShareBps: number;
   painterId: string;
   polisherId: string;
@@ -105,7 +106,7 @@ export interface PayeeAccrual {
   amountCents: number;
 }
 export interface EconomicsPosting {
-  model?: 'order_net';
+  model?: 'order_net' | 'order_roles';
   expenses?: import('@/features/order-expenses/api/types').OrderExpense[];
   id: string;
   operationId: string;

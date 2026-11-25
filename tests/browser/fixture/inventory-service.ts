@@ -112,7 +112,7 @@ export async function getOrderInventory(_orgId: string, orderId: string) {
   const value = await getInventory();
   return {
     ...value,
-    items: [],
+    items: value.items,
     movements: value.movements.filter((entry) => entry.orderId === orderId)
   };
 }
@@ -297,4 +297,23 @@ export async function valueStockBalance(_org: string, input: ValuationInput) {
     createdAt: new Date().toISOString()
   });
   return save(value);
+}
+
+export async function editConsumption(
+  orgId: string,
+  input: import('@/features/inventory/schemas/inventory').EditConsumptionInput
+) {
+  const value = data();
+  const previous = value.movements.find((entry) => entry.id === input.movementId)!;
+  const remaining = value.items.find((entry) => entry.id === input.itemId)!;
+  const available =
+    remaining.balanceMilli + (previous.itemId === input.itemId ? -previous.deltaMilli : 0);
+  if (quantityMilli(input.quantity) > available)
+    return { ok: false as const, error: 'Недостатньо матеріалу на складі' };
+  await reverseConsumption(orgId, {
+    movementId: input.movementId,
+    operationId: crypto.randomUUID(),
+    note: 'Виправлення списання'
+  });
+  return consumeStock(orgId, input);
 }

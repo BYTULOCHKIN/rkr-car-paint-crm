@@ -333,9 +333,25 @@ test('new receipts cannot disguise the unknown cost of legacy stock', () => {
     repository = new CrmRepository(filename);
     repository.inventory.receive(purchase(itemId, '1', '200'), actor);
     assert.equal(repository.inventory.items()[0].totalCostCents, null);
+    assert.throws(
+      () => repository.inventory.consume(consume(itemId, orderId, '2'), actor),
+      /Собівартість/
+    );
+    const unvalued = repository.inventory.items()[0];
+    repository.inventory.valueOpeningBalance(
+      {
+        itemId,
+        operationId: randomUUID(),
+        totalAmount: '300',
+        expectedBalanceMilli: unvalued.balanceMilli,
+        expectedRevision: unvalued.valuationRevision,
+        note: 'Оцінено початковий залишок і надходження'
+      },
+      actor
+    );
     repository.inventory.consume(consume(itemId, orderId, '2'), actor);
     assert.equal(repository.inventory.items()[0].totalCostCents, 0);
-    assert.equal(orderMaterialCosts(repository.inventory.movements(), orderId).totalCents, null);
+    assert.equal(orderMaterialCosts(repository.inventory.movements(), orderId).totalCents, 30000);
     repository.inventory.receive(purchase(itemId, '1', '300'), actor);
     assert.equal(repository.inventory.items()[0].totalCostCents, 30000);
   } finally {

@@ -1,3 +1,4 @@
+import { saveOrderLabor } from '@/features/order-labor/api/service';
 import { createExpenseName } from '@/features/order-expenses/api/service';
 import { changeOrderTrash, getOrderTrash } from '../api/service';
 import { orderTrashSchema } from '../schemas/order-trash';
@@ -50,11 +51,13 @@ import {
   adjustStock,
   consumeStock,
   consumeStockBatch,
+  editConsumption,
   reverseConsumption,
   valueStockBalance
 } from '@/features/inventory/api/service';
 
 vi.unmock('@/features/order-expenses/api/service');
+vi.unmock('@/features/order-labor/api/service');
 vi.mock('server-only', () => ({}));
 vi.mock('@clerk/nextjs/server', () => ({ auth: vi.fn(), clerkClient: vi.fn() }));
 vi.mock('../server/repository', () => ({
@@ -71,6 +74,7 @@ const workspace: CrmWorkspace = {
   events: []
 };
 const repository = {
+  saveOrderLabor: vi.fn(),
   changeOrderTrash: vi.fn(),
   expenses: {
     save: vi.fn(() => 'expense-created'),
@@ -164,6 +168,7 @@ test('inventory writes reject workers and stale organizations; actors come from 
       orderId: value.itemId,
       rows: [{ itemId: value.itemId, quantity: '1', note: '', category: 'painting' }]
     }),
+    await editConsumption(org, {} as Parameters<typeof editConsumption>[1]),
     await reverseConsumption(org, {
       operationId: value.operationId,
       movementId: value.itemId,
@@ -547,6 +552,9 @@ test('client document service removes the internal economics payload', async () 
         id,
         customerId: 'c',
         vehicleId: 'v',
+        labor: {
+          painter: { workerId: 'p', workerName: 'Внутрішній маляр', shareBps: 6000 }
+        } as RepairOrder['labor'],
         defaultEmployeeShareBps: 6000,
         economics: { painterName: 'Внутрішні дані', employeeShareBps: 6000 }
       } as RepairOrder
@@ -558,6 +566,7 @@ test('client document service removes the internal economics payload', async () 
   });
   const document = await getOrderDocument(id);
   expect(document).not.toBeNull();
+  expect(document!.order).not.toHaveProperty('labor');
   expect(document!.order).not.toHaveProperty('economics');
   expect(document!.order).not.toHaveProperty('defaultEmployeeShareBps');
   expect(JSON.stringify(document)).not.toContain('Внутрішні дані');
@@ -903,4 +912,27 @@ test('expense catalog creation and team payroll preference require current organ
     ).ok
   ).toBe(false);
   expect(repository.expenses.createName).not.toHaveBeenCalled();
+});
+
+test('role salary settings enforce active organization and administrator permission', async () => {
+  const input = {
+    orgId: 'org_A',
+    orderId: '00000000-0000-4000-8000-000000000001',
+    operationId: '00000000-0000-4000-8000-000000000002',
+    expectedRevision: 0,
+    labor: {
+      painter: { workerId: 'user_admin', workerName: '', shareBps: 6000 },
+      polisher: { workerId: '', workerName: '', shareBps: 6000 },
+      assembler: { workerId: '', workerName: '', shareBps: 6000 },
+      polishingCents: 0,
+      assemblyCents: 0
+    }
+  };
+  expect((await saveOrderLabor({ ...input, orgId: 'another-org' })).ok).toBe(false);
+  expect(repository.saveOrderLabor).not.toHaveBeenCalled();
+  expect((await saveOrderLabor(input)).ok).toBe(true);
+  expect(repository.saveOrderLabor).toHaveBeenCalledOnce();
+  vi.mocked(auth).mockResolvedValue({ userId: 'user_worker', orgId: 'org_A' } as never);
+  expect((await saveOrderLabor(input)).ok).toBe(false);
+  expect(repository.saveOrderLabor).toHaveBeenCalledOnce();
 });

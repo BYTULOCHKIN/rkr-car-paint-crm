@@ -53,6 +53,7 @@ export interface OrderItem {
 }
 
 export interface RepairOrder {
+  labor?: import('@/features/order-labor/api/types').OrderLabor;
   deletedAt?: string | null;
   deletedBy?: HistoryActor | null;
   trashBlockedReason?: string | null;

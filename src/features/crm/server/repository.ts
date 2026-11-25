@@ -1,3 +1,10 @@
+import { migrateOrderLabor } from '@/features/order-labor/server/migration';
+import {
+  saveOrderLaborSchema,
+  type SaveOrderLaborInput
+} from '@/features/order-labor/schemas/labor';
+import { laborRoles } from '@/features/order-labor/api/types';
+import type { TeamMember } from '../api/types';
 import type { WorkspaceSelection } from '../schemas/reads';
 import { CrmReadRepository } from './reads';
 import { migrateExpenseCatalog } from '@/features/order-expenses/server/catalog-migration';
@@ -261,6 +268,11 @@ export class CrmRepository {
       this.transaction(() => migrateExpenseCatalog(this.db));
     if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 21)
       this.transaction(() => migrateStockTags(this.db));
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 22)
+      this.transaction(() => {
+        migrateOrderLabor(this.db);
+        this.db.exec(`${consumptionBatchTable} PRAGMA user_version=22;`);
+      });
     this.expenses = new OrderExpenseRepository(this.db, (id, actor, note) =>
       this.costsChanged(id, actor, note)
     );
@@ -523,6 +535,7 @@ export class CrmRepository {
       const orderItems = byOrder.get(row.id) ?? [];
       return {
         ...row,
+        labor: typeof row.labor === 'string' ? JSON.parse(row.labor) : undefined,
         deletedBy:
           typeof row.deletedBy === 'string' ? (JSON.parse(row.deletedBy) as HistoryActor) : null,
         trashBlockedReason: blockers.get(row.id) ?? null,
@@ -1015,6 +1028,54 @@ export class CrmRepository {
     });
   }
 
+  saveOrderLabor(
+    input: SaveOrderLaborInput,
+    team: readonly TeamMember[],
+    actor: HistoryActor
+  ): void {
+    const value = saveOrderLaborSchema.parse(input);
+    this.transaction(() => {
+      const fingerprint = JSON.stringify({ value, actorId: actor.id });
+      const duplicate = this.db
+        .prepare('SELECT fingerprint FROM crm_order_labor_operations WHERE id=?')
+        .get(value.operationId);
+      if (duplicate) {
+        if (duplicate.fingerprint !== fingerprint)
+          throw new CrmError('Операцію вже проведено з іншими даними.');
+        return;
+      }
+      const order = this.reads.order(value.orderId).orders[0];
+      if (!order || order.deletedAt) throw new CrmError('Замовлення не знайдено');
+      if (order.workflowRevision !== value.expectedRevision)
+        throw new CrmError('Замовлення вже змінено. Оновіть сторінку та повторіть.');
+      for (const role of laborRoles) {
+        const assignment = value.labor[role];
+        if (!assignment.workerId) {
+          assignment.workerName = '';
+          continue;
+        }
+        const member = team.find((entry) => entry.id === assignment.workerId);
+        const historical =
+          order.labor?.[role] ??
+          (role === 'painter'
+            ? { workerId: order.assigneeId, workerName: order.assigneeName }
+            : undefined);
+        if (!member && historical?.workerId !== assignment.workerId)
+          throw new CrmError('Виберіть працівника з команди цієї автомалярки.');
+        assignment.workerName = member?.name || historical?.workerName || 'Працівник';
+      }
+      this.db
+        .prepare(
+          "UPDATE crm_orders SET labor=?,salaryModel='net',workflowRevision=workflowRevision+1 WHERE id=?"
+        )
+        .run(JSON.stringify(value.labor), value.orderId);
+      this.costsChanged(value.orderId, actor, 'Змінено команду та умови нарахування зарплати');
+      this.db
+        .prepare('INSERT INTO crm_order_labor_operations VALUES (?,?,?)')
+        .run(value.operationId, value.orderId, fingerprint);
+    });
+  }
+
   private syncSalary(id: string, actor: HistoryActor | undefined, note: string): void {
     const order = this.reads.order(id).orders[0];
     if (order?.status === 'ready' && order.salaryModel === 'net')
@@ -1480,12 +1541,12 @@ const globalDb = globalThis as typeof globalThis & {
 export function getCrmRepository(): CrmRepository {
   if (
     globalDb.crmRepository &&
-    (globalDb.crmSchemaVersion !== 21 || !(globalDb.crmRepository instanceof CrmRepository))
+    (globalDb.crmSchemaVersion !== 22 || !(globalDb.crmRepository instanceof CrmRepository))
   ) {
     globalDb.crmRepository.close();
     globalDb.crmRepository = undefined;
   }
-  globalDb.crmSchemaVersion = 21;
+  globalDb.crmSchemaVersion = 22;
   return (globalDb.crmRepository ??= new CrmRepository(
     process.env.CRM_DATABASE_PATH || resolve('data/crm.sqlite')
   ));
@@ -1542,7 +1603,7 @@ export function getOrganizationRepository(
   const cached = orgRegistry.crmOrganizations;
   if (
     !cached ||
-    cached.schemaVersion !== 21 ||
+    cached.schemaVersion !== 22 ||
     cached.filename !== filename ||
     cached.configuredAdmin !== configuredAdmin ||
     !(cached.repositories instanceof OrganizationRepositories)
@@ -1551,7 +1612,7 @@ export function getOrganizationRepository(
     orgRegistry.crmOrganizations = {
       filename,
       configuredAdmin,
-      schemaVersion: 21,
+      schemaVersion: 22,
       repositories: new OrganizationRepositories(filename, configuredAdmin)
     };
   }

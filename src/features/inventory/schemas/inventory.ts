@@ -112,6 +112,8 @@ export const batchConsumptionSchema = z
       .max(100, 'До 100 матеріалів за одне збереження')
   })
   .strict();
+export const editConsumptionSchema = consumptionSchema.extend({ movementId: z.uuid() }).strict();
+export type EditConsumptionInput = z.input<typeof editConsumptionSchema>;
 export const valuationSchema = z
   .object({
     ...baseMovement,

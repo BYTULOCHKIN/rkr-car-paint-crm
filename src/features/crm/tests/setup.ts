@@ -28,3 +28,5 @@ vi.mock('@/features/order-expenses/api/service', () => ({
   saveOrderExpense: vi.fn(),
   removeOrderExpense: vi.fn()
 }));
+
+vi.mock('@/features/order-labor/api/service', () => ({ saveOrderLabor: vi.fn() }));

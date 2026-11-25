@@ -6,47 +6,49 @@ test('expense names are selectable, new names persist, duplicates are rejected, 
   await page.goto('/dashboard/orders?flowDemo&economicsDemo');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Замовлення №1', exact: true });
-  await dialog.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Додати витрату', exact: true }).click();
-  await expect(dialog.getByRole('combobox', { name: 'Вид витрати', exact: false })).toHaveCount(0);
-  await expect(dialog.getByRole('textbox', { name: 'Назва витрати', exact: true })).toHaveCount(0);
-  await dialog.getByRole('button', { name: 'Нова назва витрати', exact: true }).click();
-  await dialog
+  await dialog.getByRole('tab', { name: 'Матеріали і субпідряд', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Додати субпідряд', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Вид витрати', exact: false })).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Назва витрати', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Нова назва витрати', exact: true }).click();
+  await page
     .getByRole('textbox', { name: 'Нова назва витрати', exact: true })
     .fill('Ремонт пластику');
-  await dialog.getByRole('button', { name: 'Додати назву', exact: true }).click();
-  await expect(dialog.getByRole('combobox', { name: 'Назва витрати', exact: false })).toContainText(
+  await page.getByRole('button', { name: 'Додати назву', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Назва витрати', exact: false })).toContainText(
     'Ремонт пластику'
   );
-  await dialog.getByRole('combobox', { name: 'Субпідрядник', exact: false }).click();
+  await page.getByRole('combobox', { name: 'Субпідрядник', exact: false }).click();
   await page.getByRole('option', { name: /^Маляр Андрій/ }).click();
-  await dialog
+  await page
     .getByRole('textbox', { name: 'Примітка', exact: true })
     .fill('Додаткове кріплення бампера');
-  await dialog
-    .getByRole('textbox', { name: 'Вартість субпідряду, грн', exact: false })
-    .fill('1500');
-  await dialog.getByRole('button', { name: 'Зберегти витрату', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Вартість субпідряду, грн', exact: false }).fill('1500');
+  await page.getByRole('button', { name: 'Зберегти витрату', exact: true }).click();
   const costs = dialog.getByRole('region', { name: 'Витрати на субпідряд', exact: true });
   await expect(costs).toContainText('Додаткове кріплення бампера');
   await expect(costs).toContainText('Маляр Андрій');
   await expect(costs).toContainText('1\u00a0500,00');
-  await dialog.getByRole('button', { name: 'Додати витрату', exact: true }).click();
-  await dialog.getByRole('combobox', { name: 'Назва витрати', exact: false }).click();
+  await dialog.getByRole('button', { name: 'Додати субпідряд', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Назва витрати', exact: false }).click();
   await expect(page.getByRole('option', { name: 'Ремонт пластику', exact: true })).toBeVisible();
   await page.getByRole('option', { name: 'Ремонт пластику', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Нова назва витрати', exact: true }).click();
-  await dialog
+  await page.getByRole('button', { name: 'Нова назва витрати', exact: true }).click();
+  await page
     .getByRole('textbox', { name: 'Нова назва витрати', exact: true })
     .fill('  РЕМОНТ   пластику  ');
-  await dialog.getByRole('button', { name: 'Додати назву', exact: true }).click();
+  await page.getByRole('button', { name: 'Додати назву', exact: true }).click();
   await expect(
-    dialog.getByRole('alert').filter({ hasText: 'Така назва витрати вже існує.' })
+    page.getByRole('alert').filter({ hasText: 'Така назва витрати вже існує.' })
   ).toContainText('вже існує');
   await page.screenshot({
     path: info.outputPath('expense-name-duplicate.png'),
     animations: 'disabled'
   });
+  await page
+    .getByRole('dialog', { name: 'Новий субпідряд', exact: true })
+    .getByRole('button', { name: 'Скасувати', exact: true })
+    .click();
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
     true
   );
@@ -58,20 +60,18 @@ test('subcontract payroll is off by default and team preference adds its full am
   await page.goto('/dashboard/orders?flowDemo&economicsDemo');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
   let dialog = page.getByRole('dialog', { name: 'Замовлення №1', exact: true });
-  await dialog.getByRole('combobox', { name: 'Відповідальний', exact: false }).click();
+  await page.getByRole('combobox', { name: 'Відповідальний', exact: false }).click();
   await page.getByRole('option', { name: /Маляр Андрій/ }).click();
   await dialog.getByRole('button', { name: 'Зберегти замовлення', exact: true }).click();
-  await dialog.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Додати витрату', exact: true }).click();
-  await dialog.getByRole('combobox', { name: 'Назва витрати', exact: false }).click();
+  await dialog.getByRole('tab', { name: 'Матеріали і субпідряд', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Додати субпідряд', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Назва витрати', exact: false }).click();
   await page.getByRole('option', { name: 'Пайка', exact: true }).click();
-  await dialog.getByRole('combobox', { name: 'Субпідрядник', exact: false }).click();
+  await page.getByRole('combobox', { name: 'Субпідрядник', exact: false }).click();
   await page.getByRole('option', { name: /^Олена Адміністратор/ }).click();
-  await dialog
-    .getByRole('textbox', { name: 'Вартість субпідряду, грн', exact: false })
-    .fill('3000');
-  await dialog.getByRole('button', { name: 'Зберегти витрату', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Додати витрату', exact: true })).toBeEnabled();
+  await page.getByRole('textbox', { name: 'Вартість субпідряду, грн', exact: false }).fill('3000');
+  await page.getByRole('button', { name: 'Зберегти витрату', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Додати субпідряд', exact: true })).toBeEnabled();
   await page.goto('/dashboard/orders?flowDemo&role=worker');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
   await page.getByRole('button', { name: 'Позначити готовим', exact: true }).click();

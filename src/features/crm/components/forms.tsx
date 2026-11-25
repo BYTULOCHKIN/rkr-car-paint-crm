@@ -378,7 +378,7 @@ export function OrderForm({
             description={
               order?.assigneeId && !data.team?.some((member) => member.id === order.assigneeId)
                 ? `Поточний виконавець: ${assigneeLabel(order)}. Якщо учасник уже залишив команду, призначте іншого.`
-                : 'Цьому учаснику нараховується частка від суми замовлення після віднімання матеріалів і субпідряду.'
+                : 'Відповідає за замовлення. Виконавці та відсотки налаштовуються у вкладці «Команда і зарплата».'
             }
             options={teamMemberChoices(
               data.team ?? [],
@@ -388,31 +388,35 @@ export function OrderForm({
           />
         )}
       </form.AppField>
-      <form.Field name='employeeShareBps'>
-        {(field) => (
-          <div className='grid gap-2'>
-            <Label htmlFor={shareId}>Частка відповідального, %</Label>
-            <Input
-              id={shareId}
-              aria-invalid={field.state.meta.errors.length > 0}
-              aria-describedby={field.state.meta.errors.length ? `${shareId}-error` : undefined}
-              type='number'
-              min={0}
-              max={100}
-              step={0.01}
-              value={(field.state.value ?? 6000) / 100}
-              onBlur={field.handleBlur}
-              onChange={(event) => field.handleChange(Math.round(Number(event.target.value) * 100))}
-            />
-            {field.state.meta.errors.length > 0 && (
-              <FieldError id={`${shareId}-error`} errors={field.state.meta.errors} />
-            )}
-            <p className='text-muted-foreground text-sm'>
-              Нараховується при готовності авто незалежно від оплати клієнтом.
-            </p>
-          </div>
-        )}
-      </form.Field>
+      {!order && (
+        <form.Field name='employeeShareBps'>
+          {(field) => (
+            <div className='grid gap-2'>
+              <Label htmlFor={shareId}>Початкова частка маляра, %</Label>
+              <Input
+                id={shareId}
+                aria-invalid={field.state.meta.errors.length > 0}
+                aria-describedby={field.state.meta.errors.length ? `${shareId}-error` : undefined}
+                type='number'
+                min={0}
+                max={100}
+                step={0.01}
+                value={(field.state.value ?? 6000) / 100}
+                onBlur={field.handleBlur}
+                onChange={(event) =>
+                  field.handleChange(Math.round(Number(event.target.value) * 100))
+                }
+              />
+              {field.state.meta.errors.length > 0 && (
+                <FieldError id={`${shareId}-error`} errors={field.state.meta.errors} />
+              )}
+              <p className='text-muted-foreground text-sm'>
+                Нараховується при готовності авто незалежно від оплати клієнтом.
+              </p>
+            </div>
+          )}
+        </form.Field>
+      )}
       <form.AppField name='description'>
         {(field) => <field.TextareaField label='Опис замовлення' required />}
       </form.AppField>

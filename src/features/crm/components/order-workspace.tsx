@@ -1,5 +1,7 @@
 'use client';
 
+import { OrderLabor } from '@/features/order-labor/components/order-labor';
+
 import {
   useCallback,
   useContext,
@@ -34,7 +36,15 @@ import { Button } from './action-button';
 import type { FormState } from './form-status';
 
 const EMPTY_STATE: FormState = { dirty: false, pending: false };
-const DRAFT_PARTS = ['main', 'works', 'workflow', 'expenses', 'materials', 'payments'] as const;
+const DRAFT_PARTS = [
+  'main',
+  'works',
+  'workflow',
+  'expenses',
+  'materials',
+  'labor',
+  'payments'
+] as const;
 type DraftPart = (typeof DRAFT_PARTS)[number];
 
 function OrderFormScope({ active, children }: { active: boolean; children: ReactNode }) {
@@ -286,19 +296,33 @@ export function OrderWorkspace({
                     access={data.access}
                     disabled={blocked('materials')}
                     onStateChange={callbacks.materials}
-                  />
-                )}
-                {scope(
-                  'materials',
-                  <OrderExpenses
-                    order={order}
-                    data={data}
-                    disabled={blocked('expenses')}
-                    onStateChange={callbacks.expenses}
-                  />
+                  >
+                    {scope(
+                      'materials',
+                      <OrderExpenses
+                        order={order}
+                        data={data}
+                        disabled={blocked('expenses')}
+                        onStateChange={callbacks.expenses}
+                      />
+                    )}
+                  </OrderMaterials>
                 )}
               </>
             )
+          )}
+          {panel(
+            'labor',
+            visited.has('labor') &&
+              scope(
+                'labor',
+                <OrderLabor
+                  order={order}
+                  data={data}
+                  disabled={blocked('labor')}
+                  onStateChange={callbacks.labor}
+                />
+              )
           )}
           {panel(
             'payments',
@@ -429,9 +453,11 @@ export function OrderWorkspace({
         data-slot='crm-dialog-body'
         className='relative flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain px-5 py-4 [scrollbar-gutter:stable] sm:px-6'
       >
-        <p className='text-muted-foreground text-sm'>
-          {ORDER_TABS.find((tab) => tab.value === active)?.description}
-        </p>
+        {active !== 'materials' && (
+          <p className='text-muted-foreground text-sm'>
+            {ORDER_TABS.find((tab) => tab.value === active)?.description}
+          </p>
+        )}
         {dirty && (
           <Alert>
             <AlertDescription>

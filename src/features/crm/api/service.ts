@@ -268,6 +268,7 @@ export async function getOrderDocument(id: string): Promise<OrderDocument | null
   const customer = workspace.customers.find((customer) => customer.id === order.customerId);
   const vehicle = workspace.vehicles.find((vehicle) => vehicle.id === order.vehicleId);
   const {
+    labor: _labor,
     economics: _economics,
     defaultEmployeeShareBps: _share,
     expenses: _expenses,

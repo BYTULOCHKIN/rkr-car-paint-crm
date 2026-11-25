@@ -1,5 +1,6 @@
 'use client';
 
+import { useDialogPresence } from '@/hooks/use-dialog-presence';
 import { OrderTrashAction } from './order-trash-action';
 import { ExecutorAdvance } from './executor-advance';
 import { useEffect, useId, useMemo, useState } from 'react';
@@ -9,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription
-} from '@/components/ui/dialog';
+} from '@/components/animated-dialog';
 import {
   AlertDialog,
   AlertDialogContent,
@@ -17,7 +18,7 @@ import {
   AlertDialogTitle,
   AlertDialogDescription,
   AlertDialogFooter
-} from '@/components/ui/alert-dialog';
+} from '@/components/animated-alert-dialog';
 import { CustomerHistory } from './customer-history';
 import { cn } from '@/lib/utils';
 import { Icons } from '@/components/icons';
@@ -74,6 +75,7 @@ interface CrmEditorDialogProps {
 
 export function CrmEditorDialog(props: CrmEditorDialogProps) {
   const [createdId, setCreatedId] = useState<string | null>(null);
+  const loadingPresence = useDialogPresence(props.onClose);
   const { editor, data } = props;
   const detail =
     editor.type === 'workflow'
@@ -100,9 +102,10 @@ export function CrmEditorDialog(props: CrmEditorDialogProps) {
   if (data.serverRead && detail?.id && !result.data)
     return (
       <Dialog
-        open
+        open={loadingPresence.open}
+        onOpenChangeComplete={loadingPresence.onOpenChangeComplete}
         onOpenChange={(open) => {
-          if (!open) props.onClose();
+          if (!open) loadingPresence.close();
         }}
       >
         <DialogContent>
@@ -143,11 +146,13 @@ export function CrmEditorDialog(props: CrmEditorDialogProps) {
 function CrmEditorDialogContent({
   editor,
   data,
-  onClose,
+  onClose: onClosed,
   onSelectOrder,
   onBackToHistory,
   onOrderCreated
 }: CrmEditorDialogProps & { onOrderCreated: (id: string) => void }) {
+  const presence = useDialogPresence(onClosed);
+  const onClose = presence.close;
   const [state, setState] = useState<FormState>({ dirty: false, pending: false });
   const [createdOrderId, setCreatedOrderId] = useState<string | null>(null);
   const order =
@@ -270,7 +275,8 @@ function CrmEditorDialogContent({
   return (
     <>
       <Dialog
-        open
+        open={presence.open}
+        onOpenChangeComplete={presence.onOpenChangeComplete}
         onOpenChange={(open) => {
           if (!open) requestClose();
         }}
@@ -282,7 +288,7 @@ function CrmEditorDialogContent({
             editor.type === 'history'
               ? 'sm:max-w-5xl'
               : editor.type === 'order'
-                ? 'h-[90dvh] sm:max-w-3xl'
+                ? 'h-[90dvh] sm:max-w-5xl'
                 : 'sm:max-w-lg'
           )}
         >
@@ -425,28 +431,32 @@ function CrmEditorDialogContent({
             </div>
           </DialogFormContext>
         </DialogContent>
+        <AlertDialog open={discard} onOpenChange={setDiscard}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Скасувати зміни?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Введені дані ще не збережено. Якщо закрити форму, їх буде втрачено.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <Button variant='outline' onClick={() => setDiscard(false)}>
+                Продовжити редагування
+              </Button>
+              <Button
+                variant='destructive'
+                onClick={() => {
+                  setDiscard(false);
+                  if (discardDestination === 'history') backToHistory?.();
+                  else onClose();
+                }}
+              >
+                Скасувати зміни
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </Dialog>
-      <AlertDialog open={discard} onOpenChange={setDiscard}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Скасувати зміни?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Введені дані ще не збережено. Якщо закрити форму, їх буде втрачено.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <Button variant='outline' onClick={() => setDiscard(false)}>
-              Продовжити редагування
-            </Button>
-            <Button
-              variant='destructive'
-              onClick={() => (discardDestination === 'history' ? backToHistory?.() : onClose())}
-            >
-              Скасувати зміни
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }

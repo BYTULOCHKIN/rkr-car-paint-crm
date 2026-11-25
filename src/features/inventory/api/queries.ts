@@ -6,6 +6,7 @@ import {
   getInventory,
   getInventoryAccess,
   getOrderInventory,
+  editConsumption,
   createStockItem,
   updateStockItem,
   archiveStockItem,
@@ -63,6 +64,20 @@ export const inventoryQueries = {
     })
 };
 export const inventoryMutations = {
+  saveConsumption: (orgId: string, movementId?: string) =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof consumeStock>[1]) =>
+        unwrap(
+          movementId
+            ? await editConsumption(orgId, { ...input, movementId })
+            : await consumeStock(orgId, input)
+        )
+    }),
+  editConsumption: (orgId: string) =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof editConsumption>[1]) =>
+        unwrap(await editConsumption(orgId, input))
+    }),
   consumeBatch: (orgId: string) =>
     mutationOptions({
       mutationFn: async (input: Parameters<typeof consumeStockBatch>[1]) =>

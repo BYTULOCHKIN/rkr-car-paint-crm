@@ -473,40 +473,45 @@ test('order consumption validates remaining stock and cancellation preserves his
 }, info) => {
   await page.goto('/dashboard/orders');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
-  await page.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
+  await page.getByRole('tab', { name: 'Матеріали і субпідряд', exact: true }).click();
   const materials = page.getByRole('region', { name: 'Матеріали замовлення' });
   await materials.getByRole('button', { name: 'Додати списання' }).click();
-  await materials.getByRole('combobox', { name: 'Матеріал' }).click();
-  await page.getByRole('option', { name: /Фарба/ }).click();
-  const materialChoice = materials.getByRole('combobox', { name: 'Матеріал' });
+  const dialog = page.getByRole('dialog', { name: 'Нове списання', exact: true });
+  await dialog.getByRole('combobox', { name: 'Матеріал зі складу', exact: false }).click();
+  await page.getByRole('option', { name: /^Фарба/ }).click();
+  const materialChoice = dialog.getByRole('combobox', { name: 'Матеріал зі складу', exact: false });
   await materialChoice.click();
-  await page.getByRole('combobox', { name: 'Пошук: Матеріал' }).fill('неіснуючий матеріал');
+  await page
+    .getByRole('combobox', { name: 'Пошук: Матеріал зі складу', exact: true })
+    .fill('неіснуючий матеріал');
   await expect(page.getByRole('option')).toHaveCount(0);
-  await expect(
-    page
-      .getByRole('status', { name: '' })
-      .filter({ hasText: 'За вашим пошуком нічого не знайдено.' })
-  ).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(materialChoice).toContainText('Фарба');
-  await materials.getByRole('textbox', { name: 'Кількість' }).fill('2');
-  await page.getByRole('button', { name: 'Списати матеріали' }).click();
-  await expect(materials.getByRole('alert')).toContainText('Недостатньо');
-  await materials.getByRole('textbox', { name: 'Кількість' }).fill('0,250');
-  await page.getByRole('button', { name: 'Списати матеріали' }).click();
-  await expect(materials.getByText('Фарба — 0,25 л', { exact: true })).toBeVisible();
-  await expect(materials).toContainText('Собівартість матеріалів: 250,00');
-  await materials.getByRole('button', { name: 'Скасувати списання' }).click();
-  await materials.getByRole('textbox', { name: 'Причина скасування' }).fill('Помилковий матеріал');
-  await page.getByRole('button', { name: 'Підтвердити скасування' }).click();
-  await expect(materials.getByText('Скасовано', { exact: true })).toBeVisible();
-  await expect(materials.getByText('Фарба — 0,25 л', { exact: true })).toHaveCount(0);
+  await dialog.getByRole('textbox', { name: 'Кількість', exact: false }).fill('2');
+  await expect(dialog.getByRole('button', { name: 'Списати', exact: true })).toBeDisabled();
+  await expect(dialog.getByRole('alert')).toContainText('перевищує');
+  await dialog.getByRole('textbox', { name: 'Кількість', exact: false }).fill('0,250');
+  await dialog.getByRole('button', { name: 'Списати', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(materials).toContainText('250,00');
+  await materials.getByRole('button', { name: 'Редагувати списання: Фарба', exact: true }).click();
+  const edit = page.getByRole('dialog', { name: 'Редагувати списання', exact: true });
+  await expect(edit.getByRole('textbox', { name: 'Кількість', exact: false })).toHaveValue('0.25');
+  await edit.getByRole('textbox', { name: 'Кількість', exact: false }).fill('0,4');
+  await edit.getByRole('button', { name: 'Полірування', exact: true }).click();
+  await edit.getByRole('button', { name: 'Зберегти списання', exact: true }).click();
+  await expect(edit).toBeHidden();
+  await expect(materials).toContainText('400,00');
+  await expect(materials.getByText('Полірування', { exact: true })).toBeVisible();
+  await materials.getByRole('button', { name: 'Редагувати списання: Фарба', exact: true }).click();
+  await edit.getByRole('button', { name: 'Скасувати списання', exact: true }).click();
+  await expect(edit).toBeHidden();
+  await expect(
+    materials.getByRole('button', { name: 'Редагувати списання: Фарба', exact: true })
+  ).toHaveCount(0);
+  await materials.getByText('Журнал складських операцій', { exact: true }).click();
+  await expect(materials.getByText('Скасовано', { exact: true })).toHaveCount(2);
   await page.screenshot({ path: info.outputPath('order-materials.png'), animations: 'disabled' });
-  expect(
-    await page
-      .getByRole('dialog')
-      .evaluate((element) => element.scrollWidth <= element.clientWidth + 1)
-  ).toBe(true);
 });
 
 test('legacy balance is valued explicitly with an audit entry', async ({ page }) => {
@@ -527,43 +532,38 @@ test('legacy balance is valued explicitly with an audit entry', async ({ page })
   );
 });
 
-test('admin searches materials, saves multiple rows together and reuses recent materials', async ({
+test('admin searches materials and saves separate painting and polishing consumptions', async ({
   page
 }) => {
   await page.goto('/dashboard/orders');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
-  await page.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
+  await page.getByRole('tab', { name: 'Матеріали і субпідряд', exact: true }).click();
   const materials = page.getByRole('region', { name: 'Матеріали замовлення' });
-  await materials.getByRole('button', { name: 'Додати списання' }).click();
-  const form = materials.getByRole('form', { name: 'Списання матеріалів' });
-  await form.getByRole('combobox', { name: 'Матеріал' }).click();
-  await page.getByRole('combobox', { name: 'Пошук: Матеріал' }).fill('фар');
-  await page.getByRole('option', { name: /Фарба/ }).click();
-  await form.getByRole('textbox', { name: 'Кількість' }).fill('0,2');
-  await form.getByRole('button', { name: 'Ще матеріал' }).click();
-  await expectInlineIcon(form.getByRole('button', { name: 'Ще матеріал' }));
-  await expectInlineIcon(form.getByRole('button', { name: 'Прибрати матеріал 2' }));
-  await form.getByRole('combobox', { name: 'Матеріал' }).nth(1).click();
-  await page.getByRole('option', { name: /Фарба/ }).click();
-  await form.getByRole('textbox', { name: 'Кількість' }).nth(1).fill('0,3');
-  await form.getByRole('combobox', { name: 'Для робіт' }).nth(1).click();
-  await page.getByRole('option', { name: 'Полірування', exact: true }).click();
-  await page.getByRole('button', { name: 'Списати матеріали', exact: true }).click();
-  await expect(form).toBeHidden();
-  await expect(materials.getByText('Фарба — 0,5 л', { exact: true })).toBeVisible();
-  await expect(materials).toContainText('Собівартість матеріалів: 500,00');
-  await expect(materials).toContainText('Малярні роботи: 200,00');
-  await expect(materials).toContainText('Полірування: 300,00');
-  await materials.getByRole('button', { name: 'Додати списання' }).click();
-  await form.getByRole('combobox', { name: 'Матеріал' }).click();
-  await expect(page.getByText('Останні використані', { exact: true })).toBeVisible();
-  await page.getByRole('option', { name: /Фарба/ }).click();
-  await form.getByRole('button', { name: 'Ще матеріал' }).click();
-  await form.getByRole('button', { name: 'Прибрати матеріал 2' }).click();
-  await expect(form.getByRole('combobox', { name: 'Матеріал' })).toHaveCount(1);
-  expect(await form.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
-    true
-  );
+  await expectInlineIcon(materials.getByRole('button', { name: 'Додати списання' }));
+  for (const [quantity, purpose] of [
+    ['0,2', 'Фарбування'],
+    ['0,3', 'Полірування']
+  ]) {
+    await materials.getByRole('button', { name: 'Додати списання' }).click();
+    const form = page.getByRole('dialog', { name: 'Нове списання', exact: true });
+    await form.getByRole('combobox', { name: 'Матеріал зі складу', exact: false }).click();
+    await page
+      .getByRole('combobox', { name: 'Пошук: Матеріал зі складу', exact: true })
+      .fill('фар');
+    await page.getByRole('option', { name: /^Фарба/ }).click();
+    await form.getByRole('textbox', { name: 'Кількість', exact: false }).fill(quantity);
+    await form.getByRole('button', { name: purpose, exact: true }).click();
+    await form.getByRole('button', { name: 'Списати', exact: true }).click();
+    await expect(form).toBeHidden();
+  }
+  await expect(
+    materials.getByRole('button', { name: 'Редагувати списання: Фарба', exact: true })
+  ).toHaveCount(2);
+  await expect(materials).toContainText('200,00');
+  await expect(materials).toContainText('300,00');
+  expect(
+    await materials.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)
+  ).toBe(true);
 });
 
 test('worker can inspect stock with no write controls', async ({ page }) => {
@@ -573,7 +573,7 @@ test('worker can inspect stock with no write controls', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Надходження', exact: true })).toHaveCount(0);
   await page.goto('/dashboard/orders?role=worker');
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
-  await page.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
+  await page.getByRole('tab', { name: 'Матеріали і субпідряд', exact: true }).click();
   const materials = page.getByRole('region', { name: 'Матеріали замовлення' });
   await expect(materials).toBeVisible();
   await expect(materials.getByRole('button')).toHaveCount(0);

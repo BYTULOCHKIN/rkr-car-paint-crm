@@ -210,7 +210,8 @@ export class SettlementRepository {
     const allocations = snapshot.allocations;
     const previous = this.latest(order.id);
     if (
-      previous?.model === 'order_net' &&
+      previous &&
+      previous.model === snapshot.model &&
       JSON.stringify({
         model: previous.model,
         expenses: previous.expenses,

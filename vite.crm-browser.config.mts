@@ -118,6 +118,7 @@ export default defineConfig({
         if (source === './service' && importer?.includes('/features/overview/api/queries'))
           return `${root}/tests/browser/fixture/overview-service.ts`;
 
+        if (source === './service' && importer?.includes('/features/order-labor/api/queries')) return `${root}/tests/browser/fixture/labor-service.ts`;
         if (
           importer?.replaceAll('\\', '/').includes('/features/order-expenses/api/queries') &&
           source === './service'

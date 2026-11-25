@@ -23,7 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription
-} from '@/components/ui/dialog';
+} from '@/components/animated-dialog';
 import {
   Table,
   TableHeader,
@@ -89,7 +89,12 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
     'stockArchived',
     parseAsBoolean.withDefault(false).withOptions({ shallow: true })
   );
-  const [editor, setEditor] = useState<Editor | null>(null);
+  const [editor, commitEditor] = useState<Editor | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  function setEditor(next: Editor | null): void {
+    if (next) commitEditor(next);
+    setDialogOpen(!!next);
+  }
   const [pending, setPending] = useState(false);
   const client = useQueryClient();
   const archive = useMutation({
@@ -325,7 +330,10 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
         </TabsContent>
       </Tabs>
       <Dialog
-        open={!!editor}
+        open={dialogOpen}
+        onOpenChangeComplete={(open) => {
+          if (!open) commitEditor(null);
+        }}
         onOpenChange={(open) => {
           if (!open && !pending) setEditor(null);
         }}

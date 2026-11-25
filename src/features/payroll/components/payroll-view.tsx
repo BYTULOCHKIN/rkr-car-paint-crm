@@ -21,7 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger
-} from '@/components/ui/dialog';
+} from '@/components/animated-dialog';
 import { money } from '@/features/crm/lib/format';
 import { historyTimestamp } from '@/features/crm/lib/workflow-history';
 import { specialtyLabels, workerSpecialtyOptions } from '@/features/crm/lib/team-specialties';

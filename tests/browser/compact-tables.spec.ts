@@ -80,6 +80,6 @@ test('worker retains search and order access without a creation action', async (
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Нове замовлення', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Відкрити замовлення №1', exact: true }).click();
-  await page.getByRole('tab', { name: 'Матеріали і витрати', exact: true }).click();
+  await page.getByRole('tab', { name: 'Матеріали і субпідряд', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Матеріали замовлення' })).toBeVisible();
 });

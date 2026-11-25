@@ -7,8 +7,13 @@ export const ORDER_TABS = [
   { value: 'works', label: 'Роботи', description: 'Перелік робіт і ціни для клієнта.' },
   {
     value: 'materials',
-    label: 'Матеріали і витрати',
+    label: 'Матеріали і субпідряд',
     description: 'Матеріали зі складу та витрати на субпідрядників.'
+  },
+  {
+    value: 'labor',
+    label: 'Команда і зарплата',
+    description: 'Виконавці, внутрішні суми робіт та нарахування за ролями.'
   },
   {
     value: 'payments',
