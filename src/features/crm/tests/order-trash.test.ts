@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { CrmRepository } from '../server/repository';
 import { businessToday } from '../lib/workflow';
 
@@ -323,3 +324,175 @@ test('trash survives reopening and two connections cannot restore using an obsol
     rmSync(folder, { recursive: true, force: true });
   }
 });
+
+test('permanent deletion requires trash, removes order details and never reuses its number', () => {
+  const { repo, id, order, trash, input } = setup();
+  repo.saveOrderLabor(
+    {
+      orgId: 'org_test',
+      orderId: id,
+      operationId: randomUUID(),
+      expectedRevision: order().workflowRevision!,
+      labor: {
+        painter: { workerId: 'worker', workerName: 'Маляр', shareBps: 6000 },
+        polisher: { workerId: '', workerName: '', shareBps: 6000 },
+        assembler: { workerId: '', workerName: '', shareBps: 6000 },
+        polishingCents: 0,
+        assemblyCents: 0
+      }
+    },
+    [{ id: 'worker', name: 'Маляр', identifier: 'worker@example.com', role: 'worker' }],
+    actor
+  );
+  assert.throws(
+    () => repo.changeOrderTrash({ ...trash(), action: 'delete' }, actor),
+    /лише з кошика/
+  );
+  const original = order();
+  const stale = { ...trash(), action: 'delete' as const };
+  repo.changeOrderTrash(trash(), actor);
+  assert.throws(() => repo.changeOrderTrash(stale, actor), /змінено/);
+  const command = { ...trash(), action: 'delete' as const };
+  repo.changeOrderTrash(command, actor);
+  assert.equal(repo.workspace(true).orders.length, 0);
+  assert.equal(
+    repo.workspace(true).events.some((event) => event.kind === 'order' && event.recordId === id),
+    false
+  );
+  assert.equal(repo.workspace().customers.length, 1);
+  assert.equal(repo.workspace().vehicles.length, 1);
+  assert.throws(() => repo.reads.order(id), /не знайдено/);
+  const nextId = repo.createOrder(input, 'Маляр', actor);
+  assert.equal(repo.reads.order(nextId).orders[0].number, original.number + 1);
+  assert.throws(() => repo.changeOrderTrash(command, actor), /не знайдено/);
+  assert.equal(repo.reads.order(nextId).orders[0].id, nextId);
+});
+
+test('permanent deletion preserves source requests and rolls back all child cleanup on failure', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'crm-permanent-delete-'));
+  const path = join(folder, 'crm.sqlite');
+  const { repo, id, order, trash, input } = setup(path);
+  const db = new DatabaseSync(path);
+  try {
+    const requestId = repo.createRequest({
+      customerId: input.customerId,
+      vehicleId: input.vehicleId,
+      description: 'Архівна заявка'
+    });
+    const linkedId = repo.createOrder({ ...input, requestId }, 'Маляр', actor);
+    const linked = () => repo.workspace(true).orders.find((entry) => entry.id === linkedId)!;
+    repo.changeOrderTrash(
+      {
+        orgId: 'org_test',
+        orderId: linkedId,
+        expectedRevision: linked().workflowRevision!,
+        action: 'trash'
+      },
+      actor
+    );
+    const source = repo.workspace(true).requests;
+    const sourceHistory = repo.workspace(true).events.filter((event) => event.kind === 'request');
+    repo.changeOrderTrash(
+      {
+        orgId: 'org_test',
+        orderId: linkedId,
+        expectedRevision: linked().workflowRevision!,
+        action: 'delete'
+      },
+      actor
+    );
+    assert.deepEqual(repo.workspace(true).requests, source);
+    assert.deepEqual(
+      repo.workspace(true).events.filter((event) => event.kind === 'request'),
+      sourceHistory
+    );
+    repo.changeOrderTrash(trash(), actor);
+    const before = JSON.stringify(repo.workspace(true));
+    db.exec(
+      "CREATE TRIGGER reject_order_delete BEFORE DELETE ON crm_orders BEGIN SELECT RAISE(ABORT,'test rollback'); END"
+    );
+    assert.throws(
+      () => repo.changeOrderTrash({ ...trash(), action: 'delete' }, actor),
+      /test rollback/
+    );
+    assert.equal(JSON.stringify(repo.workspace(true)), before);
+    assert.equal(order().items.length, input.items.length);
+    db.exec('DROP TRIGGER reject_order_delete');
+    repo.changeOrderTrash({ ...trash(), action: 'delete' }, actor);
+    assert.equal(
+      repo.workspace(true).orders.some((entry) => entry.id === id),
+      false
+    );
+    assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+  } finally {
+    db.close();
+    repos.splice(0).forEach((repo) => repo.close());
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+for (const history of [
+  'reversed_payment',
+  'reversed_amount_material',
+  'zero_salary_posting'
+] as const)
+  test(`permanent deletion rechecks accounting history in trash: ${history}`, () => {
+    const folder = mkdtempSync(join(tmpdir(), 'crm-delete-blocker-'));
+    const path = join(folder, 'crm.sqlite');
+    const { repo, id, order, trash, transition, input } = setup(path);
+    const db = new DatabaseSync(path);
+    try {
+      if (history === 'reversed_payment') {
+        const paymentId = repo.payments.receive(
+          { orderId: id, operationId: randomUUID(), amount: '10', note: '' },
+          actor
+        );
+        repo.payments.reverse({ paymentId, operationId: randomUUID(), note: 'Помилка' }, actor);
+      } else if (history === 'reversed_amount_material') {
+        transition('in_progress');
+        const itemId = repo.inventory.createItem({
+          name: 'Фарба',
+          unit: '',
+          accountingMode: 'amount',
+          notes: ''
+        });
+        const operationId = randomUUID();
+        repo.inventory.consume(
+          { itemId, orderId: id, operationId, quantity: '', amount: '100', note: '' },
+          actor
+        );
+        repo.inventory.reverse(
+          { movementId: operationId, operationId: randomUUID(), note: 'Помилка' },
+          actor
+        );
+        assert.equal(repo.inventory.items()[0].balanceMilli, 0);
+      } else {
+        repo.updateClientOrder(
+          {
+            id,
+            description: input.description,
+            items: input.items.map((item) => ({ ...item, unitPrice: 0 }))
+          },
+          'Маляр',
+          actor
+        );
+        transition('in_progress');
+        transition('ready', true);
+        assert.equal(repo.settlements.latest(id)!.result.employeeAccrualsCents, 0);
+      }
+      // Represents historical/imported trash; current write APIs forbid adding these operations there.
+      db.prepare('UPDATE crm_orders SET deletedAt=? WHERE id=?').run(new Date().toISOString(), id);
+      const before = JSON.stringify(repo.workspace(true));
+      assert.ok(order().trashBlockedReason);
+      assert.throws(
+        () => repo.changeOrderTrash({ ...trash(), action: 'delete' }, actor),
+        /Не можна видалити/
+      );
+      assert.equal(JSON.stringify(repo.workspace(true)), before);
+      assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+    } finally {
+      db.close();
+      repos.splice(0).forEach((repo) => repo.close());
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });

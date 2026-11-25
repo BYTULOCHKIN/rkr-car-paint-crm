@@ -112,7 +112,7 @@ test('returning from an edited order asks before discarding and restores the sam
     </QueryClientProvider>
   );
   const user = userEvent.setup();
-  await user.type(screen.getByRole('textbox', { name: 'Опис замовлення *' }), ' — зміни');
+  await user.type(screen.getByRole('textbox', { name: 'Опис замовлення' }), ' — зміни');
   await user.click(screen.getByRole('button', { name: 'До автомобілів клієнта' }));
   const confirmation = await screen.findByRole('alertdialog');
   expect(back).not.toHaveBeenCalled();

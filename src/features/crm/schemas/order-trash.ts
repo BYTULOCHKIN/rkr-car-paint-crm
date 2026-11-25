@@ -5,7 +5,7 @@ export const orderTrashSchema = z
     orgId: z.string().min(1).max(255),
     orderId: z.uuid(),
     expectedRevision: z.number().int().nonnegative(),
-    action: z.enum(['trash', 'restore'])
+    action: z.enum(['trash', 'restore', 'delete'])
   })
   .strict();
 export type OrderTrashInput = z.infer<typeof orderTrashSchema>;

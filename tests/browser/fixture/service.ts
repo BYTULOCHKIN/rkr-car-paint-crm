@@ -692,12 +692,23 @@ export async function changeOrderTrash(input: OrderTrashInput) {
   const workspace = await getWorkspace();
   if (workspace.access?.role !== 'admin' || input.orgId !== workspace.access.orgId)
     return { ok: false as const, error: 'Немає доступу' };
-  const order = data.orders.find((entry) => entry.id === input.orderId)!;
+  const order = data.orders.find((entry) => entry.id === input.orderId);
+  if (!order) return { ok: false as const, error: 'Замовлення не знайдено' };
   if ((order.workflowRevision ?? 0) !== input.expectedRevision)
     return { ok: false as const, error: 'Замовлення вже змінено.' };
   const visible = workspace.orders.find((entry) => entry.id === order.id);
   if (input.action === 'trash' && visible?.trashBlockedReason)
     return { ok: false as const, error: visible.trashBlockedReason };
+  if (input.action === 'delete') {
+    if (!order.deletedAt)
+      return { ok: false as const, error: 'Остаточне видалення доступне лише з кошика.' };
+    data.orders = data.orders.filter((entry) => entry.id !== order.id);
+    data.events = data.events.filter(
+      (entry) => entry.kind !== 'order' || entry.recordId !== order.id
+    );
+    persistFlowFixture();
+    return { ok: true as const, data: null };
+  }
   order.deletedAt = input.action === 'trash' ? new Date().toISOString() : null;
   order.deletedBy =
     input.action === 'trash' ? { id: 'user_owner', name: 'Олена Адміністратор' } : null;

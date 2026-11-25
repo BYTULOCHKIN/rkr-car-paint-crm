@@ -1,5 +1,5 @@
 'use client';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ColumnDef } from '@tanstack/react-table';
 import type { DataTableFeatures } from '@/lib/data-table-features';
@@ -11,11 +11,12 @@ import { parseAsInteger, useQueryStates } from 'nuqs';
 import { historyTimestamp } from '../lib/workflow-history';
 import { StatusBadge } from './status-badge';
 import { CrmTable } from './crm-table';
+import { RowActions } from './row-actions';
 import { Button } from './action-button';
 import { CrmEditorDialog, type Editor } from './editor-dialog';
 
 export function OrderTrashList({ access, search }: { access: CrmAccess; search: string }) {
-  const [params] = useQueryStates(
+  const [params, setParams] = useQueryStates(
     { page: parseAsInteger.withDefault(1), perPage: parseAsInteger.withDefault(10) },
     { shallow: true }
   );
@@ -43,13 +44,25 @@ export function OrderTrashList({ access, search }: { access: CrmAccess; search: 
   const [editor, setEditor] = useState<Editor | null>(null);
   const rows = data.orders;
   const columns = useMemo(
-    () => createTrashColumns(data, (order) => setEditor({ type: 'restoreOrder', order })),
+    () =>
+      createTrashColumns(
+        data,
+        (order) => setEditor({ type: 'restoreOrder', order }),
+        (order) => setEditor({ type: 'deleteOrder', order })
+      ),
     [data]
   );
+  useEffect(() => {
+    const pagination = result.data?.pagination;
+    if (!pagination || result.isFetching || pagination.page !== params.page) return;
+    const lastPage = Math.max(1, Math.ceil(pagination.total / pagination.pageSize));
+    if (params.page > lastPage) void setParams({ page: lastPage });
+  }, [result.data, result.isFetching, params.page, setParams]);
   return (
     <div className='flex min-w-0 flex-col gap-4'>
       <p className='text-muted-foreground text-sm'>
-        Замовлення зберігаються в кошику до відновлення. Номери та історія збережені.
+        Замовлення можна відновити або видалити назавжди, якщо вони не мають складських і фінансових
+        операцій. До остаточного видалення номери та історія зберігаються.
       </p>
       {result.isPending ? (
         <p role='status'>Завантажуємо кошик…</p>
@@ -87,7 +100,8 @@ export function OrderTrashList({ access, search }: { access: CrmAccess; search: 
 
 function createTrashColumns(
   data: CrmWorkspace,
-  onRestore: (order: RepairOrder) => void
+  onRestore: (order: RepairOrder) => void,
+  onDelete: (order: RepairOrder) => void
 ): ColumnDef<DataTableFeatures, RepairOrder>[] {
   const customers = new Map(data.customers.map((entry) => [entry.id, entry.name]));
   const vehicles = new Map(data.vehicles.map((entry) => [entry.id, vehicleLabel(entry)]));
@@ -141,15 +155,32 @@ function createTrashColumns(
     {
       id: 'actions',
       header: 'Дії',
-      size: 130,
+      size: 180,
       cell: ({ row }) => (
-        <Button
-          variant='outline'
-          aria-label={`Відновити замовлення №${row.original.number}`}
-          onClick={() => onRestore(row.original)}
-        >
-          Відновити
-        </Button>
+        <div className='flex items-center gap-2'>
+          <Button
+            variant='outline'
+            aria-label={`Відновити замовлення №${row.original.number}`}
+            onClick={() => onRestore(row.original)}
+          >
+            Відновити
+          </Button>
+          {data.access?.role === 'admin' && (
+            <RowActions
+              label={`Дії із замовленням у кошику №${row.original.number}`}
+              actions={[
+                {
+                  label: 'Видалити назавжди',
+                  icon: 'trash',
+                  variant: 'destructive',
+                  disabled: !!row.original.trashBlockedReason,
+                  description: row.original.trashBlockedReason ?? undefined,
+                  onClick: () => onDelete(row.original)
+                }
+              ]}
+            />
+          )}
+        </div>
       )
     }
   ];

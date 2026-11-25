@@ -7,6 +7,7 @@ import type { ActionResult } from '@/features/crm/api/types';
 import { InventoryError } from '../server/repository';
 import { EconomicsError } from '@/features/order-economics/lib/integers';
 import { archiveSchema } from '../schemas/inventory';
+import type { DeleteStockItemInput } from '../schemas/inventory';
 import type { EditConsumptionInput } from '../schemas/inventory';
 import type {
   ItemInput,
@@ -119,6 +120,12 @@ export async function archiveStockItem(
     const value = archiveSchema.parse(input);
     repository.inventory.archive(value.id, value.archived);
   });
+}
+export async function deleteStockItem(
+  orgId: string,
+  input: DeleteStockItemInput
+): Promise<ActionResult<void>> {
+  return write(orgId, ({ repository }) => repository.inventory.deleteItem(input));
 }
 export async function receiveStock(
   orgId: string,

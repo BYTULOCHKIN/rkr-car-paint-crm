@@ -982,11 +982,24 @@ export class CrmRepository {
       if (!order) throw new CrmError('Замовлення не знайдено');
       if (order.workflowRevision !== value.expectedRevision)
         throw new CrmError('Замовлення вже змінено. Оновіть сторінку й повторіть дію.');
+      if (value.action === 'delete') {
+        if (!order.deletedAt) throw new CrmError('Остаточне видалення доступне лише з кошика.');
+        const reason = orderTrashBlockers(this.db, [order.id]).get(order.id);
+        if (reason) throw new CrmError(`Не можна видалити замовлення назавжди: ${reason}`);
+        this.db.prepare('DELETE FROM crm_order_labor_operations WHERE orderId=?').run(order.id);
+        this.db.prepare('DELETE FROM crm_order_items WHERE orderId=?').run(order.id);
+        this.db.prepare('DELETE FROM crm_order_economics WHERE orderId=?').run(order.id);
+        this.db
+          .prepare("DELETE FROM crm_workflow_events WHERE kind='order' AND recordId=?")
+          .run(order.id);
+        this.db.prepare('DELETE FROM crm_orders WHERE id=?').run(order.id);
+        return;
+      }
       const deleting = value.action === 'trash';
       if (deleting && order.deletedAt) throw new CrmError('Замовлення вже в кошику.');
       if (!deleting && !order.deletedAt) throw new CrmError('Замовлення вже відновлено.');
       if (deleting) {
-        const reason = orderTrashBlockers(this.db).get(order.id);
+        const reason = orderTrashBlockers(this.db, [order.id]).get(order.id);
         if (reason) throw new CrmError(`Не можна перемістити замовлення в кошик: ${reason}`);
       }
       this.db

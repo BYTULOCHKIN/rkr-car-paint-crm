@@ -21,6 +21,8 @@ import {
   valuationSchema
 } from '../schemas/inventory';
 import { editConsumptionSchema, type EditConsumptionInput } from '../schemas/inventory';
+import { deleteStockItemSchema, type DeleteStockItemInput } from '../schemas/inventory';
+import { stockItemDeleteBlocker } from '../lib/deletion';
 import type {
   ItemInput,
   UpdateItemInput,
@@ -87,7 +89,7 @@ export class InventoryRepository {
     return this.db
       .prepare(`SELECT i.id, i.name, i.unit, i.accountingMode, i.notes, i.tags, i.archived,
       v.totalCostCents, v.revision AS valuationRevision,
-      EXISTS(SELECT 1 FROM stock_movements WHERE itemId=i.id) AS locked,
+      (EXISTS(SELECT 1 FROM stock_movements WHERE itemId=i.id) OR EXISTS(SELECT 1 FROM stock_valuation_events WHERE itemId=i.id)) AS locked,
       COALESCE((SELECT SUM(deltaMilli) FROM stock_movements WHERE itemId=i.id),0) AS balanceMilli
       FROM stock_items i JOIN stock_item_values v ON v.itemId=i.id ${where}
       ORDER BY i.archived, i.name, i.id ${suffix}`)
@@ -299,6 +301,19 @@ export class InventoryRepository {
     this.transaction(() => {
       this.item(id);
       this.db.prepare('UPDATE stock_items SET archived=? WHERE id=?').run(archived ? 1 : 0, id);
+    });
+  }
+
+  deleteItem(input: DeleteStockItemInput): void {
+    const value = deleteStockItemSchema.parse(input);
+    this.transaction(() => {
+      const item = this.item(value.id);
+      if (item.name !== value.expectedName || item.archived !== value.expectedArchived)
+        throw new InventoryError('Позицію вже змінено. Оновіть склад і повторіть дію.');
+      const reason = stockItemDeleteBlocker(item);
+      if (reason) throw new InventoryError(`Не можна видалити позицію назавжди: ${reason}`);
+      this.db.prepare('DELETE FROM stock_item_values WHERE itemId=?').run(item.id);
+      this.db.prepare('DELETE FROM stock_items WHERE id=?').run(item.id);
     });
   }
 

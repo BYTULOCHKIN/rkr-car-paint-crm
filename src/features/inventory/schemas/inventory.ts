@@ -184,6 +184,14 @@ export const updateItemSchema = itemFields.omit({ unit: true }).extend({
   unit: z.string().trim().max(20)
 });
 export const archiveSchema = z.object({ id: z.uuid(), archived: z.boolean() }).strict();
+export const deleteStockItemSchema = z
+  .object({
+    id: z.uuid(),
+    expectedName: z.string().trim().min(1).max(120),
+    expectedArchived: z.boolean()
+  })
+  .strict();
+export type DeleteStockItemInput = z.infer<typeof deleteStockItemSchema>;
 
 export type ItemInput = z.infer<typeof itemSchema>;
 export type UpdateItemInput = z.infer<typeof updateItemSchema>;

@@ -10,6 +10,7 @@ import {
   createStockItem,
   updateStockItem,
   archiveStockItem,
+  deleteStockItem,
   receiveStock,
   adjustStock,
   consumeStock,
@@ -64,6 +65,11 @@ export const inventoryQueries = {
     })
 };
 export const inventoryMutations = {
+  delete: (orgId: string) =>
+    mutationOptions({
+      mutationFn: async (input: Parameters<typeof deleteStockItem>[1]) =>
+        unwrap(await deleteStockItem(orgId, input))
+    }),
   saveConsumption: (orgId: string, movementId?: string) =>
     mutationOptions({
       mutationFn: async (input: Parameters<typeof consumeStock>[1]) =>

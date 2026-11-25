@@ -50,6 +50,8 @@ import { getInventoryExport } from '../api/search-service';
 import { StockTagFilterControl } from './tag-filter';
 import { stockTags } from '../constants/tags';
 import { InventoryExportButton } from './inventory-export-button';
+import { DeleteStockItem } from './delete-stock-item';
+import { stockItemDeleteBlocker } from '../lib/deletion';
 
 const tagParser = parseAsArrayOf(parseAsStringLiteral(stockTags))
   .withDefault([])
@@ -57,7 +59,10 @@ const tagParser = parseAsArrayOf(parseAsStringLiteral(stockTags))
 
 type Editor =
   | { kind: 'create' }
-  | { kind: 'edit' | 'receipt' | 'adjustment' | 'history' | 'valuation'; item: StockItem }
+  | {
+      kind: 'edit' | 'receipt' | 'adjustment' | 'history' | 'valuation' | 'delete';
+      item: StockItem;
+    }
   | { kind: 'reversal'; movement: StockMovement };
 
 export function InventoryView({ userId, orgId }: { userId: string; orgId: string }) {
@@ -293,6 +298,14 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
                                   disabled: archive.isPending,
                                   onClick: () =>
                                     archive.mutate({ id: item.id, archived: !item.archived })
+                                },
+                                {
+                                  label: 'Видалити назавжди',
+                                  icon: 'trash' as const,
+                                  variant: 'destructive' as const,
+                                  disabled: !!stockItemDeleteBlocker(item),
+                                  description: stockItemDeleteBlocker(item) ?? undefined,
+                                  onClick: () => setEditor({ kind: 'delete', item })
                                 }
                               ]
                             : [])
@@ -355,22 +368,38 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
             <DialogTitle>
               {editor?.kind === 'create'
                 ? 'Нова складська позиція'
-                : editor?.kind === 'edit'
-                  ? 'Редагування позиції'
-                  : editor?.kind === 'receipt'
-                    ? 'Надходження на склад'
-                    : editor?.kind === 'adjustment'
-                      ? 'Коригування залишку'
-                      : editor?.kind === 'valuation'
-                        ? 'Оцінювання залишку'
-                        : editor?.kind === 'reversal'
-                          ? 'Скасування списання'
-                          : 'Історія позиції'}
+                : editor?.kind === 'delete'
+                  ? 'Видалення позиції назавжди'
+                  : editor?.kind === 'edit'
+                    ? 'Редагування позиції'
+                    : editor?.kind === 'receipt'
+                      ? 'Надходження на склад'
+                      : editor?.kind === 'adjustment'
+                        ? 'Коригування залишку'
+                        : editor?.kind === 'valuation'
+                          ? 'Оцінювання залишку'
+                          : editor?.kind === 'reversal'
+                            ? 'Скасування списання'
+                            : 'Історія позиції'}
             </DialogTitle>
             <DialogDescription>
-              Внутрішній облік кількості та собівартості матеріалів автомалярки.
+              {editor?.kind === 'delete'
+                ? 'Остаточне видалення доступне лише для позицій без історії операцій.'
+                : 'Внутрішній облік кількості та собівартості матеріалів автомалярки.'}
             </DialogDescription>
           </DialogHeader>
+          {editor?.kind === 'delete' && (
+            <DeleteStockItem
+              orgId={orgId}
+              item={editor.item}
+              onPendingChange={setPending}
+              onCancel={() => setEditor(null)}
+              onDeleted={() => {
+                if (items.length === 1 && page > 1) void setPage(page - 1);
+                setEditor(null);
+              }}
+            />
+          )}
           {editor?.kind === 'create' && (
             <StockItemForm
               orgId={orgId}

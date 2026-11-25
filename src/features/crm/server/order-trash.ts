@@ -21,7 +21,8 @@ export function orderTrashBlockers(db: DatabaseSync, orderIds?: string[]): Map<s
     ['crm_economics_postings', 'Є проведений розрахунок зарплати.'],
     ['stock_movements', 'Є складські операції за замовленням.'],
     ['stock_consumption_batches', 'Є збережені списання матеріалів.'],
-    ['crm_order_expenses', 'Є записи витрат на субпідряд.']
+    ['crm_order_expenses', 'Є записи витрат на субпідряд.'],
+    ['crm_order_expense_operations', 'Є історія витрат на субпідряд.']
   ] as const;
   for (const [table, reason] of sources) {
     for (const row of db

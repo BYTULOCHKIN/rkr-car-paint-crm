@@ -1,3 +1,5 @@
+import { stockItemDeleteBlocker } from '@/features/inventory/lib/deletion';
+import type { DeleteStockItemInput } from '@/features/inventory/schemas/inventory';
 import type { InventoryData, StockMovement } from '@/features/inventory/api/types';
 import type {
   ItemInput,
@@ -145,6 +147,23 @@ export async function updateStockItem(_org: string, input: UpdateItemInput) {
     value.items.find((item) => item.id === input.id)!,
     input
   );
+  return save(value);
+}
+export async function deleteStockItem(orgId: string, input: DeleteStockItemInput) {
+  const value = data();
+  if (value.access.role !== 'admin' || orgId !== value.access.orgId)
+    return { ok: false as const, error: 'Немає доступу' };
+  const item = value.items.find((entry) => entry.id === input.id);
+  if (!item) return { ok: false as const, error: 'Складську позицію не знайдено' };
+  if (item.name !== input.expectedName || item.archived !== input.expectedArchived)
+    return { ok: false as const, error: 'Позицію вже змінено.' };
+  const reason = stockItemDeleteBlocker(item);
+  if (reason || value.movements.some((movement) => movement.itemId === item.id))
+    return {
+      ok: false as const,
+      error: reason ?? 'Є історія операцій — позицію можна архівувати.'
+    };
+  value.items = value.items.filter((entry) => entry.id !== item.id);
   return save(value);
 }
 export async function archiveStockItem(_org: string, input: { id: string; archived: boolean }) {

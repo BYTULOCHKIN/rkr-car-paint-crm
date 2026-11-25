@@ -47,6 +47,7 @@ import {
   createStockItem,
   updateStockItem,
   archiveStockItem,
+  deleteStockItem,
   receiveStock,
   adjustStock,
   consumeStock,
@@ -95,6 +96,7 @@ const repository = {
     createItem: vi.fn(),
     updateItem: vi.fn(),
     archive: vi.fn(),
+    deleteItem: vi.fn(),
     receive: vi.fn(),
     adjust: vi.fn(),
     consume: vi.fn(),
@@ -858,6 +860,8 @@ test('trash and recovery require the active org and admin; actors cannot be forg
   expect((await changeOrderTrash({ ...input, orgId: 'org_B' })).ok).toBe(false);
   expect(repository.changeOrderTrash).not.toHaveBeenCalled();
   expect(orderTrashSchema.safeParse({ ...input, actor: { id: 'forged' } }).success).toBe(false);
+  expect((await changeOrderTrash({ ...input, action: 'delete' })).ok).toBe(true);
+  expect((await changeOrderTrash({ ...input, action: 'delete', orgId: 'org_B' })).ok).toBe(false);
   expect((await changeOrderTrash(input)).ok).toBe(true);
   expect(repository.changeOrderTrash).toHaveBeenCalledWith(input, {
     id: 'user_admin',
@@ -871,6 +875,7 @@ test('trash and recovery require the active org and admin; actors cannot be forg
   });
   expect((await changeOrderTrash(input)).ok).toBe(false);
   expect((await changeOrderTrash({ ...input, action: 'restore' })).ok).toBe(false);
+  expect((await changeOrderTrash({ ...input, action: 'delete' })).ok).toBe(false);
   expect(repository.changeOrderTrash).not.toHaveBeenCalled();
   await expect(getOrderTrash('org_A')).rejects.toThrow('лише адміністратору');
 });
@@ -935,4 +940,23 @@ test('role salary settings enforce active organization and administrator permiss
   vi.mocked(auth).mockResolvedValue({ userId: 'user_worker', orgId: 'org_A' } as never);
   expect((await saveOrderLabor(input)).ok).toBe(false);
   expect(repository.saveOrderLabor).toHaveBeenCalledOnce();
+});
+
+test('stock permanent deletion verifies admin membership, active organization and the original item identity', async () => {
+  const input = {
+    id: '00000000-0000-4000-8000-000000000001',
+    expectedName: 'Фарба',
+    expectedArchived: false
+  };
+  expect((await deleteStockItem('org_B', input)).ok).toBe(false);
+  expect(repository.inventory.deleteItem).not.toHaveBeenCalled();
+  expect((await deleteStockItem('org_A', input)).ok).toBe(true);
+  expect(repository.inventory.deleteItem).toHaveBeenCalledWith(input);
+  repository.inventory.deleteItem.mockClear();
+  memberships.mockResolvedValue({
+    totalCount: 1,
+    data: [{ role: 'org:member', publicUserData: { userId: 'user_admin' } }]
+  });
+  expect((await deleteStockItem('org_A', input)).ok).toBe(false);
+  expect(repository.inventory.deleteItem).not.toHaveBeenCalled();
 });

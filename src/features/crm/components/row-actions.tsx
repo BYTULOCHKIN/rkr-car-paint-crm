@@ -16,6 +16,8 @@ interface RowAction {
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  description?: string;
+  variant?: 'default' | 'destructive';
 }
 
 interface RowActionsProps {
@@ -38,9 +40,19 @@ export function RowActions({ label, actions }: RowActionsProps): ReactElement {
                 key={action.label}
                 onClick={action.onClick}
                 disabled={action.disabled}
+                variant={action.variant}
+                aria-label={action.label}
+                aria-description={action.description}
               >
                 {Icon && <Icon aria-hidden />}
-                {action.label}
+                <span className='flex min-w-0 flex-col gap-1'>
+                  <span>{action.label}</span>
+                  {action.description && (
+                    <span className='max-w-64 text-xs text-muted-foreground whitespace-normal'>
+                      {action.description}
+                    </span>
+                  )}
+                </span>
               </DropdownMenuItem>
             );
           })}

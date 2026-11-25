@@ -48,6 +48,7 @@ import { crmQueries } from '../api/queries';
 export type Editor =
   | { type: 'trashOrder'; order: RepairOrder }
   | { type: 'restoreOrder'; order: RepairOrder }
+  | { type: 'deleteOrder'; order: RepairOrder }
   | { type: 'vehicleDetails'; vehicle: Vehicle }
   | { type: 'deleteVehicle'; vehicle: Vehicle }
   | { type: 'owner'; vehicle: Vehicle }
@@ -207,65 +208,69 @@ function CrmEditorDialogContent({
   }
 
   const title =
-    editor.type === 'trashOrder'
-      ? `Перемістити замовлення №${editor.order.number} в кошик`
-      : editor.type === 'restoreOrder'
-        ? `Відновлення замовлення №${editor.order.number}`
-        : editor.type === 'vehicleDetails'
-          ? 'Картка автомобіля'
-          : editor.type === 'deleteVehicle'
-            ? 'Видалення автомобіля'
-            : editor.type === 'owner'
-              ? 'Закріпити автомобіль за клієнтом'
-              : editor.type === 'workflow'
-                ? 'Статус, дати та перенесення'
-                : editor.type === 'customer'
-                  ? editor.customer
-                    ? 'Редагування клієнта'
-                    : 'Новий клієнт'
-                  : editor.type === 'vehicle'
-                    ? editor.vehicle
-                      ? 'Редагування автомобіля'
-                      : 'Новий автомобіль'
-                    : editor.type === 'vin'
-                      ? 'VIN автомобіля'
-                      : editor.type === 'request'
-                        ? 'Нова заявка'
-                        : editor.type === 'history'
-                          ? `Історія: ${editor.customer.name}`
-                          : order
-                            ? `Замовлення №${order.number}`
-                            : editor.request
-                              ? 'Створити замовлення із заявки'
-                              : 'Нове замовлення';
+    editor.type === 'deleteOrder'
+      ? `Видалити замовлення №${editor.order.number} назавжди`
+      : editor.type === 'trashOrder'
+        ? `Перемістити замовлення №${editor.order.number} в кошик`
+        : editor.type === 'restoreOrder'
+          ? `Відновлення замовлення №${editor.order.number}`
+          : editor.type === 'vehicleDetails'
+            ? 'Картка автомобіля'
+            : editor.type === 'deleteVehicle'
+              ? 'Видалення автомобіля'
+              : editor.type === 'owner'
+                ? 'Закріпити автомобіль за клієнтом'
+                : editor.type === 'workflow'
+                  ? 'Статус, дати та перенесення'
+                  : editor.type === 'customer'
+                    ? editor.customer
+                      ? 'Редагування клієнта'
+                      : 'Новий клієнт'
+                    : editor.type === 'vehicle'
+                      ? editor.vehicle
+                        ? 'Редагування автомобіля'
+                        : 'Новий автомобіль'
+                      : editor.type === 'vin'
+                        ? 'VIN автомобіля'
+                        : editor.type === 'request'
+                          ? 'Нова заявка'
+                          : editor.type === 'history'
+                            ? `Історія: ${editor.customer.name}`
+                            : order
+                              ? `Замовлення №${order.number}`
+                              : editor.request
+                                ? 'Створити замовлення із заявки'
+                                : 'Нове замовлення';
   const description =
-    editor.type === 'trashOrder'
-      ? 'Підтвердіть переміщення замовлення в кошик.'
-      : editor.type === 'restoreOrder'
-        ? 'Поверніть замовлення до робочого списку.'
-        : editor.type === 'vehicleDetails'
-          ? 'Основні дані та історія звернень цього автомобіля.'
-          : editor.type === 'deleteVehicle'
-            ? 'Підтвердіть видалення автомобіля.'
-            : editor.type === 'owner'
-              ? 'Виберіть клієнта для цього автомобіля.'
-              : editor.type === 'workflow'
-                ? 'Оновіть план і зафіксуйте фактичні дати, не втрачаючи історії.'
-                : editor.type === 'customer'
-                  ? editor.customer
-                    ? 'Оновіть ім’я, контакти та нотатки клієнта.'
-                    : 'Додайте контактні дані клієнта.'
-                  : editor.type === 'vehicle'
-                    ? 'Виберіть марку, модель та рік автомобіля.'
-                    : editor.type === 'vin'
-                      ? 'Вкажіть VIN, щоб автомобіль можна було взяти в роботу.'
-                      : editor.type === 'request'
-                        ? 'Виберіть клієнта, його автомобіль та опишіть потрібні роботи.'
-                        : editor.type === 'history'
-                          ? 'Автомобілі клієнта, деталі ремонтів і повна історія замовлень.'
-                          : order
-                            ? 'Керуйте роботами та розрахунками у вкладках.'
-                            : 'Вкажіть основні дані й роботи, щоб створити замовлення.';
+    editor.type === 'deleteOrder'
+      ? 'Підтвердіть остаточне видалення замовлення з кошика.'
+      : editor.type === 'trashOrder'
+        ? 'Підтвердіть переміщення замовлення в кошик.'
+        : editor.type === 'restoreOrder'
+          ? 'Поверніть замовлення до робочого списку.'
+          : editor.type === 'vehicleDetails'
+            ? 'Основні дані та історія звернень цього автомобіля.'
+            : editor.type === 'deleteVehicle'
+              ? 'Підтвердіть видалення автомобіля.'
+              : editor.type === 'owner'
+                ? 'Виберіть клієнта для цього автомобіля.'
+                : editor.type === 'workflow'
+                  ? 'Оновіть план і зафіксуйте фактичні дати, не втрачаючи історії.'
+                  : editor.type === 'customer'
+                    ? editor.customer
+                      ? 'Оновіть ім’я, контакти та нотатки клієнта.'
+                      : 'Додайте контактні дані клієнта.'
+                    : editor.type === 'vehicle'
+                      ? 'Виберіть марку, модель та рік автомобіля.'
+                      : editor.type === 'vin'
+                        ? 'Вкажіть VIN, щоб автомобіль можна було взяти в роботу.'
+                        : editor.type === 'request'
+                          ? 'Виберіть клієнта, його автомобіль та опишіть потрібні роботи.'
+                          : editor.type === 'history'
+                            ? 'Автомобілі клієнта, деталі ремонтів і повна історія замовлень.'
+                            : order
+                              ? 'Керуйте роботами та розрахунками у вкладках.'
+                              : 'Вкажіть основні дані й роботи, щоб створити замовлення.';
   const props = {
     onSaved: backToHistory ?? onClose,
     onCancel: requestClose,
@@ -324,12 +329,20 @@ function CrmEditorDialogContent({
                 <p role='alert'>Ця дія доступна лише адміністратору.</p>
               ) : (
                 <>
-                  {(editor.type === 'trashOrder' || editor.type === 'restoreOrder') &&
+                  {(editor.type === 'trashOrder' ||
+                    editor.type === 'restoreOrder' ||
+                    editor.type === 'deleteOrder') &&
                     data.access && (
                       <OrderTrashAction
                         order={editor.order}
                         access={data.access}
-                        restore={editor.type === 'restoreOrder'}
+                        action={
+                          editor.type === 'deleteOrder'
+                            ? 'delete'
+                            : editor.type === 'restoreOrder'
+                              ? 'restore'
+                              : 'trash'
+                        }
                         {...props}
                       />
                     )}
