@@ -1,21 +1,23 @@
+import type { ComponentProps, ReactElement } from 'react';
 import { HistoryBadge } from './history-badge';
 import { statusLabel } from '../lib/workflow';
 
-export function StatusBadge({ status }: { status: string }) {
+interface StatusBadgeProps {
+  status: string;
+}
+
+const statusTones = new Map<string, NonNullable<ComponentProps<typeof HistoryBadge>['tone']>>([
+  ['created', 'warning'],
+  ['in_progress', 'info'],
+  ['ready', 'ready'],
+  ['backlog', 'warning'],
+  ['scheduled', 'warning'],
+  ['delivered', 'success']
+]);
+
+export function StatusBadge({ status }: StatusBadgeProps): ReactElement {
   return (
-    <HistoryBadge
-      tone={
-        status === 'delivered'
-          ? 'success'
-          : status === 'in_progress'
-            ? 'info'
-            : status === 'ready'
-              ? 'ready'
-              : status === 'created' || status === 'backlog' || status === 'scheduled'
-                ? 'warning'
-                : 'neutral'
-      }
-    >
+    <HistoryBadge tone={statusTones.get(status) ?? 'neutral'} className='border-0'>
       {statusLabel(status)}
     </HistoryBadge>
   );
