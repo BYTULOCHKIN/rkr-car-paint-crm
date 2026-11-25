@@ -22,18 +22,25 @@ import { roundedRatio } from '@/features/order-economics/lib/integers';
 import { consumeValuedStock } from '@/features/order-economics/lib/stock-valuation';
 import { inventoryMutations, inventoryQueries } from '../api/queries';
 import type { StockItem, StockMovement } from '../api/types';
-import { consumptionSchema, quantityMilli } from '../schemas/inventory';
+import { consumptionSchema, quantityMilli, materialAmountCents } from '../schemas/inventory';
 import { stockQuantity } from '../lib/format';
 
 function materialChoice(entry: StockItem, movement?: StockMovement) {
   return {
     value: entry.id,
     label: entry.name,
-    description: `${stockQuantity(entry.balanceMilli)} ${entry.unit} · ${entry.totalCostCents === null ? 'Потрібно визначити собівартість' : entry.balanceMilli > 0 ? `${money(roundedRatio(BigInt(entry.totalCostCents) * BigInt(1000), BigInt(entry.balanceMilli)))}/${entry.unit}` : 'Залишок вичерпано'}`,
+    description:
+      entry.accountingMode === 'amount'
+        ? 'За сумою · без контролю залишку'
+        : `${stockQuantity(entry.balanceMilli)} ${entry.unit} · ${entry.totalCostCents === null ? 'Потрібно визначити собівартість' : entry.balanceMilli > 0 ? `${money(roundedRatio(BigInt(entry.totalCostCents) * BigInt(1000), BigInt(entry.balanceMilli)))}/${entry.unit}` : 'Залишок вичерпано'}`,
     disabled:
       entry.archived ||
-      (entry.balanceMilli <= 0 && entry.id !== movement?.itemId) ||
-      (entry.totalCostCents === null && entry.id !== movement?.itemId)
+      (entry.accountingMode !== 'amount' &&
+        entry.balanceMilli <= 0 &&
+        entry.id !== movement?.itemId) ||
+      (entry.accountingMode !== 'amount' &&
+        entry.totalCostCents === null &&
+        entry.id !== movement?.itemId)
   };
 }
 
@@ -85,7 +92,12 @@ export function ConsumptionDialog({
   });
   const reversal = useMutation({
     ...inventoryMutations.reverse(access.orgId),
-    onSuccess: () => toast.success('Списання скасовано. Матеріал повернуто на склад.'),
+    onSuccess: () =>
+      toast.success(
+        movement?.accountingMode === 'amount'
+          ? 'Витрату скасовано.'
+          : 'Списання скасовано. Матеріал повернуто на склад.'
+      ),
     onSettled: refresh
   });
   const form = useAppForm({
@@ -93,12 +105,18 @@ export function ConsumptionDialog({
       operationId,
       orderId,
       itemId: movement?.itemId ?? '',
-      quantity: movement ? String(-movement.deltaMilli / 1000) : '',
+      quantity:
+        movement && movement.accountingMode !== 'amount' ? String(-movement.deltaMilli / 1000) : '',
+      amount:
+        movement?.accountingMode === 'amount' && movement.costDeltaCents !== null
+          ? String(-movement.costDeltaCents / 100)
+          : '',
       category: movement?.category ?? ('painting' as 'painting' | 'polishing'),
       note: movement?.note ?? ''
     },
     validators: {
-      onSubmit: consumptionSchema.extend({
+      onSubmit: consumptionSchema.safeExtend({
+        amount: consumptionSchema.shape.amount.unwrap(),
         category: consumptionSchema.shape.category.removeDefault()
       })
     },
@@ -115,13 +133,15 @@ export function ConsumptionDialog({
   const item =
     candidates.data?.items.find((entry) => entry.id === values.itemId) ??
     knownItems.find((entry) => entry.id === values.itemId);
+  const amountOnly = item?.accountingMode === 'amount';
   const available =
     (item?.balanceMilli ?? 0) + (movement?.itemId === values.itemId ? -movement.deltaMilli : 0);
   const validQuantity = /^\d{1,6}([.,]\d{1,3})?$/.test(values.quantity);
   const quantity = validQuantity ? quantityMilli(values.quantity) : 0;
-  const exceeds = !!item && quantity > available;
+  const exceeds = !amountOnly && !!item && quantity > available;
   let cost: number | null = null;
-  if (item && quantity > 0 && !exceeds) {
+  if (amountOnly) cost = materialAmountCents(values.amount);
+  else if (item && quantity > 0 && !exceeds) {
     if (movement?.itemId === item.id && movement.costDeltaCents !== null) {
       const oldQuantity = -movement.deltaMilli;
       if (quantity <= oldQuantity)
@@ -201,6 +221,8 @@ export function ConsumptionDialog({
                         ...current.filter((entry) => entry.id !== selected.id),
                         selected
                       ]);
+                    form.setFieldValue('quantity', '');
+                    form.setFieldValue('amount', '');
                     requestAnimationFrame(() => quantityRef.current?.focus());
                   }}
                   renderValue={(option) => (
@@ -222,54 +244,87 @@ export function ConsumptionDialog({
                 />
               )}
             </form.AppField>
-            <div className='grid gap-4 sm:grid-cols-2'>
-              <form.Field name='quantity'>
+            {amountOnly ? (
+              <form.Field name='amount'>
                 {(field) => (
-                  <Field data-invalid={exceeds || field.state.meta.errors.length > 0}>
-                    <FieldLabel htmlFor={quantityId}>Кількість *</FieldLabel>
+                  <Field data-invalid={field.state.meta.errors.length > 0}>
+                    <FieldLabel htmlFor={quantityId}>Сума витрати, грн *</FieldLabel>
                     <InputGroup>
                       <InputGroupInput
                         id={quantityId}
                         ref={quantityRef}
                         name={field.name}
                         inputMode='decimal'
-                        placeholder='0'
-                        disabled={!item}
+                        placeholder='3500,00'
                         required
                         value={field.state.value}
                         onChange={(event) => field.handleChange(event.target.value)}
                         onBlur={field.handleBlur}
-                        aria-invalid={exceeds || field.state.meta.errors.length > 0}
+                        aria-invalid={field.state.meta.errors.length > 0}
                         aria-describedby={`${quantityId}-help`}
                       />
-                      <InputGroupAddon align='inline-end'>{item?.unit ?? '—'}</InputGroupAddon>
+                      <InputGroupAddon align='inline-end'>грн</InputGroupAddon>
                     </InputGroup>
                     <FieldDescription id={`${quantityId}-help`}>
-                      {item
-                        ? `Доступно ${stockQuantity(available)} ${item.unit}`
-                        : 'Спочатку виберіть матеріал'}
+                      Внутрішня вартість матеріалу для цього авто. Кількість і залишок не
+                      обліковуються.
                     </FieldDescription>
-                    {exceeds && (
-                      <p role='alert' className='text-destructive text-sm'>
-                        Кількість перевищує доступний залишок.
-                      </p>
-                    )}
                     <FieldError errors={field.state.meta.errors} />
                   </Field>
                 )}
               </form.Field>
-              <section aria-label='Собівартість списання' className='flex flex-col gap-2'>
-                <p className='text-sm font-medium'>Собівартість</p>
-                <strong className='text-xl leading-9 tabular-nums'>
-                  {cost === null ? '—' : money(cost)}
-                </strong>
-                {item && (
-                  <p className='text-xs text-muted-foreground'>
-                    Розраховується зі складської собівартості
-                  </p>
-                )}
-              </section>
-            </div>
+            ) : (
+              <>
+                <div className='grid gap-4 sm:grid-cols-2'>
+                  <form.Field name='quantity'>
+                    {(field) => (
+                      <Field data-invalid={exceeds || field.state.meta.errors.length > 0}>
+                        <FieldLabel htmlFor={quantityId}>Кількість *</FieldLabel>
+                        <InputGroup>
+                          <InputGroupInput
+                            id={quantityId}
+                            ref={quantityRef}
+                            name={field.name}
+                            inputMode='decimal'
+                            placeholder='0'
+                            disabled={!item}
+                            required
+                            value={field.state.value}
+                            onChange={(event) => field.handleChange(event.target.value)}
+                            onBlur={field.handleBlur}
+                            aria-invalid={exceeds || field.state.meta.errors.length > 0}
+                            aria-describedby={`${quantityId}-help`}
+                          />
+                          <InputGroupAddon align='inline-end'>{item?.unit ?? '—'}</InputGroupAddon>
+                        </InputGroup>
+                        <FieldDescription id={`${quantityId}-help`}>
+                          {item
+                            ? `Доступно ${stockQuantity(available)} ${item.unit}`
+                            : 'Спочатку виберіть матеріал'}
+                        </FieldDescription>
+                        {exceeds && (
+                          <p role='alert' className='text-destructive text-sm'>
+                            Кількість перевищує доступний залишок.
+                          </p>
+                        )}
+                        <FieldError errors={field.state.meta.errors} />
+                      </Field>
+                    )}
+                  </form.Field>
+                  <section aria-label='Собівартість списання' className='flex flex-col gap-2'>
+                    <p className='text-sm font-medium'>Собівартість</p>
+                    <strong className='text-xl leading-9 tabular-nums'>
+                      {cost === null ? '—' : money(cost)}
+                    </strong>
+                    {item && (
+                      <p className='text-xs text-muted-foreground'>
+                        Розраховується зі складської собівартості
+                      </p>
+                    )}
+                  </section>
+                </div>
+              </>
+            )}
             <form.Field name='category'>
               {(field) => (
                 <Field data-invalid={field.state.meta.errors.length > 0}>
@@ -339,7 +394,9 @@ export function ConsumptionDialog({
                 type='submit'
                 form={formId}
                 isLoading={mutation.isPending}
-                disabled={pending || !item || quantity <= 0 || exceeds || cost === null}
+                disabled={
+                  pending || !item || (!amountOnly && quantity <= 0) || exceeds || cost === null
+                }
               >
                 {movement ? 'Зберегти списання' : 'Списати'}
               </Button>

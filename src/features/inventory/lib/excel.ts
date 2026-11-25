@@ -31,25 +31,31 @@ export function inventoryExcelData(items: StockItem[]): SheetData {
     })),
     ...items.map((item): Cell[] => [
       text(item.name),
-      text(item.unit),
+      text(item.accountingMode === 'amount' ? 'За сумою' : item.unit),
       text(item.tags.join(', ')),
-      { value: item.balanceMilli / 1000, type: Number, format: '0.###' },
-      item.totalCostCents === null
-        ? text('Не визначена')
-        : { value: item.totalCostCents / 100, type: Number, format: moneyFormat },
-      item.totalCostCents === null
-        ? text('Не визначена')
-        : item.balanceMilli === 0
-          ? text('—')
-          : {
-              value:
-                roundedRatio(
-                  BigInt(item.totalCostCents) * BigInt(1000),
-                  BigInt(item.balanceMilli)
-                ) / 100,
-              type: Number,
-              format: moneyFormat
-            },
+      item.accountingMode === 'amount'
+        ? text('Без контролю залишку')
+        : { value: item.balanceMilli / 1000, type: Number, format: '0.###' },
+      item.accountingMode === 'amount'
+        ? text('—')
+        : item.totalCostCents === null
+          ? text('Не визначена')
+          : { value: item.totalCostCents / 100, type: Number, format: moneyFormat },
+      item.accountingMode === 'amount'
+        ? text('—')
+        : item.totalCostCents === null
+          ? text('Не визначена')
+          : item.balanceMilli === 0
+            ? text('—')
+            : {
+                value:
+                  roundedRatio(
+                    BigInt(item.totalCostCents) * BigInt(1000),
+                    BigInt(item.balanceMilli)
+                  ) / 100,
+                type: Number,
+                format: moneyFormat
+              },
       text(item.notes),
       text(item.archived ? 'В архіві' : 'Активна')
     ])

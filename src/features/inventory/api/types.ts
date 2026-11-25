@@ -3,6 +3,7 @@ import type { StockTag } from '../constants/tags';
 import type { PageResult } from '@/features/crm/lib/pagination';
 
 export interface StockItem {
+  accountingMode?: 'quantity' | 'amount';
   id: string;
   name: string;
   unit: string;
@@ -16,6 +17,7 @@ export interface StockItem {
 }
 
 export interface StockMovement {
+  accountingMode?: 'quantity' | 'amount';
   financialLocked?: boolean;
   id: string;
   itemId: string;

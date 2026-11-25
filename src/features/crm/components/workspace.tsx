@@ -1,4 +1,7 @@
 'use client';
+
+import { overviewMetricLabels } from '@/features/overview/lib/order-links';
+import { overviewOrderMetrics } from '@/features/overview/schemas/period';
 import Link from 'next/link';
 import { SHOW_LEGACY_REQUEST_FLOW } from '@/config/product';
 import PageContainer from '@/components/layout/page-container';
@@ -24,6 +27,7 @@ import { DataTableColumnHeader } from '@/components/data-table/data-table-column
 import type { DataTableFeatures } from '@/lib/data-table-features';
 import { DebouncedSearch } from './debounced-search';
 import { SummaryCards } from './summary-cards';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty';
 import { crmQueries } from '../api/queries';
 import type { CrmWorkspace, CrmView, Customer, RepairRequest, RepairOrder } from '../api/types';
@@ -396,6 +400,9 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [params, setParams] = useQueryStates(
     {
+      overviewMetric: parseAsStringLiteral(overviewOrderMetrics),
+      overviewFrom: parseAsString,
+      overviewTo: parseAsString,
       ordersScope: parseAsStringLiteral(['active', 'trash']).withDefault('active'),
       q: parseAsString.withDefault(''),
       page: parseAsInteger.withDefault(1),
@@ -412,6 +419,13 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
   const result = useQuery(
     crmQueries.list(userId, orgId!, {
       entity: view,
+      ...(view === 'orders' && params.overviewMetric
+        ? {
+            overviewMetric: params.overviewMetric,
+            overviewFrom: params.overviewFrom ?? undefined,
+            overviewTo: params.overviewTo ?? undefined
+          }
+        : {}),
       search: params.q,
       page: Math.max(1, params.page),
       pageSize: Math.min(100, Math.max(1, params.perPage)),
@@ -487,6 +501,41 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
   );
   const content = (
     <div className='flex flex-1 flex-col gap-4'>
+      {view === 'orders' && params.overviewMetric && (
+        <Alert>
+          <AlertDescription>
+            <span>
+              {overviewMetricLabels[params.overviewMetric]} · {params.overviewFrom} —{' '}
+              {params.overviewTo}.{' '}
+              {params.overviewMetric === 'created_period'
+                ? 'За датою створення.'
+                : params.overviewMetric === 'open_debt'
+                  ? 'За датою створення; поточний залишок.'
+                  : params.overviewMetric === 'ready_debt'
+                    ? 'За датою готовності; поточний залишок.'
+                    : params.overviewMetric === 'receipts'
+                      ? 'За датами платежів і повернень.'
+                      : 'За датою готовності.'}
+            </span>
+            <Button
+              type='button'
+              size='sm'
+              variant='outline'
+              onClick={() =>
+                void setParams({
+                  overviewMetric: null,
+                  overviewFrom: null,
+                  overviewTo: null,
+                  page: 1
+                })
+              }
+            >
+              Скинути відбір з огляду
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {view === 'requests' && <SummaryCards data={data} />}
       {view !== 'orders' && (
         <div className='flex flex-wrap items-center gap-3'>
@@ -531,18 +580,22 @@ export function CrmWorkspaceView({ view, userId, orgId }: CrmWorkspaceViewProps)
         <Empty className='min-h-64 rounded-xl border'>
           <EmptyHeader>
             <EmptyTitle>
-              {view === 'customers'
-                ? 'Додайте першого клієнта'
-                : view === 'requests'
-                  ? 'Заявок поки немає'
-                  : 'Замовлень поки немає'}
+              {params.overviewMetric && view === 'orders'
+                ? 'За вибраним відбором замовлень немає'
+                : view === 'customers'
+                  ? 'Додайте першого клієнта'
+                  : view === 'requests'
+                    ? 'Заявок поки немає'
+                    : 'Замовлень поки немає'}
             </EmptyTitle>
             <EmptyDescription>
-              {view === 'customers'
-                ? 'Створіть клієнта, додайте його автомобіль і запишіть на ремонт.'
-                : view === 'requests'
-                  ? 'Тут зберігаються попередні заявки та їхня історія. Нові записи створюйте як замовлення.'
-                  : 'Створіть замовлення. Воно почне роботу зі статусу «Створено».'}
+              {params.overviewMetric && view === 'orders'
+                ? 'Оберіть інший період в огляді або скиньте відбір.'
+                : view === 'customers'
+                  ? 'Створіть клієнта, додайте його автомобіль і запишіть на ремонт.'
+                  : view === 'requests'
+                    ? 'Тут зберігаються попередні заявки та їхня історія. Нові записи створюйте як замовлення.'
+                    : 'Створіть замовлення. Воно почне роботу зі статусу «Створено».'}
             </EmptyDescription>
           </EmptyHeader>
           {data.access?.role !== 'worker' && (view !== 'requests' || SHOW_LEGACY_REQUEST_FLOW) && (

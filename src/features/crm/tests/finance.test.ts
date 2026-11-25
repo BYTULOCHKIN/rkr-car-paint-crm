@@ -271,7 +271,7 @@ test('v14 finance migration preserves detailed checks, cash and stock without in
     );
     const verification = new DatabaseSync(path);
     try {
-      assert.equal(verification.prepare('PRAGMA user_version').get()!.user_version, 22);
+      assert.equal(verification.prepare('PRAGMA user_version').get()!.user_version, 23);
       assert.deepEqual(verification.prepare('PRAGMA foreign_key_check').all(), []);
     } finally {
       verification.close();

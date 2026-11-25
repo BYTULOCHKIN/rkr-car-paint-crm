@@ -9,6 +9,7 @@ import type { WorkspaceSelection } from '../schemas/reads';
 import { CrmReadRepository } from './reads';
 import { migrateExpenseCatalog } from '@/features/order-expenses/server/catalog-migration';
 import { migrateStockTags } from '@/features/inventory/server/tags-migration';
+import { migrateStockAccountingMode } from '@/features/inventory/server/accounting-mode-migration';
 import { migrateOrderTrash, orderTrashBlockers } from './order-trash';
 import { orderTrashSchema, type OrderTrashInput } from '../schemas/order-trash';
 import { migrateOrderExpenses } from '@/features/order-expenses/server/migration';
@@ -273,6 +274,8 @@ export class CrmRepository {
         migrateOrderLabor(this.db);
         this.db.exec(`${consumptionBatchTable} PRAGMA user_version=22;`);
       });
+    if ((this.db.prepare('PRAGMA user_version').get()?.user_version as number) < 23)
+      migrateStockAccountingMode(this.db);
     this.expenses = new OrderExpenseRepository(this.db, (id, actor, note) =>
       this.costsChanged(id, actor, note)
     );

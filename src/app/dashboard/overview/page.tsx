@@ -6,17 +6,23 @@ import Link from 'next/link';
 import { auth } from '@clerk/nextjs/server';
 import { dehydrate, HydrationBoundary } from '@tanstack/react-query';
 import PageContainer from '@/components/layout/page-container';
-import { buttonVariants } from '@/components/ui/button';
 import { getQueryClient } from '@/lib/query-client';
 import { overviewQueries } from '@/features/overview/api/queries';
 import { checkCrmAccess } from '@/features/crm/api/service';
 import { businessToday } from '@/features/crm/lib/workflow';
 import Overview from '@/features/overview/components/overview';
+import { currentOverviewMonth } from '@/features/overview/lib/period';
+import { overviewPeriodSchema } from '@/features/overview/schemas/period';
 import { OverviewSkeleton } from '@/features/overview/components/overview-skeleton';
+import { OverviewHeaderActions } from '@/features/overview/components/overview-header-actions';
 
 export const metadata = { title: 'Огляд автомалярки' };
 
-export default async function OverviewPage() {
+export default async function OverviewPage({
+  searchParams
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { userId, orgId } = await auth.protect();
   const access = await checkCrmAccess();
   if (!access.ok)
@@ -38,24 +44,26 @@ export default async function OverviewPage() {
     );
   if ((await getOrganizationContext()).access.role === 'worker') redirect('/dashboard/orders');
   const queryClient = getQueryClient();
-  void queryClient.prefetchQuery(overviewQueries.report(userId, orgId!, businessToday()));
+  const today = businessToday();
+  const params = await searchParams;
+  const defaults = currentOverviewMonth(today);
+  const period = overviewPeriodSchema.safeParse({
+    from: params.overviewFrom ?? defaults.from,
+    to: params.overviewTo ?? defaults.to
+  });
+  if (period.success)
+    void queryClient.prefetchQuery(overviewQueries.report(userId, orgId!, today, period.data));
   return (
     <PageContainer
       pageTitle='Огляд автомалярки'
-      pageDescription='Заявки, замовлення та найближчі події вашого бізнесу.'
-      pageHeaderAction={
-        <Link
-          href='/dashboard/kanban'
-          className={buttonVariants({ variant: 'outline', size: 'sm' })}
-        >
-          Дошка робіт
-        </Link>
-      }
+      pageDescription='Замовлення, фінанси та найближчі події вашого бізнесу.'
+      pageHeaderLayout='responsive'
+      pageHeaderAction={<OverviewHeaderActions initialToday={today} />}
     >
       <OrganizationBoundary orgId={orgId ?? null}>
         <HydrationBoundary state={dehydrate(queryClient)}>
           <Suspense fallback={<OverviewSkeleton />}>
-            <Overview userId={userId} orgId={orgId} initialToday={businessToday()} />
+            <Overview userId={userId} orgId={orgId} initialToday={today} />
           </Suspense>
         </HydrationBoundary>
       </OrganizationBoundary>

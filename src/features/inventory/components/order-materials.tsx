@@ -103,7 +103,7 @@ function Materials({
         <div className='flex flex-col items-start gap-2 border-y py-6'>
           <h4 className='text-sm font-medium'>Списань ще немає</h4>
           <p className='text-muted-foreground text-sm'>
-            Додайте матеріали, використані на це авто. Собівартість порахується зі складу.
+            Додайте використані матеріали: за кількістю зі складу або за сумою витрати.
           </p>
           {admin && editable && (
             <Button type='button' disabled={disabled} onClick={() => setEditing('new')}>
@@ -141,13 +141,19 @@ function Materials({
                 )}
               </div>
               <p className='text-sm tabular-nums'>
-                {stockQuantity(-entry.deltaMilli)} {entry.unit}
+                {entry.accountingMode === 'amount' ? (
+                  '—'
+                ) : (
+                  <>
+                    {stockQuantity(-entry.deltaMilli)} {entry.unit}
+                  </>
+                )}
               </p>
               <div className='text-sm tabular-nums'>
                 <strong>
                   {entry.costDeltaCents === null ? 'Не визначена' : money(-entry.costDeltaCents)}
                 </strong>
-                {entry.costDeltaCents !== null && (
+                {entry.accountingMode !== 'amount' && entry.costDeltaCents !== null && (
                   <p className='text-muted-foreground text-xs'>
                     {money(
                       roundedRatio(

@@ -69,7 +69,7 @@ export function compareMetric(
   if (previous === null) return { percentage: null, comparison: 'unknown' };
   if (previous === 0 && current !== 0) return { percentage: null, comparison: 'new' };
   return {
-    percentage: previous === 0 ? 0 : ((current - previous) / previous) * 100,
+    percentage: previous === 0 ? 0 : ((current - previous) / Math.abs(previous)) * 100,
     comparison: 'percent'
   };
 }

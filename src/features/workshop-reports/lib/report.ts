@@ -306,6 +306,7 @@ export function buildPeriodReport(
     const row = materialRows.get(movement.itemId) ?? {
       id: movement.itemId,
       name: movement.itemName,
+      ...(movement.accountingMode === 'amount' ? { accountingMode: 'amount' as const } : {}),
       unit: movement.unit,
       quantityMilli: 0,
       costCents: 0,

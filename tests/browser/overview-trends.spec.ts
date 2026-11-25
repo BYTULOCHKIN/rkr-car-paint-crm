@@ -7,8 +7,8 @@ test('monthly card trends show real percentages, daily lines and favorable debt 
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/dashboard/overview?trendDemo');
-  await expect(page.locator('[data-slot=metric-trend]')).toHaveCount(7);
-  const receipts = page.getByRole('link', { name: /^Надходження за місяць:/ });
+  await expect(page.locator('[data-slot=metric-trend]')).toHaveCount(8);
+  const receipts = page.getByRole('link', { name: /^Надходження за період:/ });
   await expect(receipts).toContainText('+100%');
   await expect(receipts.locator('[data-slot=card-title]')).toHaveText('20K грн');
   await expect(receipts).toHaveAttribute('aria-label', /20\s000,00\sгрн/);
@@ -17,10 +17,10 @@ test('monthly card trends show real percentages, daily lines and favorable debt 
   await expect(pending.locator('[data-slot=metric-trend] > span')).toHaveText('+1.4M грн');
   await expect(page.getByText(/Попередній період:/)).toHaveCount(0);
   const debt = page.getByRole('link', { name: /^Заборгованість за готовими авто:/ });
-  await expect(debt).toContainText(/[-−]40%/);
-  await expect(debt.locator('[data-slot=metric-trend] span').first()).toHaveClass(/text-emerald/);
+  await expect(debt.locator('[data-slot=card-title]')).toHaveText('0 грн');
+  await expect(debt.locator('[data-slot=metric-trend] > span')).toHaveText('0%');
   const chart = receipts.getByRole('img', {
-    name: 'Надходження за місяць: динаміка за поточний місяць'
+    name: 'Надходження за період: динаміка показника'
   });
   await expect(chart).toBeVisible();
   const line = chart.locator('.recharts-line-curve');
@@ -91,8 +91,8 @@ test('empty month and first-day charts stay finite and display a zero comparison
   await page.clock.setFixedTime(new Date('2027-01-01T10:00:00Z'));
   await page.goto('/dashboard/overview?empty');
   const trends = page.locator('[data-slot=metric-trend]');
-  await expect(trends).toHaveCount(7);
-  for (let index = 0; index < 7; index++) {
+  await expect(trends).toHaveCount(8);
+  for (let index = 0; index < 8; index++) {
     await expect(trends.nth(index)).toContainText('0%');
 
     await expect(trends.nth(index).locator('svg circle')).toHaveCount(1);

@@ -1,3 +1,4 @@
+import type { OverviewOrderMetric } from '@/features/overview/schemas/period';
 import { redirect } from 'next/navigation';
 import { getOrganizationContext } from '@/features/crm/server/organization';
 import Link from 'next/link';
@@ -66,6 +67,13 @@ export async function CrmPage({ view, searchParams }: CrmPageProps) {
     Math.min(max, Math.max(1, parseInt(text(key) ?? '', 10) || fallback));
   const filters = {
     entity: view,
+    ...(view === 'orders' && text('overviewMetric')
+      ? {
+          overviewMetric: text('overviewMetric') as OverviewOrderMetric,
+          overviewFrom: text('overviewFrom'),
+          overviewTo: text('overviewTo')
+        }
+      : {}),
     search: text('q') ?? '',
     page: positive('page', 1, 1_000_000),
     pageSize: positive('perPage', 10, 100),

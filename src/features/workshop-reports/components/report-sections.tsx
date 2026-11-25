@@ -114,7 +114,7 @@ function materialColumns(orders: ReportOrder[]): ReportColumn<MaterialReportRow>
       cell: (row) => (
         <div className='max-w-56 whitespace-normal'>
           <strong>{row.name}</strong>
-          <p>{row.unit}</p>
+          <p>{row.accountingMode === 'amount' ? 'За сумою' : row.unit}</p>
           {row.unknownMovements > 0 && (
             <Badge variant='outline'>Без оцінки: {row.unknownMovements}</Badge>
           )}
@@ -133,7 +133,13 @@ function materialColumns(orders: ReportOrder[]): ReportColumn<MaterialReportRow>
         return cell ? (
           <div>
             <p>
-              {stockQuantity(cell.quantityMilli)} {row.unit}
+              {row.accountingMode === 'amount' ? (
+                'За сумою'
+              ) : (
+                <>
+                  {stockQuantity(cell.quantityMilli)} {row.unit}
+                </>
+              )}
             </p>
             <p className='text-muted-foreground'>
               {cell.costCents === null ? 'Не визначено' : money(cell.costCents)}
@@ -150,7 +156,13 @@ function materialColumns(orders: ReportOrder[]): ReportColumn<MaterialReportRow>
       cell: (row) => (
         <div className='font-medium'>
           <p>
-            {stockQuantity(row.quantityMilli)} {row.unit}
+            {row.accountingMode === 'amount' ? (
+              'За сумою'
+            ) : (
+              <>
+                {stockQuantity(row.quantityMilli)} {row.unit}
+              </>
+            )}
           </p>
           <p>{row.costCents === null ? 'Не визначено' : money(row.costCents)}</p>
         </div>

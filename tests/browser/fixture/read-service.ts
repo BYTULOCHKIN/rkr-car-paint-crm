@@ -1,3 +1,4 @@
+import { overviewFacts, matchesOverviewOrder } from '@/features/overview/lib/cohorts';
 import { paymentBalance } from '@/features/crm/lib/payment-balance';
 import { contactSearchValues } from '@/features/crm/lib/customer-contacts';
 import { uniqueRecords as unique } from '@/features/crm/lib/pagination';
@@ -52,7 +53,20 @@ export async function getCrmList(_orgId: string, input: CrmListFilters): Promise
   const query = normalizeSearch(filters.search);
   const customers = new Map(data.customers.map((row) => [row.id, row]));
   const vehicles = new Map(data.vehicles.map((row) => [row.id, row]));
+  const facts = overviewFacts(data);
+  const factsById = new Map(facts.orders.map((fact) => [fact.order.id, fact]));
   const rows = data[filters.entity].filter((row) => {
+    if (filters.overviewMetric) {
+      const fact = factsById.get(row.id);
+      if (
+        !fact ||
+        !matchesOverviewOrder(fact, facts, filters.overviewMetric, {
+          from: filters.overviewFrom!,
+          to: filters.overviewTo!
+        })
+      )
+        return false;
+    }
     if ('customerId' in row && filters.customerId && row.customerId !== filters.customerId)
       return false;
     if ('vehicleId' in row && filters.vehicleId && row.vehicleId !== filters.vehicleId)

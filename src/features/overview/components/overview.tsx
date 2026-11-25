@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactElement } from 'react';
+import { Suspense, useState, type ReactElement } from 'react';
 import Link from 'next/link';
 import { SHOW_LEGACY_REQUEST_FLOW } from '@/config/product';
 import { SummaryCardLink } from '@/components/summary-card-link';
@@ -20,8 +20,15 @@ import { Button } from '@/features/crm/components/action-button';
 import { CrmEditorDialog, type Editor } from '@/features/crm/components/editor-dialog';
 import { money } from '@/features/crm/components/format';
 import { overviewQueries } from '../api/queries';
-import { businessToday, displayDate } from '@/features/crm/lib/workflow';
-import type { TrendKey } from '../lib/trends';
+import { displayDate } from '@/features/crm/lib/workflow';
+import { useBusinessToday } from '../hooks/use-business-today';
+import type { PeriodTrendKey as TrendKey } from '../lib/period-metrics';
+import { parseAsString, useQueryStates } from 'nuqs';
+import { currentOverviewMonth } from '../lib/period';
+import { overviewPeriodSchema, type OverviewPeriod } from '../schemas/period';
+import { overviewOrdersLink } from '../lib/order-links';
+import { OverviewPeriodFilter } from './period-filter';
+import { OverviewSkeleton } from './overview-skeleton';
 import { MetricTrend, trendLabel } from './metric-trend';
 import { compactMoney, compactNumber } from '../lib/format';
 import { ActivityChart } from './activity-chart';
@@ -36,22 +43,58 @@ interface OverviewProps {
 }
 
 export default function Overview({ userId, initialToday, orgId }: OverviewProps): ReactElement {
-  const [today, setToday] = useState(initialToday);
+  const today = useBusinessToday(initialToday);
+  const defaults = currentOverviewMonth(today);
+  const [params, setParams] = useQueryStates(
+    { overviewFrom: parseAsString, overviewTo: parseAsString },
+    { shallow: true }
+  );
+  const period = {
+    from: params.overviewFrom ?? defaults.from,
+    to: params.overviewTo ?? defaults.to
+  };
+  const parsed = overviewPeriodSchema.safeParse(period);
+  return (
+    <div className='flex min-w-0 flex-col gap-5'>
+      <OverviewPeriodFilter
+        key={JSON.stringify(period)}
+        period={period}
+        today={today}
+        onApply={(value) => void setParams({ overviewFrom: value.from, overviewTo: value.to })}
+      />
+      {parsed.success ? (
+        <Suspense fallback={<OverviewSkeleton />}>
+          <OverviewContent userId={userId} orgId={orgId} today={today} period={parsed.data} />
+        </Suspense>
+      ) : (
+        <Alert variant='destructive'>
+          <AlertDescription>
+            Перевірте період огляду: {parsed.error.issues[0]?.message}
+          </AlertDescription>
+        </Alert>
+      )}
+    </div>
+  );
+}
+
+function OverviewContent({
+  userId,
+  orgId,
+  today,
+  period
+}: {
+  userId: string;
+  orgId?: string | null;
+  today: string;
+  period: OverviewPeriod;
+}): ReactElement {
   const { data: report, isRefetchError } = useSuspenseQuery(
-    overviewQueries.report(userId, orgId!, today)
+    overviewQueries.report(userId, orgId!, today, period)
   );
   const { data, metrics, trends, empty } = report;
   const [editor, setEditor] = useState<Editor | null>(null);
-  useEffect(() => {
-    const refreshDate = () => setToday(businessToday());
-    refreshDate();
-    const timer = window.setInterval(refreshDate, 60_000);
-    window.addEventListener('focus', refreshDate);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener('focus', refreshDate);
-    };
-  }, []);
+  const currentMonth = currentOverviewMonth(today);
+  const isCurrentMonth = period.from === currentMonth.from && period.to === currentMonth.to;
   const cards = [
     {
       title: 'Створені замовлення',
@@ -70,7 +113,7 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
         compactNumber(metrics.createdOrders) +
         ' · Вартість відкритих: ' +
         compactMoney(metrics.activeValueCents),
-      href: '/dashboard/orders',
+      href: '/dashboard/orders?orderStatus=in_progress',
       icon: Icons.orders
     },
     {
@@ -78,46 +121,59 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
       trendKey: 'ready' as TrendKey,
       value: String(metrics.ready),
       description: 'Прострочених прийомів і видач: ' + compactNumber(metrics.overdue),
-      href: '/dashboard/kanban',
+      href: '/dashboard/orders?orderStatus=ready',
       icon: Icons.check
     },
     {
-      title: 'Завершено цього місяця',
+      title: isCurrentMonth ? 'Завершено цього місяця' : 'Завершено за період',
       trendKey: 'deliveredThisMonth' as TrendKey,
       value: String(metrics.deliveredThisMonth),
       description: 'Вартість замовлень: ' + compactMoney(metrics.deliveredValueCents),
-      href: '/dashboard/orders',
+      href: overviewOrdersLink('completed', period),
       icon: Icons.billing
     }
   ];
   const financialCards = [
     {
-      title: 'Надходження за місяць',
+      title: 'Прибуток фірми',
+      trendKey: 'profitCents' as TrendKey,
+      value: metrics.profitCents,
+      description:
+        'Після матеріалів, субпідряду й нарахованих зарплат. За останнім збереженим розрахунком.',
+      href: overviewOrdersLink('profit', period),
+      icon: Icons.billing
+    },
+    {
+      title: 'Надходження за період',
       trendKey: 'monthlyReceiptsCents' as TrendKey,
       value: metrics.monthlyReceiptsCents,
-      description: 'Фактично отримані платежі; скасовані не враховано.',
+      description: 'За датами платежів і повернень; скасовані не враховано.',
+      href: overviewOrdersLink('receipts', period),
       icon: Icons.billing
     },
     {
       title: 'Заборгованість за готовими авто',
       trendKey: 'debtCents' as TrendKey,
       value: metrics.debtCents,
-      description: 'Неоплачених готових замовлень: ' + compactNumber(metrics.debtOrderCount),
+      description:
+        'Поточний борг за готовими у вибраному періоді авто: ' +
+        compactNumber(metrics.debtOrderCount),
+      href: overviewOrdersLink('ready_debt', period),
       icon: Icons.warning
     },
     {
       title: 'До сплати за відкритими авто',
       trendKey: 'pendingPaymentCents' as TrendKey,
       value: metrics.pendingPaymentCents,
-      description: 'Залишок за створеними замовленнями та авто в роботі.',
+      description: 'Поточний залишок за відкритими авто, створеними у вибраному періоді.',
+      href: overviewOrdersLink('open_debt', period),
       icon: Icons.orders
     }
   ];
 
   return (
     <div className='flex min-w-0 flex-col gap-4'>
-      <div className='flex flex-wrap items-center justify-between gap-3'>
-        <p className='text-sm text-muted-foreground'>Стан на {displayDate(today)} · Київ</p>
+      <div className='flex flex-wrap items-center justify-end gap-3'>
         <div className='flex flex-wrap gap-2'>
           {SHOW_LEGACY_REQUEST_FLOW && (
             <Button size='sm' onClick={() => setEditor({ type: 'request' })}>
@@ -157,6 +213,10 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
           </AlertDescription>
         </Alert>
       )}
+      <p className='text-xs text-muted-foreground'>
+        Поточні статуси — на сьогодні. Завершені замовлення — за {displayDate(period.from)} —{' '}
+        {displayDate(period.to)}.
+      </p>
       <div className='grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-4'>
         {cards.map(({ title, trendKey, value, description, href, icon: Icon }) => (
           <SummaryCardLink
@@ -190,27 +250,36 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
         <span>Суми — вартість робіт за позиціями.</span>
         {metrics.undatedDelivered > 0 && (
           <span>
-            Без дати готовності: {metrics.undatedDelivered}; у підсумок місяця не включені.
+            Без дати готовності: {metrics.undatedDelivered}; у підсумок періоду не включені.
           </span>
         )}
       </div>
-      <section aria-label='Фінанси автомалярки' className='grid min-w-0 gap-4 md:grid-cols-3'>
-        {financialCards.map(({ title, trendKey, value, description, icon: Icon }) => (
+      <section
+        aria-label='Фінанси автомалярки'
+        className='grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-4'
+      >
+        {financialCards.map(({ title, trendKey, value, description, href, icon: Icon }) => (
           <SummaryCardLink
             key={title}
-            href='/dashboard/orders'
-            label={`${title}: ${money(value)}. ${trendLabel(trends.metrics[trendKey])}`}
+            href={href}
+            label={`${title}: ${trendKey === 'profitCents' && metrics.unpostedProfitCount > 0 && metrics.unpostedProfitCount === metrics.deliveredThisMonth ? 'немає розрахунку' : money(value)}. ${trendLabel(trends.metrics[trendKey])}`}
           >
             <CardHeader className='relative'>
               <CardDescription>{title}</CardDescription>
               <CardTitle className='break-words text-2xl font-semibold tabular-nums'>
-                {compactMoney(value)}
+                {trendKey === 'profitCents' &&
+                metrics.unpostedProfitCount > 0 &&
+                metrics.unpostedProfitCount === metrics.deliveredThisMonth
+                  ? '—'
+                  : compactMoney(value)}
               </CardTitle>
               <MetricTrend
                 trend={trends.metrics[trendKey]}
                 title={title}
                 currency
-                direction={trendKey === 'debtCents' ? 'down' : 'up'}
+                direction={
+                  trendKey === 'debtCents' || trendKey === 'pendingPaymentCents' ? 'down' : 'up'
+                }
               />
               <CardAction>
                 <Icon aria-hidden className='size-4 text-muted-foreground' />
@@ -220,6 +289,22 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
           </SummaryCardLink>
         ))}
       </section>
+      <p className='text-xs text-muted-foreground'>
+        Фінансові показники порівнюються з {displayDate(trends.previousStart)} —{' '}
+        {displayDate(trends.previousEnd)}. Зміни вартості й витрат оновлюють прибуток за період
+        готовності авто.
+      </p>
+      {metrics.unpostedProfitCount > 0 && (
+        <Alert>
+          <AlertDescription>
+            Прибуток розраховано для {metrics.deliveredThisMonth - metrics.unpostedProfitCount} із{' '}
+            {metrics.deliveredThisMonth} завершених замовлень.{' '}
+            <Link href={overviewOrdersLink('unposted', period)} className='underline'>
+              Без розрахунку: {metrics.unpostedProfitCount}
+            </Link>
+          </AlertDescription>
+        </Alert>
+      )}
       {empty && (
         <Empty className='rounded-xl border bg-card'>
           <EmptyHeader>
@@ -271,6 +356,7 @@ export default function Overview({ userId, initialToday, orgId }: OverviewProps)
         <StatusSummary statuses={metrics.statuses} />
       </div>
       <RecentOrders
+        href={overviewOrdersLink('created_period', period)}
         orders={metrics.recentOrders}
         data={data}
         onOpen={(order) => setEditor({ type: 'order', order })}

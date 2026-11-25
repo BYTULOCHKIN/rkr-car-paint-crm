@@ -1,3 +1,4 @@
+import { overviewOrderPredicate } from '@/features/overview/server/order-filter';
 import { uniqueRecords as unique } from '@/features/crm/lib/pagination';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
@@ -124,6 +125,14 @@ export class CrmReadRepository {
     const params: (string | number)[] = [];
     if (entity === 'orders')
       conditions.push(filters.trash ? 't.deletedAt IS NOT NULL' : 't.deletedAt IS NULL');
+    if (filters.overviewMetric) {
+      const predicate = overviewOrderPredicate(filters.overviewMetric, {
+        from: filters.overviewFrom!,
+        to: filters.overviewTo!
+      });
+      conditions.push(`(${predicate.sql})`);
+      params.push(...predicate.params);
+    }
     if (filters.customerId && entity !== 'customers') {
       conditions.push('t.customerId=?');
       params.push(filters.customerId);
@@ -338,15 +347,24 @@ export class CrmReadRepository {
             : { before: { totalCents: row.previousTotal }, after: { totalCents: row.nextTotal } }
       })) as unknown as WorkflowEvent[];
     const payments = this.db
-      .prepare(`SELECT id,orderId,kind,amountCents,reversalOf,createdAt FROM crm_payments UNION ALL
-      SELECT id,orderId,kind,amountCents,reversalOf,createdAt FROM crm_customer_refunds`)
+      .prepare(`SELECT p.id,p.orderId,p.kind,p.amountCents,p.reversalOf,p.createdAt FROM crm_payments p JOIN crm_orders o ON o.id=p.orderId WHERE o.deletedAt IS NULL UNION ALL
+      SELECT p.id,p.orderId,p.kind,p.amountCents,p.reversalOf,p.createdAt FROM crm_customer_refunds p JOIN crm_orders o ON o.id=p.orderId WHERE o.deletedAt IS NULL`)
       .all() as unknown as PaymentEvent[];
     const requests = this.db
       .prepare(
         "SELECT id,customerId,vehicleId,description,createdAt,plannedIntakeDate,plannedDeliveryDate,workflowRevision,CASE WHEN status='converted' THEN 'converted' WHEN plannedIntakeDate IS NOT NULL THEN 'scheduled' ELSE 'backlog' END AS status FROM crm_requests"
       )
       .all() as unknown as CrmWorkspace['requests'];
-    return { orders, events, payments, requests, customers: [], vehicles: [] };
+    const orderProfits = Object.fromEntries(
+      this.db
+        .prepare(
+          `SELECT p.orderId,json_extract(p.snapshot,'$.result.workshopRemainderCents') AS profit FROM crm_economics_postings p JOIN crm_orders o ON o.id=p.orderId WHERE o.deletedAt IS NULL AND p.revision=(SELECT MAX(revision) FROM crm_economics_postings WHERE orderId=p.orderId)`
+        )
+        .all()
+        .filter((row) => typeof row.profit === 'number')
+        .map((row) => [row.orderId, row.profit])
+    );
+    return { orders, events, payments, requests, customers: [], vehicles: [], orderProfits };
   }
 
   display(orderIds: string[]): CrmWorkspace {

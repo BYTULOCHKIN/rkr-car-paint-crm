@@ -23,7 +23,9 @@ export function MovementHistory({
               <strong className='break-words'>{movement.itemName}</strong>
             </div>
             <span className='font-medium tabular-nums'>
-              {movement.kind === 'valuation' ? (
+              {movement.accountingMode === 'amount' ? (
+                'За сумою'
+              ) : movement.kind === 'valuation' ? (
                 'Кількість не змінена'
               ) : (
                 <>

@@ -3,18 +3,24 @@
 import { z } from 'zod';
 import { getOrganizationContext } from '@/features/crm/server/organization';
 import { CrmError } from '@/features/crm/server/repository';
-import { overviewMetrics } from '../lib/metrics';
-import { overviewTrends } from '../lib/trends';
+import { overviewPeriodMetrics, overviewPeriodTrends } from '../lib/period-metrics';
+import { overviewPeriodSchema, type OverviewPeriod } from '../schemas/period';
+import { currentOverviewMonth } from '../lib/period';
 import type { OverviewReport } from './types';
 
-export async function getOverview(orgId: string, today: string): Promise<OverviewReport> {
+export async function getOverview(
+  orgId: string,
+  today: string,
+  input: OverviewPeriod = currentOverviewMonth(today)
+): Promise<OverviewReport> {
   const { access, repository, team } = await getOrganizationContext();
   if (access.orgId !== orgId || access.role !== 'admin')
     throw new CrmError('Огляд доступний адміністратору поточної автомалярки');
   z.iso.date().parse(today);
+  const period = overviewPeriodSchema.parse(input);
   const source = repository.reads.overviewSource();
-  const metrics = overviewMetrics(source, today);
-  const trends = overviewTrends(source, today, metrics);
+  const metrics = overviewPeriodMetrics(source, today, period);
+  const trends = overviewPeriodTrends(source, today, period, metrics);
   const queueCounts = { attention: metrics.attention.length, schedule: metrics.schedule.length };
   metrics.attention = metrics.attention.slice(0, 10);
   metrics.schedule = metrics.schedule.slice(0, 10);
@@ -27,6 +33,7 @@ export async function getOverview(orgId: string, today: string): Promise<Overvie
   ];
   const counts = repository.reads.counts();
   return {
+    period,
     metrics,
     queueCounts,
     trends,

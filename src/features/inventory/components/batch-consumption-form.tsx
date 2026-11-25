@@ -25,8 +25,11 @@ function materialChoice(item: StockItem) {
   return {
     value: item.id,
     label: item.name,
-    description: `Залишок: ${stockQuantity(item.balanceMilli)} ${item.unit}`,
-    disabled: item.balanceMilli <= 0
+    description:
+      item.accountingMode === 'amount'
+        ? 'За сумою · без контролю залишку'
+        : `Залишок: ${stockQuantity(item.balanceMilli)} ${item.unit}`,
+    disabled: item.accountingMode !== 'amount' && item.balanceMilli <= 0
   };
 }
 
@@ -150,6 +153,11 @@ export function BatchConsumptionForm({
                               const item = candidates.data?.items.find(
                                 (row) => row.id === option?.value
                               );
+                              form.setFieldValue(`rows[${index}].quantity`, '');
+                              form.setFieldValue(
+                                `rows[${index}].amount`,
+                                item?.accountingMode === 'amount' ? '' : undefined
+                              );
                               if (item)
                                 setKnownItems((previous) => [
                                   ...new Map(
@@ -180,23 +188,49 @@ export function BatchConsumptionForm({
                             candidates.data?.items.find((entry) => entry.id === itemId);
                           return item ? (
                             <p className='text-muted-foreground text-sm'>
-                              Одиниця: {item.unit} · Залишок: {stockQuantity(item.balanceMilli)}{' '}
-                              {item.unit}
+                              {item.accountingMode === 'amount' ? (
+                                'За сумою · без контролю залишку'
+                              ) : (
+                                <>
+                                  Одиниця: {item.unit} · Залишок: {stockQuantity(item.balanceMilli)}{' '}
+                                  {item.unit}
+                                </>
+                              )}
                             </p>
                           ) : null;
                         }}
                       </form.Subscribe>
                       <div className='grid gap-3 sm:grid-cols-2'>
-                        <form.AppField name={`rows[${index}].quantity`}>
-                          {(field) => (
-                            <field.TextField
-                              label='Кількість'
-                              required
-                              inputMode='decimal'
-                              placeholder='0,8'
-                            />
-                          )}
-                        </form.AppField>
+                        <form.Subscribe selector={(state) => state.values.rows[index]?.itemId}>
+                          {(itemId) => {
+                            const item =
+                              knownItems.find((entry) => entry.id === itemId) ??
+                              candidates.data?.items.find((entry) => entry.id === itemId);
+                            return item?.accountingMode === 'amount' ? (
+                              <form.AppField name={`rows[${index}].amount`}>
+                                {(field) => (
+                                  <field.TextField
+                                    label='Сума витрати, грн'
+                                    required
+                                    inputMode='decimal'
+                                    placeholder='3500,00'
+                                  />
+                                )}
+                              </form.AppField>
+                            ) : (
+                              <form.AppField name={`rows[${index}].quantity`}>
+                                {(field) => (
+                                  <field.TextField
+                                    label='Кількість'
+                                    required
+                                    inputMode='decimal'
+                                    placeholder='0,8'
+                                  />
+                                )}
+                              </form.AppField>
+                            );
+                          }}
+                        </form.Subscribe>
                         <form.AppField name={`rows[${index}].category`}>
                           {(field) => (
                             <field.SelectField

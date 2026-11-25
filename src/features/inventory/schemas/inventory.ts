@@ -10,15 +10,24 @@ export const stockTagsSchema = z
 
 export const stockUnitSchema = z.enum(stockUnits, { error: 'Оберіть одиницю: шт, л, кг або м' });
 
-export const itemSchema = z
+const itemFields = z
   .object({
     name: z.string().trim().min(1, 'Вкажіть назву').max(120),
-    unit: stockUnitSchema,
+    unit: z.string().trim().max(20),
+    accountingMode: z.enum(['quantity', 'amount']).optional(),
     notes: z.string().trim().max(1000),
     // Older clients omit tags: create defaults to Розхідник; edits preserve the saved tags.
     tags: stockTagsSchema.optional()
   })
   .strict();
+export const itemSchema = itemFields.superRefine((value, context) => {
+  if (value.accountingMode !== 'amount' && !stockUnitSchema.safeParse(value.unit).success)
+    context.addIssue({
+      code: 'custom',
+      path: ['unit'],
+      message: 'Оберіть одиницю: шт, л, кг або м'
+    });
+});
 
 // Accept decimal commas; convert to integer thousandths without floating point arithmetic.
 export function quantityMilli(value: string): number {
@@ -90,29 +99,68 @@ export const adjustmentSchema = z
       });
     }
   });
-export const consumptionSchema = z
+export function materialAmountCents(value: string): number | null {
+  if (!/^\d{1,10}([.,]\d{1,2})?$/.test(value.trim())) return null;
+  const cents = decimalScaled(value.trim(), 2);
+  return cents > 0 && Number.isSafeInteger(cents) ? cents : null;
+}
+
+function validateConsumption(
+  value: { quantity: string; amount?: string },
+  context: z.RefinementCtx
+): void {
+  if (value.amount || (value.amount !== undefined && !value.quantity)) {
+    if (materialAmountCents(value.amount ?? '') === null)
+      context.addIssue({
+        code: 'custom',
+        path: ['amount'],
+        message: 'Вкажіть додатну суму, до 2 знаків після коми'
+      });
+    if (value.quantity)
+      context.addIssue({
+        code: 'custom',
+        path: ['quantity'],
+        message: 'Вкажіть кількість або суму витрати'
+      });
+  } else {
+    const result = quantity.safeParse(value.quantity);
+    if (!result.success)
+      context.addIssue({
+        code: 'custom',
+        path: ['quantity'],
+        message: 'Вкажіть додатну кількість або суму витрати'
+      });
+  }
+}
+const consumptionFields = z
   .object({
     ...baseMovement,
-    quantity,
+    quantity: z.string().trim(),
+    amount: z.string().trim().optional(),
     orderId: z.uuid(),
     category: z.enum(['painting', 'polishing']).default('painting')
   })
   .strict();
+export const consumptionSchema = consumptionFields.superRefine(validateConsumption);
 export const batchConsumptionSchema = z
   .object({
     operationId: z.uuid(),
     orderId: z.uuid(),
     rows: z
       .array(
-        consumptionSchema
+        consumptionFields
           .omit({ operationId: true, orderId: true })
           .extend({ category: z.enum(['painting', 'polishing']) })
+          .superRefine(validateConsumption)
       )
       .min(1, 'Додайте матеріал')
       .max(100, 'До 100 матеріалів за одне збереження')
   })
   .strict();
-export const editConsumptionSchema = consumptionSchema.extend({ movementId: z.uuid() }).strict();
+export const editConsumptionSchema = consumptionFields
+  .extend({ movementId: z.uuid() })
+  .strict()
+  .superRefine(validateConsumption);
 export type EditConsumptionInput = z.input<typeof editConsumptionSchema>;
 export const valuationSchema = z
   .object({
@@ -131,9 +179,9 @@ export const reversalSchema = z
   })
   .strict();
 // Existing units with movements must retain their meaning; repository validates changes.
-export const updateItemSchema = itemSchema.omit({ unit: true }).extend({
+export const updateItemSchema = itemFields.omit({ unit: true }).extend({
   id: z.uuid(),
-  unit: z.string().trim().min(1, 'Оберіть одиницю виміру').max(20)
+  unit: z.string().trim().max(20)
 });
 export const archiveSchema = z.object({ id: z.uuid(), archived: z.boolean() }).strict();
 

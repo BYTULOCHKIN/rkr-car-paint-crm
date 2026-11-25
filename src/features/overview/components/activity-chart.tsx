@@ -30,7 +30,7 @@ export function ActivityChart({ data }: ActivityChartProps): ReactElement {
     <Card className='min-w-0'>
       <CardHeader>
         <CardTitle>Динаміка замовлень</CardTitle>
-        <CardDescription>Створені замовлення за останні 6 місяців</CardDescription>
+        <CardDescription>Створені замовлення за вибраний період</CardDescription>
       </CardHeader>
       <CardContent>
         {hasData ? (
@@ -38,7 +38,7 @@ export function ActivityChart({ data }: ActivityChartProps): ReactElement {
             <ChartContainer
               config={config}
               className='h-64 w-full'
-              aria-label='Кількість створених замовлень за місяцями'
+              aria-label='Кількість створених замовлень за вибраний період'
             >
               <BarChart accessibilityLayer data={data} margin={{ left: -24, right: 0 }}>
                 <CartesianGrid vertical={false} />
@@ -82,8 +82,8 @@ export function ActivityChart({ data }: ActivityChartProps): ReactElement {
         ) : (
           <Empty className='min-h-64'>
             <EmptyHeader>
-              <EmptyTitle>Замовлень ще немає</EmptyTitle>
-              <EmptyDescription>Графік з’явиться після створення замовлень.</EmptyDescription>
+              <EmptyTitle>За вибраний період замовлень немає</EmptyTitle>
+              <EmptyDescription>Змініть період, щоб переглянути інші замовлення.</EmptyDescription>
             </EmptyHeader>
           </Empty>
         )}

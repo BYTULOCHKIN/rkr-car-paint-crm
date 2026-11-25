@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { inventoryTables } from '@/features/inventory/server/repository';
 import { CrmRepository } from '../server/repository';
 import { businessToday } from '../lib/workflow';
 import { receiptSchema, adjustmentSchema } from '@/features/inventory/schemas/inventory';
@@ -188,15 +189,15 @@ test('invalid prices and overflowing valuation leave quantity, cost and history 
 function downgradeToV12(filename: string): void {
   const db = new DatabaseSync(filename);
   try {
-    db.exec('DROP TABLE stock_valuation_events; DROP TABLE stock_item_values;');
-    for (const column of [
-      'costDeltaCents',
-      'currency',
-      'purchaseAmountMinor',
-      'exchangeRateMicros',
-      'category'
-    ])
-      db.exec(`ALTER TABLE stock_movements DROP COLUMN ${column}`);
+    db.exec(
+      'PRAGMA foreign_keys=OFF; DROP TABLE stock_valuation_events; DROP TABLE stock_item_values;'
+    );
+    db.exec('ALTER TABLE stock_movements RENAME TO stock_movements_current');
+    db.exec(inventoryTables);
+    const columns = 'id,itemId,kind,deltaMilli,orderId,reversesId,note,actor,createdAt,fingerprint';
+    db.exec(`INSERT INTO stock_movements(rowid,${columns}) SELECT rowid,${columns} FROM stock_movements_current;
+      DROP TABLE stock_movements_current; ALTER TABLE stock_items DROP COLUMN accountingMode;`);
+    db.exec(inventoryTables);
     db.exec('PRAGMA user_version=12');
   } finally {
     db.close();

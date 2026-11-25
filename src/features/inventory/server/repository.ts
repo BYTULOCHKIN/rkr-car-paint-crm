@@ -17,6 +17,7 @@ import {
   reversalSchema,
   quantityMilli,
   decimalScaled,
+  materialAmountCents,
   valuationSchema
 } from '../schemas/inventory';
 import { editConsumptionSchema, type EditConsumptionInput } from '../schemas/inventory';
@@ -84,7 +85,7 @@ export class InventoryRepository {
 
   private itemRows(where = '', params: (string | number)[] = [], suffix = ''): StockItem[] {
     return this.db
-      .prepare(`SELECT i.id, i.name, i.unit, i.notes, i.tags, i.archived,
+      .prepare(`SELECT i.id, i.name, i.unit, i.accountingMode, i.notes, i.tags, i.archived,
       v.totalCostCents, v.revision AS valuationRevision,
       EXISTS(SELECT 1 FROM stock_movements WHERE itemId=i.id) AS locked,
       COALESCE((SELECT SUM(deltaMilli) FROM stock_movements WHERE itemId=i.id),0) AS balanceMilli
@@ -149,7 +150,7 @@ export class InventoryRepository {
 
   private movementRows(where = '', params: (string | number)[] = [], suffix = ''): StockMovement[] {
     return this.db
-      .prepare(`SELECT * FROM (SELECT m.id AS id, m.itemId, i.name AS itemName, i.unit, m.kind,
+      .prepare(`SELECT * FROM (SELECT m.id AS id, m.itemId, i.name AS itemName, i.unit, i.accountingMode, m.kind,
       m.deltaMilli, m.orderId, o.number AS orderNumber, m.reversesId, m.note, m.actor, m.createdAt,
       m.costDeltaCents, m.currency, m.purchaseAmountMinor, m.exchangeRateMicros, m.category,
       NULL AS valuationTotalCents,
@@ -158,7 +159,7 @@ export class InventoryRepository {
       FROM stock_movements m JOIN stock_items i ON i.id=m.itemId
       LEFT JOIN crm_orders o ON o.id=m.orderId
       UNION ALL
-      SELECT v.id,v.itemId,i.name,i.unit,'valuation',0,NULL,NULL,NULL,v.note,v.actor,v.createdAt,
+      SELECT v.id,v.itemId,i.name,i.unit,i.accountingMode,'valuation',0,NULL,NULL,NULL,v.note,v.actor,v.createdAt,
       NULL,NULL,NULL,NULL,NULL,v.totalCostCents,0,v.rowid,0
       FROM stock_valuation_events v JOIN stock_items i ON i.id=v.itemId
        ) ${where} ORDER BY createdAt DESC, sortOrder DESC, id DESC ${suffix}`)
@@ -249,12 +250,15 @@ export class InventoryRepository {
       const id = randomUUID();
       const key = this.checkName(value.name);
       this.db
-        .prepare('INSERT INTO stock_items (id,name,nameKey,unit,notes,tags) VALUES (?,?,?,?,?,?)')
+        .prepare(
+          'INSERT INTO stock_items (id,name,nameKey,unit,accountingMode,notes,tags) VALUES (?,?,?,?,?,?,?)'
+        )
         .run(
           id,
           value.name,
           key,
-          value.unit,
+          value.accountingMode === 'amount' ? '' : value.unit,
+          value.accountingMode ?? 'quantity',
           value.notes,
           JSON.stringify(value.tags ?? ['Розхідник'])
         );
@@ -267,16 +271,23 @@ export class InventoryRepository {
     const value = updateItemSchema.parse(input);
     this.transaction(() => {
       const current = this.item(value.id);
-      if (current.locked && (current.name !== value.name || current.unit !== value.unit))
+      const accountingMode = value.accountingMode ?? current.accountingMode ?? 'quantity';
+      const unit = accountingMode === 'amount' ? '' : value.unit;
+      if (current.locked && accountingMode !== current.accountingMode)
+        throw new InventoryError('Після першої операції режим обліку змінити не можна');
+      if (current.locked && (current.name !== value.name || current.unit !== unit))
         throw new InventoryError('Після першої операції назву та одиницю змінити не можна');
-      if (!current.locked) stockUnitSchema.parse(value.unit);
+      if (!current.locked && accountingMode === 'quantity') stockUnitSchema.parse(unit);
       const key = this.checkName(value.name, value.id);
       this.db
-        .prepare('UPDATE stock_items SET name=?,nameKey=?,unit=?,notes=?,tags=? WHERE id=?')
+        .prepare(
+          'UPDATE stock_items SET name=?,nameKey=?,unit=?,accountingMode=?,notes=?,tags=? WHERE id=?'
+        )
         .run(
           value.name,
           key,
-          value.unit,
+          unit,
+          accountingMode,
           value.notes,
           JSON.stringify(value.tags ?? current.tags),
           value.id
@@ -326,6 +337,13 @@ export class InventoryRepository {
     category: StockMovement['category'] = null
   ): void {
     const item = this.item(itemId);
+    const amountOnly = item.accountingMode === 'amount';
+    if (
+      amountOnly &&
+      (deltaMilli !== 0 || !['consumption', 'reversal'].includes(kind) || !costDeltaCents)
+    )
+      throw new InventoryError('Для матеріалу за сумою доступні лише витрати на замовлення');
+    if (!amountOnly && deltaMilli === 0) throw new InventoryError('Вкажіть кількість матеріалу');
     const balance = sumIntegers([item.balanceMilli, deltaMilli]);
     if (balance < 0)
       throw new InventoryError(
@@ -355,6 +373,7 @@ export class InventoryRepository {
         pricing ? decimalScaled(pricing.exchangeRate, 6) : null,
         category
       );
+    if (amountOnly) return;
     const totalCostCents =
       balance === 0
         ? 0
@@ -376,6 +395,21 @@ export class InventoryRepository {
       amountMinor: decimalScaled(value.totalAmount, 2),
       exchangeRateMicros: decimalScaled(value.exchangeRate, 6)
     });
+  }
+
+  private consumptionValue(
+    item: StockItem,
+    value: { quantity: string; amount?: string }
+  ): { quantity: number; amount: number | null } {
+    if (item.accountingMode === 'amount') {
+      const amount = materialAmountCents(value.amount ?? '');
+      if (amount === null || value.quantity)
+        throw new InventoryError('Вкажіть суму витрати без кількості');
+      return { quantity: 0, amount };
+    }
+    if (value.amount || !value.quantity)
+      throw new InventoryError('Для кількісного матеріалу вкажіть кількість, а не суму');
+    return { quantity: quantityMilli(value.quantity), amount: null };
   }
 
   private consumptionCost(itemId: string, quantity: number): number | null {
@@ -484,7 +518,8 @@ export class InventoryRepository {
         throw new InventoryError('Списання дозволене лише для замовлення «В роботі»');
       if (this.item(value.itemId).archived)
         throw new InventoryError('Не можна списувати архівну позицію');
-      const cost = this.consumptionCost(value.itemId, quantityMilli(value.quantity));
+      const consumed = this.consumptionValue(this.item(value.itemId), value);
+      const cost = consumed.amount ?? this.consumptionCost(value.itemId, consumed.quantity);
       if (cost === null && !financialCorrection)
         throw new InventoryError(
           'Собівартість матеріалу не визначена. Спочатку оцініть залишок на складі.'
@@ -493,7 +528,7 @@ export class InventoryRepository {
         value.operationId,
         value.itemId,
         'consumption',
-        -quantityMilli(value.quantity),
+        -consumed.quantity,
         value.orderId,
         null,
         value.note,
@@ -543,9 +578,11 @@ export class InventoryRepository {
         throw new InventoryError(
           'Собівартість історичного списання не визначена. Скасуйте його, оцініть повернений залишок і створіть нове списання.'
         );
-      const quantity = quantityMilli(value.quantity);
+      const consumed = this.consumptionValue(item, value);
+      const quantity = consumed.quantity;
       let cost: number | null;
-      if (original.itemId === value.itemId && original.costDeltaCents !== null) {
+      if (consumed.amount !== null) cost = consumed.amount;
+      else if (original.itemId === value.itemId && original.costDeltaCents !== null) {
         const previousQuantity = -original.deltaMilli;
         if (quantity <= previousQuantity) {
           cost = roundedRatio(

@@ -182,7 +182,7 @@ test('schema 20 materials receive the consumable tag without changing stock or o
     assert.deepEqual(repository.inventory.items(), before);
     assert.deepEqual(repository.inventory.movements(), movements);
     const verify = new DatabaseSync(path);
-    assert.equal(verify.prepare('PRAGMA user_version').get()!.user_version, 22);
+    assert.equal(verify.prepare('PRAGMA user_version').get()!.user_version, 23);
     assert.deepEqual(verify.prepare('PRAGMA foreign_key_check').all(), []);
     verify.close();
   } finally {

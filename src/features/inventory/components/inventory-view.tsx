@@ -224,17 +224,29 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
                       <StockItemTags tags={item.tags} itemName={item.name} />
                     </TableCell>
                     <TableCell className='tabular-nums'>
-                      {stockQuantity(item.balanceMilli)} {item.unit}
+                      {item.accountingMode === 'amount' ? (
+                        'Без контролю залишку'
+                      ) : (
+                        <>
+                          {stockQuantity(item.balanceMilli)} {item.unit}
+                        </>
+                      )}
                     </TableCell>
                     <TableCell className='tabular-nums'>
-                      {item.totalCostCents === null ? 'Не визначена' : money(item.totalCostCents)}
+                      {item.accountingMode === 'amount'
+                        ? '—'
+                        : item.totalCostCents === null
+                          ? 'Не визначена'
+                          : money(item.totalCostCents)}
                     </TableCell>
                     <TableCell className='tabular-nums'>
-                      {item.totalCostCents === null
-                        ? 'Не визначена'
-                        : item.balanceMilli === 0
-                          ? '—'
-                          : `${money(roundedRatio(BigInt(item.totalCostCents) * BigInt(1000), BigInt(item.balanceMilli)))} / ${item.unit}`}
+                      {item.accountingMode === 'amount'
+                        ? 'За сумою'
+                        : item.totalCostCents === null
+                          ? 'Не визначена'
+                          : item.balanceMilli === 0
+                            ? '—'
+                            : `${money(roundedRatio(BigInt(item.totalCostCents) * BigInt(1000), BigInt(item.balanceMilli)))} / ${item.unit}`}
                     </TableCell>
                     <TableCell>
                       <RowActions
@@ -247,7 +259,7 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
                           },
                           ...(admin
                             ? [
-                                ...(!item.archived
+                                ...(!item.archived && item.accountingMode !== 'amount'
                                   ? [
                                       ...(item.totalCostCents === null && item.balanceMilli > 0
                                         ? [

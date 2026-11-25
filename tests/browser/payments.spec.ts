@@ -40,7 +40,7 @@ test('overview separates actual receipts from the outstanding balance of ready c
 }, info) => {
   await page.goto('/dashboard/overview?paymentDemo');
   const finance = page.getByRole('region', { name: 'Фінанси автомалярки' });
-  await expect(finance.getByRole('link', { name: /Надходження за місяць/ })).toContainText(
+  await expect(finance.getByRole('link', { name: /Надходження за період/ })).toContainText(
     '10K грн'
   );
   await expect(
@@ -48,7 +48,7 @@ test('overview separates actual receipts from the outstanding balance of ready c
   ).toContainText('50K грн');
   await expect(
     finance.getByRole('link', { name: /Заборгованість за готовими авто/ })
-  ).toContainText('Неоплачених готових замовлень: 1');
+  ).toContainText('авто: 1');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
     true
   );

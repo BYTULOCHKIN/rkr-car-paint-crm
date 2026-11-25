@@ -172,6 +172,8 @@ export interface PaymentSummary {
 }
 
 export interface CrmWorkspace {
+  /** Minimal latest finance projection used by the server overview. */
+  orderProfits?: Record<string, number>;
   paymentSummaries?: Record<string, PaymentSummary>;
   summaryCounts?: {
     customers: number;

@@ -126,6 +126,8 @@ export async function createStockItem(_org: string, input: ItemInput) {
   const id = crypto.randomUUID();
   value.items.push({
     ...input,
+    accountingMode: input.accountingMode ?? 'quantity',
+    unit: input.accountingMode === 'amount' ? '' : input.unit,
     tags: input.tags ?? ['Розхідник'],
     id,
     archived: false,
@@ -157,7 +159,15 @@ async function move(
 ) {
   const value = data();
   const item = value.items.find((entry) => entry.id === input.itemId)!;
-  const deltaMilli = quantityMilli(input.quantity) * (kind === 'consumption' ? -1 : 1);
+  const amountOnly = item.accountingMode === 'amount';
+  if (amountOnly && kind !== 'consumption')
+    return {
+      ok: false as const,
+      error: 'Для матеріалу за сумою доступні лише витрати на замовлення'
+    };
+  const deltaMilli = amountOnly
+    ? 0
+    : quantityMilli(input.quantity) * (kind === 'consumption' ? -1 : 1);
   if (item.balanceMilli + deltaMilli < 0)
     return { ok: false as const, error: 'Недостатньо матеріалу на складі' };
   const pricing =
@@ -169,16 +179,18 @@ async function move(
         }
       : null;
   const costDeltaCents =
-    deltaMilli > 0
-      ? pricing
-        ? valuePurchase(pricing)
-        : null
-      : item.totalCostCents === null
-        ? null
-        : -consumeValuedStock(
-            { quantityMilli: item.balanceMilli, totalCostCents: item.totalCostCents },
-            -deltaMilli
-          ).costCents;
+    amountOnly && 'amount' in input
+      ? -decimalScaled(input.amount ?? '0', 2)
+      : deltaMilli > 0
+        ? pricing
+          ? valuePurchase(pricing)
+          : null
+        : item.totalCostCents === null
+          ? null
+          : -consumeValuedStock(
+              { quantityMilli: item.balanceMilli, totalCostCents: item.totalCostCents },
+              -deltaMilli
+            ).costCents;
   item.balanceMilli += deltaMilli;
   item.totalCostCents =
     item.balanceMilli === 0
@@ -186,7 +198,7 @@ async function move(
       : item.totalCostCents === null || costDeltaCents === null
         ? null
         : item.totalCostCents + costDeltaCents;
-  item.valuationRevision++;
+  if (!amountOnly) item.valuationRevision++;
   item.locked = true;
   const order = (await getWorkspace()).orders.find((entry) => entry.id === orderId);
   value.movements.unshift({
@@ -194,6 +206,7 @@ async function move(
     itemId: item.id,
     itemName: item.name,
     unit: item.unit,
+    accountingMode: item.accountingMode,
     kind,
     deltaMilli,
     costDeltaCents,
@@ -237,6 +250,7 @@ export async function consumeStockBatch(orgId: string, input: BatchConsumptionIn
   const before = data();
   const quantities = new Map(before.items.map((item) => [item.id, item.balanceMilli]));
   for (const row of input.rows) {
+    if (before.items.find((item) => item.id === row.itemId)?.accountingMode === 'amount') continue;
     const remaining = (quantities.get(row.itemId) ?? 0) - quantityMilli(row.quantity);
     if (remaining < 0) return { ok: false as const, error: 'Недостатньо матеріалу на складі' };
     quantities.set(row.itemId, remaining);
@@ -253,9 +267,11 @@ export async function reverseConsumption(_org: string, input: ReversalInput) {
   item.balanceMilli -= original.deltaMilli;
   const costDeltaCents = original.costDeltaCents === null ? null : -original.costDeltaCents;
   item.totalCostCents =
-    item.totalCostCents === null || costDeltaCents === null
-      ? null
-      : item.totalCostCents + costDeltaCents;
+    item.accountingMode === 'amount'
+      ? 0
+      : item.totalCostCents === null || costDeltaCents === null
+        ? null
+        : item.totalCostCents + costDeltaCents;
   item.valuationRevision++;
   value.movements.unshift({
     ...original,
@@ -308,7 +324,7 @@ export async function editConsumption(
   const remaining = value.items.find((entry) => entry.id === input.itemId)!;
   const available =
     remaining.balanceMilli + (previous.itemId === input.itemId ? -previous.deltaMilli : 0);
-  if (quantityMilli(input.quantity) > available)
+  if (remaining.accountingMode !== 'amount' && quantityMilli(input.quantity) > available)
     return { ok: false as const, error: 'Недостатньо матеріалу на складі' };
   await reverseConsumption(orgId, {
     movementId: input.movementId,

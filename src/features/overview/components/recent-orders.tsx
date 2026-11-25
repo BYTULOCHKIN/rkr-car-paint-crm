@@ -25,17 +25,23 @@ import { money, vehicleLabel } from '@/features/crm/components/format';
 import type { CrmWorkspace, RepairOrder } from '@/features/crm/api/types';
 
 interface RecentOrdersProps {
+  href?: string;
   orders: RepairOrder[];
   data: CrmWorkspace;
   onOpen: (order: RepairOrder) => void;
 }
 
-export function RecentOrders({ orders, data, onOpen }: RecentOrdersProps): ReactElement {
+export function RecentOrders({
+  orders,
+  data,
+  onOpen,
+  href = '/dashboard/orders'
+}: RecentOrdersProps): ReactElement {
   return (
     <Card className='min-w-0'>
       <CardHeader>
         <CardTitle>Останні замовлення</CardTitle>
-        <CardDescription>П’ять останніх за датою створення</CardDescription>
+        <CardDescription>П’ять останніх за датою створення у вибраному періоді</CardDescription>
       </CardHeader>
       <CardContent className='min-w-0'>
         {orders.length ? (
@@ -97,16 +103,16 @@ export function RecentOrders({ orders, data, onOpen }: RecentOrdersProps): React
         ) : (
           <Empty>
             <EmptyHeader>
-              <EmptyTitle>Замовлень поки немає</EmptyTitle>
+              <EmptyTitle>За вибраний період замовлень немає</EmptyTitle>
               <EmptyDescription>
-                Візьміть заявку в роботу або створіть замовлення напряму.
+                Оберіть інший період, щоб переглянути створені замовлення.
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
         )}
       </CardContent>
       <CardFooter>
-        <Link href='/dashboard/orders' className='text-sm underline underline-offset-4'>
+        <Link href={href} className='text-sm underline underline-offset-4'>
           Усі замовлення
         </Link>
       </CardFooter>

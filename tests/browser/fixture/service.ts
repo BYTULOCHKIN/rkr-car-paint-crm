@@ -102,7 +102,10 @@ if (location.pathname.endsWith('/kanban')) {
     if (data.orders[index].status === 'created') data.orders[index].actualIntakeDate = null;
   }
 }
-if (location.pathname.endsWith('/overview')) {
+if (
+  location.pathname.endsWith('/overview') ||
+  new URLSearchParams(location.search).has('overviewMetric')
+) {
   data.orders[1].status = 'ready';
   data.orders[1].actualReadyDate = '2026-10-31';
   data.orders[2].status = 'ready';

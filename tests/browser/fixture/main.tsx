@@ -18,6 +18,7 @@ import { CrmKanbanBoard } from '@/features/crm/components/kanban-board';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import Overview from '@/features/overview/components/overview';
+import { OverviewHeaderActions } from '@/features/overview/components/overview-header-actions';
 import { businessToday } from '@/features/crm/lib/workflow';
 import { Sidebar, SidebarContent, SidebarHeader, SidebarProvider } from '@/components/ui/sidebar';
 import { DashboardInset } from '@/components/layout/dashboard-inset';
@@ -73,7 +74,14 @@ function FixturePage({ children }: { children: React.ReactNode }) {
   return ['clients', 'orders'].includes(route) ? (
     <>{children}</>
   ) : (
-    <PageContainer pageTitle={titles[route]} pageDescription='Керування роботою автомалярки'>
+    <PageContainer
+      pageTitle={titles[route]}
+      pageDescription='Керування роботою автомалярки'
+      pageHeaderLayout={route === 'overview' ? 'responsive' : 'inline'}
+      pageHeaderAction={
+        route === 'overview' ? <OverviewHeaderActions initialToday={businessToday()} /> : undefined
+      }
+    >
       {children}
     </PageContainer>
   );

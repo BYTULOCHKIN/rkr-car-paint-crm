@@ -8,7 +8,7 @@ import { compactMoney, compactNumber, formatPercentage } from '../lib/format';
 
 const count = new Intl.NumberFormat('uk-UA');
 export function trendLabel(trend: Trend): string {
-  if (trend.comparison === 'unknown') return 'Немає даних за минулий період';
+  if (trend.comparison === 'unknown') return 'Немає повних даних для порівняння';
   if (trend.comparison === 'new') return 'Новий показник';
   return formatPercentage(trend.percentage!);
 }
@@ -30,7 +30,7 @@ export function MetricTrend({
   const formatted = (value: number) => (currency ? money(value) : count.format(value));
   const change =
     trend.comparison === 'new'
-      ? `+${currency ? compactMoney(delta) : compactNumber(delta)}`
+      ? `${delta > 0 ? '+' : ''}${currency ? compactMoney(delta) : compactNumber(delta)}`
       : trend.comparison === 'unknown'
         ? '—'
         : trendLabel(trend);
@@ -44,7 +44,7 @@ export function MetricTrend({
           margin={{ top: 2, right: 2, bottom: 2, left: 2 }}
           accessibilityLayer={false}
           role='img'
-          aria-label={`${title}: динаміка за поточний місяць`}
+          aria-label={`${title}: динаміка показника`}
         >
           <title>
             {title}:{' '}
@@ -55,7 +55,13 @@ export function MetricTrend({
               )
               .join('; ')}
           </title>
-          <YAxis hide domain={[0, (maximum: number) => Math.max(1, maximum)]} />
+          <YAxis
+            hide
+            domain={[
+              (minimum: number) => Math.min(0, minimum),
+              (maximum: number) => Math.max(1, maximum)
+            ]}
+          />
           <Line
             type='linear'
             dataKey='value'
@@ -71,7 +77,7 @@ export function MetricTrend({
         </LineChart>
       </div>
       <span
-        aria-label={`${trend.comparison === 'new' ? '+' + formatted(delta) : trendLabel(trend)} в порівнянні з попереднім періодом`}
+        aria-label={`${trend.comparison === 'new' ? (delta > 0 ? '+' : '') + formatted(delta) : trendLabel(trend)} в порівнянні з попереднім періодом`}
         className={cn(
           'shrink-0 text-xs leading-4 font-medium tabular-nums',
           favorable

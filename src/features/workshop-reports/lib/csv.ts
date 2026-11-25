@@ -136,12 +136,15 @@ export function reportCsv(report: PeriodReport, tab: ReportTab): string {
     for (const row of report.materials.rows)
       rows.push([
         row.name,
-        row.unit,
+        row.accountingMode === 'amount' ? 'За сумою' : row.unit,
         ...report.materials.orders.flatMap((order) => {
           const cell = row.cells[order.id];
-          return [decimal(cell?.quantityMilli ?? 0, 3), decimal(cell ? cell.costCents : 0)];
+          return [
+            row.accountingMode === 'amount' ? '' : decimal(cell?.quantityMilli ?? 0, 3),
+            decimal(cell ? cell.costCents : 0)
+          ];
         }),
-        decimal(row.quantityMilli, 3),
+        row.accountingMode === 'amount' ? '' : decimal(row.quantityMilli, 3),
         decimal(row.costCents)
       ]);
   } else {

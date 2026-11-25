@@ -1,3 +1,6 @@
+import { overviewPeriodMetrics } from '@/features/overview/lib/period-metrics';
+import { overviewFacts, matchesOverviewOrder } from '@/features/overview/lib/cohorts';
+import { overviewOrderMetrics } from '@/features/overview/schemas/period';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -159,6 +162,35 @@ test('period SQL reads preserve historical opening balances, later reversals and
       }
     }
     const light = repository.reads.overviewSource();
+    for (const period of [
+      { from: '2026-10-01', to: '2026-10-31' },
+      { from: '2026-11-01', to: '2026-11-30' },
+      { from: '2026-12-01', to: '2026-12-31' }
+    ]) {
+      const metrics = overviewPeriodMetrics(light, '2026-11-24', period);
+      const fullMetrics = overviewPeriodMetrics(full.workspace, '2026-11-24', period);
+      assert.deepEqual(summary(metrics), summary(fullMetrics));
+      const facts = overviewFacts(full.workspace);
+      for (const overviewMetric of overviewOrderMetrics) {
+        const expected = facts.orders
+          .filter((fact) => matchesOverviewOrder(fact, facts, overviewMetric, period))
+          .map((fact) => fact.order.id)
+          .toSorted();
+        const actual = repository.reads.list({
+          entity: 'orders',
+          overviewMetric,
+          overviewFrom: period.from,
+          overviewTo: period.to,
+          pageSize: 10
+        });
+        assert.deepEqual(
+          actual.orders.map((order) => order.id).toSorted(),
+          expected,
+          `${overviewMetric}: ${period.from}`
+        );
+        assert.equal(actual.pagination!.total, expected.length);
+      }
+    }
 
     assert.deepEqual(
       summary(overviewMetrics(light, '2026-11-24')),

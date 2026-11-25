@@ -3,6 +3,7 @@
 import { useState, useEffect, useId } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useStore } from '@tanstack/react-form';
 import { useAppForm } from '@/lib/form';
 import { FieldGroup } from '@/components/ui/field';
 import { Button } from '@/features/crm/components/action-button';
@@ -75,23 +76,31 @@ export function StockItemForm({
     defaultValues: {
       name: item?.name ?? '',
       unit: item?.unit ?? 'шт',
+      accountingMode: item?.accountingMode ?? ('quantity' as const),
       notes: item?.notes ?? '',
       tags: item?.tags ?? (['Розхідник'] as StockTag[])
     },
     validators: {
       onSubmit: updateItemSchema
         .omit({ id: true })
-        .required({ tags: true })
-        .refine((value) => item?.locked || stockUnitSchema.safeParse(value.unit).success, {
-          path: ['unit'],
-          message: 'Оберіть одиницю: шт, л, кг або м'
-        })
+        .required({ tags: true, accountingMode: true })
+        .refine(
+          (value) =>
+            value.accountingMode === 'amount' ||
+            item?.locked ||
+            stockUnitSchema.safeParse(value.unit).success,
+          {
+            path: ['unit'],
+            message: 'Оберіть одиницю: шт, л, кг або м'
+          }
+        )
     },
     onSubmit: async ({ value }) => {
       if (item) await update.mutateAsync({ ...value, id: item.id }).catch(() => undefined);
       else await create.mutateAsync(itemSchema.parse(value)).catch(() => undefined);
     }
   });
+  const amountOnly = useStore(form.store, (state) => state.values.accountingMode) === 'amount';
   return (
     <form
       onSubmit={(event) => {
@@ -111,24 +120,45 @@ export function StockItemForm({
               />
             )}
           </form.AppField>
-          <form.AppField name='unit'>
+          <form.AppField name='accountingMode'>
             {(field) => (
               <field.SelectField
-                label='Одиниця виміру'
+                label='Облік матеріалу'
                 required
                 disabled={item?.locked}
-                options={
-                  item?.locked && !stockUnitOptions.some((option) => option.value === item.unit)
-                    ? [...stockUnitOptions, { value: item.unit, label: item.unit, disabled: true }]
-                    : stockUnitOptions
-                }
-                description='Оберіть: шт, л, кг або м.'
+                options={[
+                  { value: 'quantity', label: 'За кількістю' },
+                  { value: 'amount', label: 'За сумою' }
+                ]}
+                description='За сумою — витрата у гривнях без кількості, надходжень і контролю залишку.'
               />
             )}
           </form.AppField>
+          {!amountOnly && (
+            <>
+              <form.AppField name='unit'>
+                {(field) => (
+                  <field.SelectField
+                    label='Одиниця виміру'
+                    required
+                    disabled={item?.locked}
+                    options={
+                      item?.locked && !stockUnitOptions.some((option) => option.value === item.unit)
+                        ? [
+                            ...stockUnitOptions,
+                            { value: item.unit, label: item.unit, disabled: true }
+                          ]
+                        : stockUnitOptions
+                    }
+                    description='Оберіть: шт, л, кг або м.'
+                  />
+                )}
+              </form.AppField>
+            </>
+          )}
           {item?.locked && (
             <p className='text-muted-foreground text-sm'>
-              Назва й одиниця зафіксовані після першої операції.
+              Назва, режим обліку й одиниця зафіксовані після першої операції.
             </p>
           )}
           <form.AppField name='tags' mode='array'>
@@ -175,7 +205,7 @@ export function StockOperationForm({
       ? receiptSchema
       : kind === 'adjustment'
         ? adjustmentSchema
-        : consumptionSchema.omit({ orderId: true });
+        : consumptionSchema;
   const payload = (value: {
     itemId: string;
     operationId: string;
@@ -192,7 +222,8 @@ export function StockOperationForm({
       quantity: value.quantity,
       note: value.note
     };
-    if (kind === 'consumption') return { ...base, category: value.category };
+    if (kind === 'consumption')
+      return { ...base, orderId: orderId ?? '', category: value.category };
     if (kind === 'adjustment' && value.quantity.startsWith('-')) return base;
     return {
       ...base,
@@ -468,8 +499,15 @@ export function StockReversalForm({
       <fieldset disabled={mutation.isPending} className='min-w-0'>
         <FieldGroup>
           <p className='text-sm'>
-            На склад повернеться {stockQuantity(-movement.deltaMilli)} {movement.unit} ·{' '}
-            {movement.itemName}. Історія списання збережеться.
+            {movement.accountingMode === 'amount' ? (
+              <>Витрату «{movement.itemName}» буде скасовано без зміни залишків.</>
+            ) : (
+              <>
+                На склад повернеться {stockQuantity(-movement.deltaMilli)} {movement.unit} ·{' '}
+                {movement.itemName}.
+              </>
+            )}{' '}
+            Історія списання збережеться.
           </p>
           <form.AppField name='note'>
             {(field) => <field.TextareaField label='Причина скасування' required />}

@@ -1,3 +1,4 @@
+import { getOverview } from '@/features/overview/api/service';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { auth } from '@clerk/nextjs/server';
 import { GET as readCrm } from '@/app/api/crm/read/route';
@@ -89,4 +90,26 @@ test('workers cannot read administrative lists or trash; scoped order and moveme
     expect.objectContaining({ itemId: id, page: 2, pageSize: 25 })
   );
   expect((await readMovements(request('pageSize=101'))).status).toBe(400);
+});
+
+test('overview drilldown validates its full date scope and keeps organization isolation', async () => {
+  const range = '&overviewMetric=profit&overviewFrom=2026-11-01&overviewTo=2026-11-25';
+  expect((await readCrm(request('kind=list&entity=orders' + range))).status).toBe(200);
+  expect(repository.reads.list).toHaveBeenCalledWith(
+    expect.objectContaining({
+      overviewMetric: 'profit',
+      overviewFrom: '2026-11-01',
+      overviewTo: '2026-11-25'
+    }),
+    []
+  );
+  for (const query of [
+    'entity=orders&overviewMetric=profit',
+    'entity=customers' + range,
+    'entity=orders&overviewMetric=profit&overviewFrom=2026-11-25&overviewTo=2026-11-01'
+  ])
+    expect((await readCrm(request('kind=list&' + query))).status).toBe(400);
+  await expect(getOverview('org_other', '2026-11-25')).rejects.toThrow(/Огляд доступний/);
+  context.access.role = 'worker';
+  await expect(getOverview('org_A', '2026-11-25')).rejects.toThrow(/Огляд доступний/);
 });

@@ -41,6 +41,7 @@ export interface MaterialCell {
   unknownMovements: number;
 }
 export interface MaterialReportRow extends MaterialCell {
+  accountingMode?: 'quantity' | 'amount';
   id: string;
   name: string;
   unit: string;
