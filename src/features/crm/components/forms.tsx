@@ -418,7 +418,7 @@ export function OrderForm({
         </form.Field>
       )}
       <form.AppField name='description'>
-        {(field) => <field.TextareaField label='Опис замовлення' required />}
+        {(field) => <field.TextareaField label='Опис замовлення' maxLength={4000} />}
       </form.AppField>
       {!order && (
         <>

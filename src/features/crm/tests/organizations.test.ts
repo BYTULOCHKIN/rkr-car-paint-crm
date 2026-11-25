@@ -32,7 +32,7 @@ test('organization cache reopens repositories from an older app version and pres
     notes: ''
   });
   const itemId = oldRepository.inventory.createItem({ name: 'Лак', unit: 'л', notes: '' });
-  holder.crmOrganizations = { filename, repositories: oldRegistry };
+  holder.crmOrganizations = { filename, repositories: oldRegistry, schemaVersion: 22 };
   process.env.CRM_DATABASE_PATH = filename;
   delete process.env.CRM_ADMIN_USER_ID;
   try {
@@ -44,7 +44,7 @@ test('organization cache reopens repositories from an older app version and pres
     assert.equal(item.totalCostCents, 0);
     assert.equal(item.valuationRevision, 0);
     assert.equal(getOrganizationRepository('org_A', 'owner', true), reopened);
-    assert.equal(holder.crmOrganizations?.schemaVersion, 22);
+    assert.equal(holder.crmOrganizations?.schemaVersion, 23);
   } finally {
     holder.crmOrganizations?.repositories.close();
     holder.crmOrganizations = previous;

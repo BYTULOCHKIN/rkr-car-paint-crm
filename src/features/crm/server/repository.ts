@@ -1544,12 +1544,12 @@ const globalDb = globalThis as typeof globalThis & {
 export function getCrmRepository(): CrmRepository {
   if (
     globalDb.crmRepository &&
-    (globalDb.crmSchemaVersion !== 22 || !(globalDb.crmRepository instanceof CrmRepository))
+    (globalDb.crmSchemaVersion !== 23 || !(globalDb.crmRepository instanceof CrmRepository))
   ) {
     globalDb.crmRepository.close();
     globalDb.crmRepository = undefined;
   }
-  globalDb.crmSchemaVersion = 22;
+  globalDb.crmSchemaVersion = 23;
   return (globalDb.crmRepository ??= new CrmRepository(
     process.env.CRM_DATABASE_PATH || resolve('data/crm.sqlite')
   ));
@@ -1606,7 +1606,7 @@ export function getOrganizationRepository(
   const cached = orgRegistry.crmOrganizations;
   if (
     !cached ||
-    cached.schemaVersion !== 22 ||
+    cached.schemaVersion !== 23 ||
     cached.filename !== filename ||
     cached.configuredAdmin !== configuredAdmin ||
     !(cached.repositories instanceof OrganizationRepositories)
@@ -1615,7 +1615,7 @@ export function getOrganizationRepository(
     orgRegistry.crmOrganizations = {
       filename,
       configuredAdmin,
-      schemaVersion: 22,
+      schemaVersion: 23,
       repositories: new OrganizationRepositories(filename, configuredAdmin)
     };
   }

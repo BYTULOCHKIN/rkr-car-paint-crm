@@ -88,7 +88,9 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) {
   });
 }
 
-test('new order validates across tabs and opens all sections after creation', async ({ page }) => {
+test('new order without a description validates work across tabs and opens all sections after creation', async ({
+  page
+}) => {
   await page.goto('/dashboard/orders');
   await page.getByRole('button', { name: 'Нове замовлення', exact: true }).click();
   let dialog = page.getByRole('dialog');
@@ -101,9 +103,9 @@ test('new order validates across tabs and opens all sections after creation', as
   await page.getByRole('option').first().click();
   await dialog.getByRole('combobox', { name: 'Відповідальний', exact: false }).click();
   await page.getByRole('option', { name: /Маляр Андрій/ }).click();
-  await dialog
-    .getByRole('textbox', { name: 'Опис замовлення', exact: false })
-    .fill('Новий ремонт із вкладок');
+  const description = dialog.getByRole('textbox', { name: 'Опис замовлення', exact: true });
+  await expect(description).toHaveJSProperty('required', false);
+  await expect(description).toHaveValue('');
   await dialog.getByRole('button', { name: 'Створити замовлення', exact: true }).click();
   await expect(dialog.getByRole('tab', { name: 'Роботи', exact: true })).toHaveAttribute(
     'aria-selected',

@@ -4,7 +4,14 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, basename, resolve } from 'node:path';
 import { CrmRepository } from '../server/repository';
-import { customerSchema, vehicleSchema, orderSchema, vinSchema } from '../schemas/crm';
+import {
+  customerSchema,
+  vehicleSchema,
+  orderSchema,
+  updateOrderSchema,
+  requestSchema,
+  vinSchema
+} from '../schemas/crm';
 
 const repositories: CrmRepository[] = [];
 afterEach(() => {
@@ -31,6 +38,32 @@ function setup(vin = '') {
 }
 
 const items = [{ description: 'Фарбування бампера', quantity: 2, unitPrice: 1250.55 }];
+
+test('order descriptions may be blank on creation and editing while work names stay required', () => {
+  const { repository, customerId, vehicleId } = setup('WVWZZZ1JZXW000001');
+  const input = orderSchema.parse({
+    customerId,
+    vehicleId,
+    requestId: '',
+    description: '   ',
+    items
+  });
+  const id = repository.createClientOrder(input, 'Адміністратор', {
+    id: 'admin',
+    name: 'Адміністратор'
+  });
+  assert.equal(repository.reads.order(id).orders[0].description, '');
+  repository.updateClientOrder(updateOrderSchema.parse({ id, description: 'Опис', items }));
+  repository.updateClientOrder(updateOrderSchema.parse({ id, description: '  ', items }));
+  assert.equal(repository.reads.order(id).orders[0].description, '');
+  assert.equal(repository.reads.order(id).orders[0].totalCents, 250110);
+  assert.equal(orderSchema.safeParse({ ...input, description: 'x'.repeat(4001) }).success, false);
+  assert.equal(
+    orderSchema.safeParse({ ...input, items: [{ ...items[0], description: '' }] }).success,
+    false
+  );
+  assert.equal(requestSchema.safeParse({ customerId, vehicleId, description: '' }).success, false);
+});
 
 test('backlog accepts a vehicle without VIN; order requires VIN and conversion is atomic', () => {
   const { repository, customerId, vehicleId } = setup();

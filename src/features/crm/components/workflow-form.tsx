@@ -4,6 +4,7 @@ import { CrmForm } from './dialog-form';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useAppForm } from '@/lib/form';
+import { useStore } from '@tanstack/react-form';
 import { FieldGroup } from '@/components/ui/field';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { crmMutations, crmQueries } from '../api/queries';
@@ -11,6 +12,7 @@ import type { BoardStatus, WorkflowRecord } from '../api/types';
 import { workflowSchema, type WorkflowInput } from '../schemas/crm';
 import { businessToday, WORKFLOW_COLUMNS, REQUEST_COLUMNS } from '../lib/workflow';
 import { FormActions, FormStatus, type SaveProps } from './form-status';
+import { workflowChangeReason } from '../lib/workflow-change-reason';
 
 interface WorkflowFormProps extends SaveProps {
   disabled?: boolean;
@@ -33,6 +35,7 @@ export function WorkflowForm({
       toast.success('Статус і дати збережено');
       onSaved();
     },
+    onError: (error) => toast.error(error.message),
     onSettled: () => client.invalidateQueries({ queryKey: crmQueries.all() })
   });
   const status =
@@ -54,11 +57,17 @@ export function WorkflowForm({
       actualDeliveryDate: status === 'ready' ? order?.actualDeliveryDate || '' : '',
       note: ''
     } as WorkflowInput,
-    validators: { onSubmit: workflowSchema },
+    validators: {
+      onSubmit: workflowSchema.superRefine((value, context) => {
+        const message = workflowChangeReason(target, value);
+        if (message && !value.note) context.addIssue({ code: 'custom', path: ['note'], message });
+      })
+    },
     onSubmit: async ({ value }) => {
       await mutation.mutateAsync(value).catch(() => undefined);
     }
   });
+  const reason = useStore(form.store, (state) => workflowChangeReason(target, state.values));
   const options = target.kind === 'request' ? REQUEST_COLUMNS : WORKFLOW_COLUMNS;
   return (
     <CrmForm
@@ -160,7 +169,13 @@ export function WorkflowForm({
             {(field) => (
               <field.TextareaField
                 label='Примітка / причина перенесення'
-                description='Обов’язкова для зміни наявного плану, виправлення фактичної дати чи повернення статусу. Потрапить в історію.'
+                required={!!reason}
+                aria-required={!!reason}
+                description={
+                  reason
+                    ? `${reason}. Потрапить в історію.`
+                    : 'Для зміни наявного плану, виправлення фактичної дати чи повернення статусу потрібна причина. Потрапить в історію.'
+                }
               />
             )}
           </form.AppField>

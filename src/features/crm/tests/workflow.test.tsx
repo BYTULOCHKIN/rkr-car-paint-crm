@@ -9,6 +9,7 @@ import { CrmKanbanBoard } from '../components/kanban-board';
 import { WorkflowDates } from '../components/workflow-details';
 import { updateWorkflow, getTeam } from '../api/service';
 import { crmQueries } from '../api/queries';
+import { toast } from 'sonner';
 import type { CrmWorkspace, RepairRequest, RepairOrder } from '../api/types';
 
 import { getCrmList, getCrmDetail } from '../api/read-service';
@@ -97,7 +98,7 @@ test('rescheduling submits new plan, reason and expected status without factual 
   const calendar = await screen.findByRole('dialog', { name: 'Запланований прийом' });
   await user.click(within(calendar).getByRole('button', { name: /^п’ятниця, 3-є січня 2020/ }));
   await user.type(
-    screen.getByRole('textbox', { name: 'Примітка / причина перенесення' }),
+    screen.getByRole('textbox', { name: /Примітка \/ причина перенесення/ }),
     'Немає місця в цеху'
   );
   await user.click(screen.getByRole('button', { name: 'Зберегти статус і дати' }));
@@ -153,6 +154,55 @@ test('readiness preserves earlier factual and planned dates', async () => {
       actualDeliveryDate: ''
     })
   );
+});
+
+test('returning a ready car to work requires a reason before submission and preserves the draft', async () => {
+  const saved = vi.fn();
+  renderUi(
+    <WorkflowForm
+      target={{ kind: 'order', record: order }}
+      requestedStatus='in_progress'
+      onSaved={saved}
+    />
+  );
+  const user = userEvent.setup();
+  const note = screen.getByRole('textbox', {
+    name: /Примітка \/ причина перенесення/
+  }) as HTMLTextAreaElement;
+  expect(note.getAttribute('aria-required')).toBe('true');
+  expect(
+    screen.getByText(
+      'Вкажіть причину зміни фактичної дати або повернення статусу. Потрапить в історію.'
+    )
+  ).toBeDefined();
+  await user.click(screen.getByRole('button', { name: 'Зберегти статус і дати' }));
+  expect(updateWorkflow).not.toHaveBeenCalled();
+  await user.type(note, 'Потрібне повторне фарбування');
+  await user.click(screen.getByRole('button', { name: 'Зберегти статус і дати' }));
+  await waitFor(() => expect(saved).toHaveBeenCalledOnce());
+  expect(updateWorkflow).toHaveBeenCalledWith(
+    expect.objectContaining({
+      status: 'in_progress',
+      actualReadyDate: '',
+      note: 'Потрібне повторне фарбування'
+    })
+  );
+});
+
+test.each([
+  'Вкажіть причину зміни фактичної дати або повернення статусу',
+  'Статус уже змінено в іншому вікні. Оновіть дошку.'
+])('workflow exposes the original server message inline and in a toast: %s', async (message) => {
+  const errorToast = vi.spyOn(toast, 'error');
+  vi.mocked(updateWorkflow).mockResolvedValueOnce({ ok: false, error: message });
+  const saved = vi.fn();
+  renderUi(<WorkflowForm target={{ kind: 'order', record: order }} onSaved={saved} />);
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Зберегти статус і дати' }));
+  await waitFor(() => expect(errorToast).toHaveBeenCalledWith(message));
+  expect(screen.getByText(message, { exact: true }).closest('[role=alert]')).not.toBeNull();
+  expect(saved).not.toHaveBeenCalled();
+  expect(screen.getByRole('combobox', { name: 'Статус *' }).textContent).toContain('Готово');
+  errorToast.mockRestore();
 });
 
 test('board has one card after conversion and opens the existing order workflow', async () => {

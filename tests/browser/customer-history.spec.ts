@@ -59,12 +59,12 @@ test('history separates the cars and shows order details with no viewport overfl
 test('returning to history protects unsaved order changes', async ({ page }) => {
   const dialog = await openHistory(page);
   await dialog.getByRole('button', { name: 'Відкрити замовлення №1' }).click();
-  await dialog.getByRole('textbox', { name: 'Опис замовлення *' }).fill('Незбережені зміни');
+  await dialog.getByRole('textbox', { name: 'Опис замовлення' }).fill('Незбережені зміни');
   await dialog.getByRole('button', { name: 'До автомобілів клієнта' }).click();
   const confirmation = page.getByRole('alertdialog');
   await expect(confirmation).toBeVisible();
   await confirmation.getByRole('button', { name: 'Продовжити редагування' }).click();
-  await expect(dialog.getByRole('textbox', { name: 'Опис замовлення *' })).toHaveValue(
+  await expect(dialog.getByRole('textbox', { name: 'Опис замовлення' })).toHaveValue(
     'Незбережені зміни'
   );
   await dialog.getByRole('button', { name: 'До автомобілів клієнта' }).click();

@@ -12,6 +12,7 @@ const planningFields = {
 
 const text = (label: string, max = 200) =>
   z.string().trim().min(1, `${label}: обов’язкове поле`).max(max, `Максимум ${max} символів`);
+const orderDescription = z.string().trim().max(4000, 'Максимум 4000 символів');
 const id = z.string().uuid('Виберіть запис зі списку');
 
 export const contactSchema = z
@@ -147,6 +148,7 @@ export const paintPlanSchema = z
 
 export const orderSchema = requestFields
   .extend({
+    description: orderDescription,
     requestId: z.union([id, z.literal('')]),
     assigneeId: z.string().min(1, 'Виберіть виконавця').max(255).optional(),
     employeeShareBps: z.number().int().min(0).max(10000).optional(),
@@ -169,7 +171,7 @@ export const updateOrderSchema = z.object({
   expectedRevision: z.number().int().nonnegative().optional(),
   assigneeId: z.string().min(1, 'Виберіть виконавця').max(255).optional(),
   employeeShareBps: z.number().int().min(0).max(10000).optional(),
-  description: text('Опис робіт', 4000),
+  description: orderDescription,
   items: orderSchema.shape.items,
   paintPlan: paintPlanSchema.optional()
 });
