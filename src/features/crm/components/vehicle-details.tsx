@@ -5,7 +5,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { DialogActions } from './dialog-form';
 import { crmMutations, crmQueries } from '../api/queries';
 import type { CrmWorkspace, Vehicle, RepairOrder } from '../api/types';
-import { statusLabel, displayDate } from '../lib/workflow';
 import { vehicleLabel } from './format';
 import { vehicleOrders } from '../lib/customer-history';
 import { VehicleOrderHistory } from './vehicle-order-history';
@@ -20,7 +19,6 @@ interface VehicleDetailsProps {
 }
 export function VehicleDetails({ vehicle, data, onSelectOrder }: VehicleDetailsProps) {
   const orders = vehicleOrders(data.orders, vehicle.id);
-  const requests = data.requests.filter((request) => request.vehicleId === vehicle.id);
   const fields = [
     ['Автомобіль', vehicleLabel(vehicle)],
     ['Рік', vehicle.year ?? 'Не вказано'],
@@ -44,21 +42,6 @@ export function VehicleDetails({ vehicle, data, onSelectOrder }: VehicleDetailsP
         ))}
       </dl>
       <VehicleOrderHistory orders={orders} onSelectOrder={onSelectOrder} />
-      <section className='flex flex-col gap-2'>
-        <h3 className='font-medium'>Заявки ({requests.length})</h3>
-        {requests.length ? (
-          requests.map((request) => (
-            <div key={request.id} className='rounded-lg border p-3 text-sm'>
-              <p>{request.description}</p>
-              <p className='text-muted-foreground'>
-                {statusLabel(request.status)} · Прийом: {displayDate(request.plannedIntakeDate)}
-              </p>
-            </div>
-          ))
-        ) : (
-          <p className='text-muted-foreground text-sm'>Заявок ще немає.</p>
-        )}
-      </section>
     </div>
   );
 }
