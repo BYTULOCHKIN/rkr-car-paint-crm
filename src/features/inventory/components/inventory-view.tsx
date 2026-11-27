@@ -1,6 +1,8 @@
 'use client';
 import { OverflowText } from '@/components/data-table/table-cell-preview';
-import { RowActions } from '@/features/crm/components/row-actions';
+import { Icons } from '@/components/icons';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { cn } from '@/lib/utils';
 
 import { startTransition, useCallback, useMemo, useState } from 'react';
 import { useQuery, useSuspenseQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -35,9 +37,13 @@ import {
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty';
 import { inventoryQueries, inventoryMutations } from '../api/queries';
 import type { StockItem, StockMovement } from '../api/types';
-import { stockQuantity } from '../lib/format';
-import { money } from '@/features/crm/lib/format';
-import { roundedRatio } from '@/features/order-economics/lib/integers';
+import { stockItemValues } from '../lib/item-display';
+import { useInventoryLayout } from '../lib/use-inventory-layout';
+import { StockItemCards } from './stock-item-cards';
+import { StockItemSummary } from './stock-item-summary';
+import { StockItemAvailability } from './stock-item-availability';
+import { StockTagBadge } from './tag-badge';
+import { StockItemActions, type StockItemAction } from './stock-item-actions';
 import {
   StockItemForm,
   StockOperationForm,
@@ -51,7 +57,6 @@ import { StockTagFilterControl } from './tag-filter';
 import { stockTags } from '../constants/tags';
 import { InventoryExportButton } from './inventory-export-button';
 import { DeleteStockItem } from './delete-stock-item';
-import { stockItemDeleteBlocker } from '../lib/deletion';
 
 const tagParser = parseAsArrayOf(parseAsStringLiteral(stockTags))
   .withDefault([])
@@ -60,7 +65,7 @@ const tagParser = parseAsArrayOf(parseAsStringLiteral(stockTags))
 type Editor =
   | { kind: 'create' }
   | {
-      kind: 'edit' | 'receipt' | 'adjustment' | 'history' | 'valuation' | 'delete';
+      kind: StockItemAction;
       item: StockItem;
     }
   | { kind: 'reversal'; movement: StockMovement };
@@ -68,6 +73,7 @@ type Editor =
 export function InventoryView({ userId, orgId }: { userId: string; orgId: string }) {
   const { data } = useSuspenseQuery(inventoryQueries.access(userId, orgId));
   const admin = data.access.role === 'admin';
+  const [layout, setLayout] = useInventoryLayout(userId, orgId);
   const [tab, setTab] = useQueryState(
     'stockTab',
     parseAsStringLiteral(['materials', 'operations'])
@@ -104,7 +110,10 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
   const client = useQueryClient();
   const archive = useMutation({
     ...inventoryMutations.archive(orgId),
-    onSuccess: () => toast.success('Збережено'),
+    onSuccess: () => {
+      toast.success('Збережено');
+      if (editor?.kind === 'details') setEditor(null);
+    },
     onError: (error) => toast.error(error.message),
     onSettled: () => client.invalidateQueries({ queryKey: inventoryQueries.all() })
   });
@@ -115,6 +124,18 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
   const items = result.data?.items ?? [];
   const searchPending = typing || result.isFetching;
   const filtered = typing || search.trim() !== '' || tags.length > 0;
+  function renderItemActions(item: StockItem, current?: StockItemAction) {
+    return (
+      <StockItemActions
+        item={item}
+        admin={admin}
+        archivePending={archive.isPending}
+        current={current}
+        onAction={(kind, value) => setEditor({ kind, item: value })}
+        onArchive={(value) => archive.mutate({ id: value.id, archived: !value.archived })}
+      />
+    );
+  }
   return (
     <div className='flex min-w-0 flex-col gap-5'>
       <Tabs
@@ -158,6 +179,24 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
               {archived ? 'Показати активні' : 'Показати архів'}
             </Button>
             {admin && <Button onClick={() => setEditor({ kind: 'create' })}>Нова позиція</Button>}
+            <ToggleGroup
+              aria-label='Вигляд складу'
+              value={[layout]}
+              onValueChange={(values) => {
+                if (values[0] === 'table' || values[0] === 'cards') setLayout(values[0]);
+              }}
+              variant='outline'
+              spacing={0}
+            >
+              <ToggleGroupItem value='table' aria-label='Вигляд таблицею'>
+                <Icons.table aria-hidden />
+                Таблиця
+              </ToggleGroupItem>
+              <ToggleGroupItem value='cards' aria-label='Вигляд картками'>
+                <Icons.grid aria-hidden />
+                Картки
+              </ToggleGroupItem>
+            </ToggleGroup>
             <InventoryExportButton
               items={items}
               archived={archived}
@@ -202,120 +241,51 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
               Завантажуємо матеріали…
             </p>
           ) : items.length ? (
-            <Table className='[&_td]:py-1.5'>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Позиція</TableHead>
-                  <TableHead>Теги</TableHead>
-                  <TableHead>Залишок</TableHead>
-                  <TableHead>Вартість залишку</TableHead>
-                  <TableHead>Середня за одиницю</TableHead>
-                  <TableHead>Дії</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>
-                      <OverflowText text={item.name} className='max-w-xs font-medium' />
-                      {item.notes && (
-                        <OverflowText
-                          text={item.notes}
-                          className='text-muted-foreground max-w-xs text-xs'
-                        />
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <StockItemTags tags={item.tags} itemName={item.name} />
-                    </TableCell>
-                    <TableCell className='tabular-nums'>
-                      {item.accountingMode === 'amount' ? (
-                        'Без контролю залишку'
-                      ) : (
-                        <>
-                          {stockQuantity(item.balanceMilli)} {item.unit}
-                        </>
-                      )}
-                    </TableCell>
-                    <TableCell className='tabular-nums'>
-                      {item.accountingMode === 'amount'
-                        ? '—'
-                        : item.totalCostCents === null
-                          ? 'Не визначена'
-                          : money(item.totalCostCents)}
-                    </TableCell>
-                    <TableCell className='tabular-nums'>
-                      {item.accountingMode === 'amount'
-                        ? 'За сумою'
-                        : item.totalCostCents === null
-                          ? 'Не визначена'
-                          : item.balanceMilli === 0
-                            ? '—'
-                            : `${money(roundedRatio(BigInt(item.totalCostCents) * BigInt(1000), BigInt(item.balanceMilli)))} / ${item.unit}`}
-                    </TableCell>
-                    <TableCell>
-                      <RowActions
-                        label={`Дії з позицією ${item.name}`}
-                        actions={[
-                          {
-                            label: 'Історія',
-                            icon: 'clock',
-                            onClick: () => setEditor({ kind: 'history', item })
-                          },
-                          ...(admin
-                            ? [
-                                ...(!item.archived && item.accountingMode !== 'amount'
-                                  ? [
-                                      ...(item.totalCostCents === null && item.balanceMilli > 0
-                                        ? [
-                                            {
-                                              label: 'Оцінити залишок',
-                                              icon: 'edit' as const,
-                                              onClick: () => setEditor({ kind: 'valuation', item })
-                                            }
-                                          ]
-                                        : []),
-                                      {
-                                        label: 'Надходження',
-                                        icon: 'add' as const,
-                                        onClick: () => setEditor({ kind: 'receipt', item })
-                                      },
-                                      {
-                                        label: 'Коригувати',
-                                        icon: 'adjustments' as const,
-                                        onClick: () => setEditor({ kind: 'adjustment', item })
-                                      }
-                                    ]
-                                  : []),
-                                {
-                                  label: 'Редагувати',
-                                  icon: 'edit' as const,
-                                  onClick: () => setEditor({ kind: 'edit', item })
-                                },
-                                {
-                                  label: item.archived ? 'Відновити' : 'В архів',
-                                  icon: 'inventory' as const,
-                                  disabled: archive.isPending,
-                                  onClick: () =>
-                                    archive.mutate({ id: item.id, archived: !item.archived })
-                                },
-                                {
-                                  label: 'Видалити назавжди',
-                                  icon: 'trash' as const,
-                                  variant: 'destructive' as const,
-                                  disabled: !!stockItemDeleteBlocker(item),
-                                  description: stockItemDeleteBlocker(item) ?? undefined,
-                                  onClick: () => setEditor({ kind: 'delete', item })
-                                }
-                              ]
-                            : [])
-                        ]}
-                      />
-                    </TableCell>
+            layout === 'cards' ? (
+              <StockItemCards
+                items={items}
+                actions={renderItemActions}
+                onDetails={(item) => setEditor({ kind: 'details', item })}
+              />
+            ) : (
+              <Table className='[&_td]:py-1.5'>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Позиція</TableHead>
+                    <TableHead>Теги</TableHead>
+                    <TableHead>Залишок</TableHead>
+                    <TableHead>Вартість залишку</TableHead>
+                    <TableHead>Середня за одиницю</TableHead>
+                    <TableHead>Дії</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {items.map((item) => {
+                    const values = stockItemValues(item);
+                    return (
+                      <TableRow key={item.id}>
+                        <TableCell>
+                          <OverflowText text={item.name} className='max-w-xs font-medium' />
+                          {item.notes && (
+                            <OverflowText
+                              text={item.notes}
+                              className='text-muted-foreground max-w-xs text-xs'
+                            />
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <StockItemTags tags={item.tags} itemName={item.name} />
+                        </TableCell>
+                        <TableCell className='tabular-nums'>{values.balance}</TableCell>
+                        <TableCell className='tabular-nums'>{values.totalCost}</TableCell>
+                        <TableCell className='tabular-nums'>{values.unitCost}</TableCell>
+                        <TableCell>{renderItemActions(item)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )
           ) : (
             <Empty>
               <EmptyHeader>
@@ -363,24 +333,32 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
           if (!open && !pending) setEditor(null);
         }}
       >
-        <DialogContent showCloseButton={!pending} className='max-h-[90dvh] overflow-y-auto'>
+        <DialogContent
+          showCloseButton={!pending}
+          className={cn(
+            'max-h-[90dvh] overflow-y-auto',
+            editor?.kind === 'details' && 'sm:max-w-xl'
+          )}
+        >
           <DialogHeader>
             <DialogTitle>
               {editor?.kind === 'create'
                 ? 'Нова складська позиція'
-                : editor?.kind === 'delete'
-                  ? 'Видалення позиції назавжди'
-                  : editor?.kind === 'edit'
-                    ? 'Редагування позиції'
-                    : editor?.kind === 'receipt'
-                      ? 'Надходження на склад'
-                      : editor?.kind === 'adjustment'
-                        ? 'Коригування залишку'
-                        : editor?.kind === 'valuation'
-                          ? 'Оцінювання залишку'
-                          : editor?.kind === 'reversal'
-                            ? 'Скасування списання'
-                            : 'Історія позиції'}
+                : editor?.kind === 'details'
+                  ? 'Деталі складської позиції'
+                  : editor?.kind === 'delete'
+                    ? 'Видалення позиції назавжди'
+                    : editor?.kind === 'edit'
+                      ? 'Редагування позиції'
+                      : editor?.kind === 'receipt'
+                        ? 'Надходження на склад'
+                        : editor?.kind === 'adjustment'
+                          ? 'Коригування залишку'
+                          : editor?.kind === 'valuation'
+                            ? 'Оцінювання залишку'
+                            : editor?.kind === 'reversal'
+                              ? 'Скасування списання'
+                              : 'Історія позиції'}
             </DialogTitle>
             <DialogDescription>
               {editor?.kind === 'delete'
@@ -388,6 +366,41 @@ export function InventoryView({ userId, orgId }: { userId: string; orgId: string
                 : 'Внутрішній облік кількості та собівартості матеріалів автомалярки.'}
             </DialogDescription>
           </DialogHeader>
+          {editor?.kind === 'details' && (
+            <div className='flex min-w-0 flex-col gap-5'>
+              <div className='flex min-w-0 items-start justify-between gap-3'>
+                <h3 className='text-lg font-semibold break-words [overflow-wrap:anywhere]'>
+                  {editor.item.name}
+                </h3>
+                {renderItemActions(editor.item, 'details')}
+              </div>
+              <div className='flex flex-wrap items-center gap-1.5'>
+                <StockItemAvailability item={editor.item} />
+                {editor.item.tags.map((tag) => (
+                  <StockTagBadge key={tag} tag={tag} />
+                ))}
+              </div>
+              <StockItemSummary item={editor.item} />
+              <section className='flex flex-col gap-1'>
+                <h4 className='font-medium'>Примітка</h4>
+                <p className='text-muted-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere]'>
+                  {editor.item.notes || 'Примітку не додано.'}
+                </p>
+              </section>
+              <section className='flex min-w-0 flex-col gap-3'>
+                <h4 className='font-medium'>Історія операцій</h4>
+                <PagedMovements
+                  key={editor.item.id}
+                  userId={userId}
+                  orgId={orgId}
+                  itemId={editor.item.id}
+                  onReverse={
+                    admin ? (movement) => setEditor({ kind: 'reversal', movement }) : undefined
+                  }
+                />
+              </section>
+            </div>
+          )}
           {editor?.kind === 'delete' && (
             <DeleteStockItem
               orgId={orgId}

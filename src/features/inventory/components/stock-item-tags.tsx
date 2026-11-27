@@ -12,17 +12,19 @@ import {
 } from '@/components/ui/popover';
 import type { StockTag } from '../constants/tags';
 import { StockTagBadge } from './tag-badge';
+import { cn } from '@/lib/utils';
 
 interface StockItemTagsProps {
   tags: StockTag[];
   itemName: string;
+  className?: string;
 }
 
-export function StockItemTags({ tags, itemName }: StockItemTagsProps) {
+export function StockItemTags({ tags, itemName, className }: StockItemTagsProps) {
   if (!tags.length) return <span className='text-muted-foreground text-xs'>Без тегів</span>;
   const remaining = tags.slice(2);
   return (
-    <div className='flex w-60 flex-wrap items-center gap-1'>
+    <div className={cn('flex w-60 flex-wrap items-center gap-1', className)}>
       {tags.slice(0, 2).map((tag) => (
         <StockTagBadge key={tag} tag={tag} />
       ))}

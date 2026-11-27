@@ -53,6 +53,7 @@ import {
   IconInbox,
   IconItalic,
   IconLayoutDashboard,
+  IconLayoutGrid,
   IconLayoutKanban,
   IconLayoutSidebar,
   IconLoader2,
@@ -80,6 +81,7 @@ import {
   IconSlash,
   IconSparkles,
   IconStack2,
+  IconTable,
   IconStar,
   IconSun,
   IconTrash,
@@ -134,6 +136,8 @@ export const Icons = {
 
   // Layout
   dashboard: IconLayoutDashboard,
+  grid: IconLayoutGrid,
+  table: IconTable,
   kanban: IconLayoutKanban,
   panelLeft: IconLayoutSidebar,
 
