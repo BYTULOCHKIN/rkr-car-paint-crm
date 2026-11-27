@@ -111,14 +111,7 @@ export function StockItemForm({
       <fieldset disabled={pending} className='min-w-0'>
         <FieldGroup>
           <form.AppField name='name'>
-            {(field) => (
-              <field.TextField
-                label='Назва позиції'
-                required
-                disabled={item?.locked}
-                maxLength={120}
-              />
-            )}
+            {(field) => <field.TextField label='Назва позиції' required maxLength={120} />}
           </form.AppField>
           <form.AppField name='accountingMode'>
             {(field) => (
@@ -158,7 +151,7 @@ export function StockItemForm({
           )}
           {item?.locked && (
             <p className='text-muted-foreground text-sm'>
-              Назва, режим обліку й одиниця зафіксовані після першої операції.
+              Назву можна змінити. Режим обліку й одиниця виміру зафіксовані після першої операції.
             </p>
           )}
           <form.AppField name='tags' mode='array'>

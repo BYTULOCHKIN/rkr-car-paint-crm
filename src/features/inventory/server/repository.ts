@@ -289,8 +289,8 @@ export class InventoryRepository {
       const unit = accountingMode === 'amount' ? '' : value.unit;
       if (current.locked && accountingMode !== current.accountingMode)
         throw new InventoryError('Після першої операції режим обліку змінити не можна');
-      if (current.locked && (current.name !== value.name || current.unit !== unit))
-        throw new InventoryError('Після першої операції назву та одиницю змінити не можна');
+      if (current.locked && current.unit !== unit)
+        throw new InventoryError('Після першої операції одиницю виміру змінити не можна');
       if (!current.locked && accountingMode === 'quantity') stockUnitSchema.parse(unit);
       const key = this.checkName(value.name, value.id);
       this.db

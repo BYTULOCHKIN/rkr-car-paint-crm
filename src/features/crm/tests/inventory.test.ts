@@ -223,7 +223,94 @@ test('completed orders reject new consumption; cancellation returns stock once e
   }
 });
 
-test('catalog identity is frozen after movement; signed adjustments require a reason and cannot overdraw', () => {
+test('used and archived materials can be renamed without changing stock identity, values or movement history', () => {
+  const repository = new CrmRepository(':memory:');
+  try {
+    const orderId = order(repository);
+    const itemId = repository.inventory.createItem({
+      name: 'Фарба',
+      unit: 'л',
+      notes: 'Підбір',
+      tags: ['Фарба']
+    });
+    const receipt = receive(repository, itemId);
+    repository.inventory.consume(
+      {
+        itemId,
+        orderId,
+        operationId: randomUUID(),
+        quantity: '0.25',
+        note: '',
+        category: 'painting'
+      },
+      actor
+    );
+    const before = repository.inventory.items().find((item) => item.id === itemId)!;
+    const movements = repository.inventory.movements();
+    repository.inventory.updateItem({
+      id: itemId,
+      name: '  Емаль акрилова  ',
+      unit: 'л',
+      notes: before.notes
+    });
+    assert.deepEqual(
+      repository.inventory.items().find((item) => item.id === itemId),
+      { ...before, name: 'Емаль акрилова' }
+    );
+    assert.deepEqual(
+      repository.inventory.movements(),
+      movements.map((movement) => ({ ...movement, itemName: 'Емаль акрилова' }))
+    );
+    assert.equal(repository.inventory.orderMovements(orderId)[0].itemName, 'Емаль акрилова');
+    repository.inventory.receive(receipt, actor);
+    assert.equal(repository.inventory.movements().length, movements.length);
+    assert.equal(
+      repository.inventory.listItems({ search: 'Емаль акрилова', tags: [], archived: false }).total,
+      1
+    );
+    const duplicate = repository.inventory.createItem({ name: 'Лак', unit: 'л', notes: '' });
+    repository.inventory.archive(duplicate, true);
+    assert.throws(
+      () => repository.inventory.updateItem({ id: itemId, name: '  ЛАК  ', unit: 'л', notes: '' }),
+      /вже існує/
+    );
+    assert.throws(() =>
+      repository.inventory.updateItem({ id: itemId, name: ' ', unit: 'л', notes: '' })
+    );
+    assert.throws(
+      () => repository.inventory.updateItem({ id: itemId, name: 'Емаль', unit: 'кг', notes: '' }),
+      /одиницю виміру змінити не можна/
+    );
+    assert.throws(
+      () =>
+        repository.inventory.updateItem({
+          id: itemId,
+          name: 'Емаль',
+          unit: '',
+          accountingMode: 'amount',
+          notes: ''
+        }),
+      /режим обліку змінити не можна/
+    );
+    repository.inventory.archive(itemId, true);
+    repository.inventory.updateItem({
+      id: itemId,
+      name: 'Архівна емаль',
+      unit: 'л',
+      notes: before.notes
+    });
+    assert.equal(
+      repository.inventory.listItems({ archived: true, search: 'Архівна емаль', tags: [] }).items[0]
+        .id,
+      itemId
+    );
+    assert.equal(repository.inventory.movements()[0].itemName, 'Архівна емаль');
+  } finally {
+    repository.close();
+  }
+});
+
+test('units are frozen after movement; signed adjustments require a reason and cannot overdraw', () => {
   const repository = new CrmRepository(':memory:');
   try {
     const itemId = repository.inventory.createItem({ name: 'Фарба', unit: 'л', notes: '' });

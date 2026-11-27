@@ -11,7 +11,11 @@ import type {
   ReversalInput,
   ValuationInput
 } from '@/features/inventory/schemas/inventory';
-import { quantityMilli, decimalScaled } from '@/features/inventory/schemas/inventory';
+import {
+  quantityMilli,
+  decimalScaled,
+  updateItemSchema
+} from '@/features/inventory/schemas/inventory';
 import { consumeValuedStock, valuePurchase } from '@/features/order-economics/lib/stock-valuation';
 import { getWorkspace, financeFixtureData, persistFlowFixture } from './service';
 import { syncNetFixture } from './net-salary';
@@ -141,12 +145,37 @@ export async function createStockItem(_org: string, input: ItemInput) {
   save(value);
   return { ok: true as const, data: id };
 }
-export async function updateStockItem(_org: string, input: UpdateItemInput) {
+export async function updateStockItem(orgId: string, input: UpdateItemInput) {
   const value = data();
-  Object.assign(
-    value.items.find((item) => item.id === input.id)!,
-    input
-  );
+  if (value.access.role !== 'admin' || value.access.orgId !== orgId)
+    return { ok: false as const, error: 'Немає доступу' };
+  const parsed = updateItemSchema.safeParse(input);
+  if (!parsed.success) return { ok: false as const, error: parsed.error.issues[0].message };
+  const item = value.items.find((item) => item.id === input.id);
+  if (!item) return { ok: false as const, error: 'Складську позицію не знайдено' };
+  const update = parsed.data;
+  if (item.locked && update.unit !== item.unit)
+    return { ok: false as const, error: 'Після першої операції одиницю виміру змінити не можна' };
+  if (
+    item.locked &&
+    (update.accountingMode ?? item.accountingMode ?? 'quantity') !==
+      (item.accountingMode ?? 'quantity')
+  )
+    return { ok: false as const, error: 'Після першої операції режим обліку змінити не можна' };
+  if (
+    value.items.some(
+      (other) =>
+        other.id !== item.id &&
+        other.name.toLocaleLowerCase('uk-UA') === update.name.toLocaleLowerCase('uk-UA')
+    )
+  )
+    return {
+      ok: false as const,
+      error: 'Позиція з такою назвою вже існує, зокрема перевірте архів'
+    };
+  Object.assign(item, update);
+  for (const movement of value.movements)
+    if (movement.itemId === item.id) movement.itemName = item.name;
   return save(value);
 }
 export async function deleteStockItem(orgId: string, input: DeleteStockItemInput) {

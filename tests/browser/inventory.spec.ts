@@ -286,6 +286,13 @@ test('material tags can be selected and searched together with text while operat
   const tag = page.getByRole('combobox', { name: 'Фільтр за тегом', exact: true });
   const paint = page.getByRole('row').filter({ hasText: 'Фарба_зелена' });
   await expect(paint).toBeVisible();
+  await paint.getByRole('button', { name: 'Дії з позицією Фарба', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Надходження', exact: true }).click();
+  const receipt = page.getByRole('dialog');
+  await receipt.getByRole('textbox', { name: 'Кількість' }).fill('1');
+  await receipt.getByRole('textbox', { name: 'Загальна вартість надходження' }).fill('100');
+  await receipt.getByRole('button', { name: 'Додати надходження', exact: true }).click();
+  await expect(receipt).toBeHidden();
   await expect(page.getByRole('heading', { name: 'Останні операції', exact: true })).toBeHidden();
   await tag.click();
   await page.getByRole('combobox', { name: 'Фільтр за тегом', exact: true }).fill('зел');
@@ -301,7 +308,14 @@ test('material tags can be selected and searched together with text while operat
   await paint.getByRole('button', { name: 'Дії з позицією Фарба', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Редагувати', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('textbox', { name: 'Назва позиції' })).toBeDisabled();
+  await expect(dialog.getByRole('textbox', { name: 'Назва позиції' })).toBeEnabled();
+  await expect(
+    dialog.getByRole('combobox', { name: 'Одиниця виміру', exact: false })
+  ).toBeDisabled();
+  await expect(
+    dialog.getByRole('combobox', { name: 'Облік матеріалу', exact: false })
+  ).toBeDisabled();
+  await dialog.getByRole('textbox', { name: 'Назва позиції' }).fill('Фарба для бампера');
   await dialog.getByRole('button', { name: 'Прибрати тег Фарба_зелена', exact: true }).click();
   await dialog.getByRole('combobox', { name: 'Теги', exact: false }).fill('чор');
   await page.getByRole('option', { name: 'Фарба_чорна', exact: true }).click();
@@ -310,16 +324,21 @@ test('material tags can be selected and searched together with text while operat
   await expect(dialog).toBeHidden();
   await search.fill('БАМПЕРА');
   const black = page.getByRole('row').filter({ hasText: 'Фарба_чорна' });
-  await expect(black).toContainText('1 л');
+  await expect(black).toContainText('Фарба для бампера');
+  await expect(black).toContainText('2 л');
   await expect.poll(() => new URL(page.url()).searchParams.get('stockSearch')).toBe('БАМПЕРА');
   await expect(search).toHaveAttribute('aria-busy', 'false');
   await page.reload();
   await expect(search).toHaveValue('БАМПЕРА');
   await expect(black).toBeVisible();
+  await expect(black).toContainText('Фарба для бампера');
   await page.screenshot({ path: info.outputPath('warehouse-tags.png'), animations: 'disabled' });
   await page.getByRole('tab', { name: 'Останні операції', exact: true }).click();
   await expect(search).toBeHidden();
   await expect(page.getByRole('heading', { name: 'Останні операції', exact: true })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Історія складських операцій' })).toContainText(
+    'Фарба для бампера'
+  );
   await page.reload();
   await expect(page.getByRole('tab', { name: 'Останні операції', exact: true })).toHaveAttribute(
     'aria-selected',

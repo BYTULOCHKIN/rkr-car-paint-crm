@@ -79,6 +79,37 @@ function setup() {
   return { repo, id, itemId, current, workflow, input, consume };
 }
 
+test('renaming a used amount-only material preserves completed order costs, salary postings and events', () => {
+  const { repo, id, itemId, workflow, consume, input } = setup();
+  try {
+    workflow('in_progress');
+    consume(input());
+    workflow('ready');
+    const before = repo.workspace();
+    const valuation = repo.inventory.items()[0];
+    const movements = repo.inventory.orderMovements(id);
+    const costs = orderMaterialCosts(movements, id);
+    repo.inventory.updateItem({
+      id: itemId,
+      name: 'Фарба за кодом авто',
+      unit: '',
+      accountingMode: 'amount',
+      notes: valuation.notes
+    });
+    assert.deepEqual(repo.workspace(), before);
+    assert.deepEqual(repo.inventory.items()[0], { ...valuation, name: 'Фарба за кодом авто' });
+    assert.deepEqual(
+      repo.inventory.orderMovements(id),
+      movements.map((movement) => ({ ...movement, itemName: 'Фарба за кодом авто' }))
+    );
+    assert.deepEqual(orderMaterialCosts(repo.inventory.orderMovements(id), id), costs);
+    assert.equal(repo.inventory.orderItems(id)[0].name, 'Фарба за кодом авто');
+    assert.equal(repo.settlements.postings([id]).length, 1);
+  } finally {
+    repo.close();
+  }
+});
+
 test('amount-only materials accrue exact cost and unpaid salaries without receipts or stock valuation', () => {
   const { repo, id, itemId, workflow, consume, input } = setup();
   try {
